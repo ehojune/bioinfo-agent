@@ -1,0 +1,145 @@
+# This repo is text only: scripts, configs, knowledge. Nothing generated, nothing large.
+# If you are about to `git add -f` something, ask why it is not reconstructible from
+# config/refs.manifest.tsv or a bootstrap script instead.
+
+# ---------------------------------------------------------------- Nextflow run state
+.nextflow
+.nextflow.log
+.nextflow.log.*
+.nextflow.pid
+.nextflow/
+work/
+**/work/
+.nf-test/
+.nf-test.log
+timeline*.html
+report*.html
+trace*.txt
+dag*.html
+dag*.svg
+dag*.mmd
+pipeline_info/
+**/pipeline_info/
+.nextflow.history
+
+# ---------------------------------------------------------------------- run outputs
+# runs/ holds one directory per analysis. The plan and the handoff note are worth
+# keeping; nothing else in there is. The `!runs/*/` line is load-bearing: git will not
+# descend into an excluded directory, so the re-includes below it never fire without it.
+runs/**
+!runs/*/
+!runs/.gitkeep
+!runs/**/*.plan.md
+!runs/**/handoff.md
+results/
+**/results/
+outdir/
+**/outdir/
+
+# ------------------------------------------------------- materialised reference store
+# /refs is rebuilt by bootstrap/04-refs.sh from the manifest. The manifest is the
+# artifact; the bytes are not.
+refs/
+/refs
+.refs/
+genomes/
+igenomes/
+singularity/
+.singularity/
+containers/
+*.sif
+*.simg
+
+# ----------------------------------------------------------------- sequence and index
+*.fa
+*.fa.gz
+*.fasta
+*.fasta.gz
+*.fai
+*.dict
+*.2bit
+*.gtf
+*.gtf.gz
+*.gff
+*.gff3
+*.gff3.gz
+*.bed.gz
+*.fq
+*.fq.gz
+*.fastq
+*.fastq.gz
+*.bam
+*.bai
+*.cram
+*.crai
+*.sam
+*.vcf
+*.vcf.gz
+*.vcf.gz.tbi
+*.bcf
+*.h5
+*.h5ad
+*.loom
+*.mtx
+*.mtx.gz
+# BWA / bowtie / STAR / salmon index fragments
+*.amb
+*.ann
+*.bwt
+*.pac
+*.sa
+*.bt2
+*.ebwt
+*.rev.*
+SAindex
+
+# Small BEDs and STR catalogs that ARE part of the repo would be whitelisted here.
+# Nothing is, currently. Add explicit `!path/to/file` lines rather than loosening the
+# patterns above.
+
+# ---------------------------------------------------------------------------- disk
+*.vhd
+*.vhdx
+*.iso
+*.img
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.7z
+
+# --------------------------------------------------------------------------- logs
+*.log
+logs/
+nohup.out
+slurm-*.out
+*.err
+*.out
+
+# -------------------------------------------------------------------- local secrets
+.env
+.env.*
+!.env.example
+config/local.secrets.config
+*.pem
+*.key
+credentials*
+.netrc
+
+# ------------------------------------------------------------ editors and OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+!.vscode/extensions.json
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.Rhistory
+.RData
+.venv/
+venv/

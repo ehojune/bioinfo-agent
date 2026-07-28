@@ -1,0 +1,21 @@
+{
+  "name": "bioinfo",
+  "version": "0.1.0",
+  "description": "Masters-level bioinformatics technician: picks the nf-core pipeline, builds the samplesheet, estimates time and disk, stub-runs, executes, monitors, reads QC, hands off. Reports QC verdicts only - no biological interpretation.",
+  "author": {
+    "name": "ehojune"
+  },
+  "keywords": [
+    "bioinformatics",
+    "nf-core",
+    "nextflow",
+    "genomics",
+    "rnaseq",
+    "sarek",
+    "methylseq",
+    "atacseq",
+    "scrnaseq",
+    "wgs",
+    "variant-calling"
+  ]
+}

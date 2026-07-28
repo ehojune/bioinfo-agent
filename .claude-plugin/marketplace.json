@@ -1,0 +1,30 @@
+{
+  "name": "bioinfo",
+  "owner": {
+    "name": "ehojune"
+  },
+  "metadata": {
+    "description": "Local bioinformatics execution environment: nf-core pipeline knowledge plus an agent that runs them on a WSL2 substrate.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "bioinfo",
+      "source": "./",
+      "description": "bioinfo-analyze skill and bioinfo-tech agent: select, samplesheet, estimate, stub-run, execute, monitor and QC nf-core pipelines.",
+      "version": "0.1.0",
+      "author": {
+        "name": "ehojune"
+      },
+      "keywords": [
+        "bioinformatics",
+        "nf-core",
+        "nextflow",
+        "genomics",
+        "rnaseq",
+        "sarek",
+        "wgs"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+# Copy to %USERPROFILE%\.wslconfig on the Windows side, then run: wsl --shutdown
+#
+# WSL2 defaults to 50% of host RAM. That default is the single most common cause of a
+# mysterious exit 137 on this stack: a human STAR genome index wants roughly 40 GB, and
+# half of a 64 GB machine is not enough. Nothing warns you — the process is OOM-killed and
+# Nextflow reports an exit code.
+#
+# Sizing rule: memory = host RAM minus ~12 GB for Windows.
+#              processors = cores minus 2.
+# Values below are for the 24-core / 63.5 GB host this repo was built on.
+
+[wsl2]
+memory=52GB
+processors=22
+swap=16GB
+sparseVhd=true
+
+# Verify after applying:
+#   wsl --shutdown
+#   wsl -d Ubuntu-24.04 -- free -g      # "total" should now read ~51

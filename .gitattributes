@@ -1,0 +1,52 @@
+# The repo lives on NTFS and is checked out on Windows, but every script in it runs
+# inside WSL. A CRLF line ending in a bash script produces `bad interpreter: /bin/bash^M`
+# or, worse, a silently mangled argument. Pin LF on everything Linux touches, regardless
+# of the checking-out machine's core.autocrlf.
+
+* text=auto eol=lf
+
+# ------------------------------------------------------------- must be LF, no exceptions
+*.sh          text eol=lf
+*.bash        text eol=lf
+*.config      text eol=lf
+*.nf          text eol=lf
+*.groovy      text eol=lf
+*.py          text eol=lf
+*.pl          text eol=lf
+*.R           text eol=lf
+*.r           text eol=lf
+*.yml         text eol=lf
+*.yaml        text eol=lf
+*.json        text eol=lf
+*.md          text eol=lf
+*.tsv         text eol=lf
+*.csv         text eol=lf
+*.txt         text eol=lf
+*.bed         text eol=lf
+Dockerfile    text eol=lf
+Makefile      text eol=lf
+
+# The reference manifest is TAB-delimited and parsed by awk. CRLF would attach a \r to
+# the last field of every row, which shows up as a mysterious missing-file error.
+config/refs.manifest.tsv  text eol=lf
+
+# ------------------------------------------------------- Windows-side, keep CRLF
+*.ps1         text eol=crlf
+*.psm1        text eol=crlf
+*.psd1        text eol=crlf
+*.bat         text eol=crlf
+*.cmd         text eol=crlf
+
+# ---------------------------------------------------------------------- never touch
+*.png         binary
+*.jpg         binary
+*.pdf         binary
+*.gz          binary
+*.bgz         binary
+*.zip         binary
+*.sif         binary
+*.vhdx        binary
+
+# No merge=union on the manifest. A union merge would silently duplicate rows, and
+# 04-refs.sh would then materialise the same standard_path twice from two sources.
+# Conflicts in refs.manifest.tsv are meant to be resolved by a human.

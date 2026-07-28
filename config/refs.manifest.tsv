@@ -1,0 +1,57 @@
+# bioinfo reference store manifest  --  SOURCE OF TRUTH for /refs
+#
+# Every pipeline config refers to STANDARD paths only (never raw source filenames).
+# Moving to a new machine: edit the SOURCE column, re-run bootstrap/04-refs.sh, done.
+#
+# columns: standard_path <TAB> mode <TAB> source <TAB> note
+#
+# mode:
+#   link   symlink into SOURCE. Zero copy. Use for sequential-read files (FASTA, GTF, BED, JSON).
+#   copy   materialize into ext4. Use for random-access-heavy files where /mnt/d I/O hurts.
+#   build  generated locally by a tool. SOURCE is the command hint. Never symlinked.
+#   fetch  must be downloaded. SOURCE is the URL or nf-core param that pulls it.
+#
+# standard_path is relative to $BIOINFO_REFS (default /refs).
+# SOURCE uses WSL paths. Windows D:\ is /mnt/d.
+
+# ---------------------------------------------------------------- GRCh38 / hg38
+genomes/GRCh38/fasta/genome.fa	link	/mnt/d/Research/references/hg38.fa	UCSC-style hg38, chr-prefixed
+genomes/GRCh38/fasta/genome.fa.fai	link	/mnt/d/Research/references/hg38.fa.fai
+genomes/GRCh38/fasta/genome.dict	build	gatk CreateSequenceDictionary -R genome.fa	sarek needs this; absent on D:
+genomes/GRCh38/gtf/genes.gtf.gz	link	/mnt/d/gencode.v50.annotation.gtf.gz	GENCODE v50
+genomes/GRCh38/bed/genes.bed	link	/mnt/d/gencode.v50.genes.bed	GENCODE v50 gene intervals
+
+# GATK-flavoured analysis set, already BWA-indexed. Preferred for sarek.
+genomes/GRCh38gatk/fasta/genome.fa	link	/mnt/d/Research/references/Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta	no ALT/HLA/decoy
+genomes/GRCh38gatk/fasta/genome.fa.fai	link	/mnt/d/Research/references/Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta.fai
+genomes/GRCh38gatk/fasta/genome.dict	build	gatk CreateSequenceDictionary -R genome.fa
+genomes/GRCh38gatk/index/bwa/genome.fa.amb	copy	/mnt/d/Research/references/Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta.amb
+genomes/GRCh38gatk/index/bwa/genome.fa.ann	copy	/mnt/d/Research/references/Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta.ann
+genomes/GRCh38gatk/index/bwa/genome.fa.bwt	copy	/mnt/d/Research/references/Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta.bwt	2.9G random access - copy, do not link
+genomes/GRCh38gatk/index/bwa/genome.fa.pac	copy	/mnt/d/Research/references/Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta.pac
+genomes/GRCh38gatk/index/bwa/genome.fa.sa	copy	/mnt/d/Research/references/Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta.sa	1.4G random access - copy
+
+# Indexes we must build ourselves. ~1h each, STAR needs ~40G RAM.
+genomes/GRCh38/index/star/	build	nf-core/rnaseq --save_reference (or STAR --runMode genomeGenerate)	first rnaseq run builds and saves here
+genomes/GRCh38/index/salmon/	build	nf-core/rnaseq --save_reference
+genomes/GRCh38/index/bismark/	build	nf-core/methylseq --save_reference	methylation only
+
+# GATK resource bundle - not present locally, sarek germline/BQSR needs it.
+genomes/GRCh38gatk/gatkbundle/dbsnp.vcf.gz	fetch	sarek --igenomes_base / GATK resource bundle	required for BQSR + haplotypecaller
+genomes/GRCh38gatk/gatkbundle/known_indels.vcf.gz	fetch	GATK resource bundle
+genomes/GRCh38gatk/gatkbundle/germline_resource.vcf.gz	fetch	gnomAD af-only	mutect2 somatic only
+
+# ---------------------------------------------------------------- Korean reference
+genomes/KOREF1/fasta/genome.fa	link	/mnt/d/Research/references/KOREF1-Gp-TTAGGA.fa	Korean reference assembly
+genomes/KOREF1/fasta/chrY.fa	link	/mnt/d/Research/references/KOREF1-Gp-TTAGGA.chrY.fa
+
+# ---------------------------------------------------------------- STR / repeat catalogs
+catalogs/str/hipstr.GRCh38.bed	link	/mnt/d/hg38.hipstr_reference.bed	HipSTR reference panel
+catalogs/str/trgt_repeats.GRCh38.bed	link	/mnt/d/trgt_repeat_catalog.hg38.bed	TRGT full catalog
+catalogs/str/trgt_pathogenic.GRCh38.bed	link	/mnt/d/trgt_pathogenic_repeats.hg38.bed	TRGT pathogenic subset
+catalogs/str/eh_catalog.GRCh38.json	link	/mnt/d/hg38_EH_variant_catalog.json	ExpansionHunter full
+catalogs/str/eh_catalog.disease.GRCh38.json	link	/mnt/d/hg38_EH_variant_catalog.disease.json	ExpansionHunter disease loci
+
+# ---------------------------------------------------------------- annotation caches
+cache/vep/	fetch	sarek --vep_cache / vep_install	~25G for GRCh38, only if annotating
+cache/snpeff/	fetch	sarek --snpeff_cache	alternative to VEP

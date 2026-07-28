@@ -1,0 +1,216 @@
+#!/usr/bin/env bash
+# 01-wsl-base.sh — distro baseline. Run as root inside the WSL distro.
+#
+#   wsl -d Ubuntu-24.04 -u root -- bash /mnt/d/bioinfo/bootstrap/01-wsl-base.sh
+#
+# Writes /etc/wsl.conf, creates the pipeline user with passwordless sudo, installs the
+# base toolchain, and stakes out the two ext4 directories everything else depends on
+# (/refs and /work). Idempotent: re-running repairs drift, it does not duplicate.
+#
+# CRLF: this repo lives on NTFS. If git checked the file out with CRLF, `./01-...sh`
+# dies on the shebang (`bad interpreter: bash^M`) before any code runs — nothing can be
+# done about that from inside the file. Invoking it as `bash 01-...sh` does work, and
+# the guard on the next executable line then re-executes a stripped copy. The trailing
+# `#` comment on that line is load-bearing: it swallows the line's own CR so bash still
+# sees the `fi` keyword. The permanent fix is `*.sh text eol=lf` in .gitattributes.
+if [ -z "${BIOINFO_CRLF_REEXEC:-}" ] && grep -q $'\r' "$0" 2>/dev/null; then export BIOINFO_CRLF_REEXEC=1; exec bash <(tr -d '\r' < "$0") "$@"; fi  # CRLF self-heal
+set -euo pipefail
+
+BIOINFO_USER="${BIOINFO_USER:-ehojune}"
+BIOINFO_UID="${BIOINFO_UID:-1000}"
+DISTRO="${WSL_DISTRO_NAME:-Ubuntu-24.04}"
+REFS_ROOT="${BIOINFO_REFS:-/refs}"
+WORK_ROOT="${BIOINFO_WORK_ROOT:-/work}"
+
+log()  { printf '\n[01-base] %s\n' "$*"; }
+info() { printf '           %s\n' "$*"; }
+
+RESTART_NEEDED=0
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "[01-base] must run as root:  wsl -d $DISTRO -u root -- bash $0" >&2
+  exit 1
+fi
+
+if [ ! -e /proc/sys/fs/binfmt_misc/WSLInterop ] && [ -z "${WSL_DISTRO_NAME:-}" ]; then
+  echo "[01-base] this does not look like a WSL distro. Refusing — it would rewrite /etc/wsl.conf on a real host." >&2
+  exit 1
+fi
+
+log "distro=$DISTRO user=$BIOINFO_USER refs=$REFS_ROOT work=$WORK_ROOT"
+
+# ------------------------------------------------------------------ /etc/wsl.conf
+# systemd=true            : docker.service, and anything else that expects a real init.
+# default=<user>          : so `wsl -d <distro>` lands as the pipeline user, not root.
+# appendWindowsPath=false : keeping the whole Windows PATH inside the distro makes every
+#                           `command -v` walk hundreds of drvfs entries. It is a measurable
+#                           tax on any script that probes for tools, which Nextflow does
+#                           constantly. Call Windows binaries by full path if ever needed.
+# automount metadata is deliberately NOT set: without it /mnt/* shows mode 0777, which is
+# exactly what we want for running repo scripts off NTFS, and turning it on changes
+# permission semantics across an existing 2 TB tree for no benefit here.
+log "writing /etc/wsl.conf"
+NEW_WSLCONF=$(mktemp)
+cat > "$NEW_WSLCONF" <<EOF
+# managed by bioinfo bootstrap/01-wsl-base.sh — edits here are overwritten
+[boot]
+systemd=true
+
+[user]
+default=$BIOINFO_USER
+
+[interop]
+enabled=true
+appendWindowsPath=false
+
+[automount]
+enabled=true
+mountFsTab=false
+EOF
+
+if [ -f /etc/wsl.conf ] && cmp -s "$NEW_WSLCONF" /etc/wsl.conf; then
+  info "unchanged"
+else
+  if [ -f /etc/wsl.conf ]; then
+    BAK="/etc/wsl.conf.bak.$(date +%Y%m%d%H%M%S)"
+    cp -p /etc/wsl.conf "$BAK"
+    info "existing config backed up to $BAK"
+  fi
+  install -m 0644 "$NEW_WSLCONF" /etc/wsl.conf
+  info "installed"
+  RESTART_NEEDED=1
+fi
+rm -f "$NEW_WSLCONF"
+
+# ------------------------------------------------------------------ user
+log "user $BIOINFO_USER"
+if id "$BIOINFO_USER" >/dev/null 2>&1; then
+  info "exists (uid $(id -u "$BIOINFO_USER"))"
+else
+  # Prefer uid 1000 so file ownership matches the legacy distro's home archive; fall
+  # back to an auto-assigned uid rather than failing if 1000 is already taken.
+  if getent passwd "$BIOINFO_UID" >/dev/null 2>&1; then
+    info "uid $BIOINFO_UID already taken by $(getent passwd "$BIOINFO_UID" | cut -d: -f1) — letting useradd pick one"
+    useradd -m -s /bin/bash -c 'bioinfo pipeline user' "$BIOINFO_USER"
+  else
+    useradd -m -s /bin/bash -u "$BIOINFO_UID" -c 'bioinfo pipeline user' "$BIOINFO_USER"
+  fi
+  info "created (uid $(id -u "$BIOINFO_USER"))"
+fi
+
+# No password is set. WSL never runs login(1), so a locked password costs nothing and
+# removes a credential from the box. sudo works via the NOPASSWD drop-in below.
+for grp in sudo; do
+  if id -nG "$BIOINFO_USER" | tr ' ' '\n' | grep -qx "$grp"; then
+    info "already in group $grp"
+  else
+    usermod -aG "$grp" "$BIOINFO_USER"
+    info "added to group $grp"
+  fi
+done
+
+SUDOERS=/etc/sudoers.d/90-bioinfo-nopasswd
+SUDOERS_TMP=$(mktemp)
+printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$BIOINFO_USER" > "$SUDOERS_TMP"
+if [ -f "$SUDOERS" ] && cmp -s "$SUDOERS_TMP" "$SUDOERS"; then
+  info "sudoers drop-in unchanged"
+else
+  # Validate before installing. A malformed file in sudoers.d breaks sudo for everyone,
+  # and in a distro with no root password that is genuinely hard to recover from.
+  if visudo -cqf "$SUDOERS_TMP"; then
+    install -m 0440 -o root -g root "$SUDOERS_TMP" "$SUDOERS"
+    info "installed $SUDOERS"
+  else
+    rm -f "$SUDOERS_TMP"
+    echo "[01-base] refusing to install an invalid sudoers file" >&2
+    exit 1
+  fi
+fi
+rm -f "$SUDOERS_TMP"
+
+# ------------------------------------------------------------------ packages
+log "base packages"
+export DEBIAN_FRONTEND=noninteractive
+
+PKGS=(
+  ca-certificates curl wget gnupg
+  git unzip zip pigz xz-utils
+  build-essential
+  openjdk-17-jre-headless          # Nextflow needs a JRE >= 17; headless is ~180 MB lighter
+  python3 python3-venv python3-pip pipx  # installed here because 03-nextflow.sh runs unprivileged
+  dos2unix                         # the NTFS/CRLF escape hatch, referenced by the other scripts
+  jq rsync tree less procps bc time file findutils util-linux
+)
+
+MISSING=()
+for p in "${PKGS[@]}"; do
+  if ! dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q '^install ok installed$'; then
+    MISSING+=("$p")
+  fi
+done
+
+if [ "${#MISSING[@]}" -eq 0 ]; then
+  info "all ${#PKGS[@]} packages already installed"
+else
+  info "installing: ${MISSING[*]}"
+  apt-get update -qq
+  apt-get install -y -qq --no-install-recommends "${MISSING[@]}"
+fi
+
+# ------------------------------------------------------------------ ext4 scratch roots
+# Both of these are top-level on the distro's ext4 volume on purpose.
+#   $REFS_ROOT  — reference store per config/refs.manifest.tsv
+#   $WORK_ROOT  — Nextflow work dirs and temp. Kept out of /home so that a runaway
+#                 pipeline fills a directory you can `du` in one place, and so home
+#                 stays small enough to `wsl --export` when migrating machines.
+# Neither may ever live under /mnt/* — drvfs is 5-10x slower and Nextflow's work dir is
+# nothing but small random reads and writes.
+log "ext4 roots"
+for d in "$REFS_ROOT" "$WORK_ROOT"; do
+  case "$d" in
+    /mnt/*) echo "[01-base] $d is under /mnt — that is drvfs. Refusing." >&2; exit 1 ;;
+  esac
+  if [ -d "$d" ]; then
+    info "$d exists"
+  else
+    install -d -m 0755 "$d"
+    info "$d created"
+  fi
+  chown "$BIOINFO_USER":"$BIOINFO_USER" "$d"
+done
+install -d -m 0755 -o "$BIOINFO_USER" -g "$BIOINFO_USER" "$WORK_ROOT/nextflow" "$WORK_ROOT/tmp"
+install -d -m 0755 -o "$BIOINFO_USER" -g "$BIOINFO_USER" \
+  "$REFS_ROOT/genomes" "$REFS_ROOT/catalogs" "$REFS_ROOT/cache"
+
+# ------------------------------------------------------------------ summary
+log "summary"
+info "wsl.conf        : $(grep -c . /etc/wsl.conf) non-empty lines"
+info "user            : $BIOINFO_USER uid=$(id -u "$BIOINFO_USER") groups=$(id -nG "$BIOINFO_USER" | tr ' ' ',')"
+info "java            : $(java -version 2>&1 | head -1)"
+info "pid 1           : $(ps -p 1 -o comm=)"
+info "$REFS_ROOT / $WORK_ROOT : owned by $BIOINFO_USER"
+
+echo
+if [ "$RESTART_NEEDED" -eq 1 ] || [ "$(ps -p 1 -o comm=)" != "systemd" ]; then
+  cat <<EOF
+============================================================================
+  RESTART THE DISTRO NOW. /etc/wsl.conf is only read at distro boot, so
+  systemd is not PID 1 and the default user is not applied until you do.
+
+  From Windows:
+
+      wsl --terminate $DISTRO
+
+  Then continue:
+
+      wsl -d $DISTRO -u root -- bash /mnt/d/bioinfo/bootstrap/02-docker.sh
+============================================================================
+EOF
+else
+  cat <<EOF
+============================================================================
+  Baseline in place and systemd is already PID 1 — no restart needed.
+  Next:  wsl -d $DISTRO -u root -- bash /mnt/d/bioinfo/bootstrap/02-docker.sh
+============================================================================
+EOF
+fi
