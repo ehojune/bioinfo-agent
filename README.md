@@ -8,7 +8,7 @@ nf-core 파이프라인을 로컬에서 실제로 돌리기 위한 자립형 환
 사람 유전체 작업을 전제로 만들었다. 단일염기 수준 WGS/WES, RNA-seq, 메틸화, ATAC/ChIP, 단일세포, 그리고
 이 머신에 이미 레퍼런스가 갖춰져 있는 STR·반복서열 확장 분석과 한국인 집단 대립유전자빈도 비교까지.
 
-- **리포지토리**: [`ehojune/bioinfo-agent`](https://github.com/ehojune/bioinfo-agent) (private)
+- **리포지토리**: [`ehojune/bioinfo-agent`](https://github.com/ehojune/bioinfo-agent) (public)
 - **이 머신의 위치**: `D:\bioinfo-agent` == `/mnt/d/bioinfo-agent` (WSL)
 - **영문판**: [README.en.md](README.en.md)
 
@@ -69,18 +69,32 @@ bioinfo/
 
 ## 새 컴퓨터에 세팅하기
 
-private 리포이므로 clone 전에 인증이 한 번 필요하다.
-
-```bash
-gh auth login
-```
+public 리포이므로 clone에는 인증이 필요 없다.
 
 ```bash
 git clone https://github.com/ehojune/bioinfo-agent.git D:\bioinfo-agent
 ```
 
-`gh` 가 없으면 Git Credential Manager가 clone 시점에 브라우저를 띄운다. 어느 쪽이든 인증은 사람이
-한다 — 에이전트에게 토큰을 넘기지 않는다.
+**푸시에는 인증이 필요하다.** 그리고 그 인증은 사람이 한다 — 에이전트에게 토큰을 넘기지 않는다.
+Windows의 기본 자격증명 헬퍼는 `manager`(Git Credential Manager)인데 브라우저나 대화형 창을 띄워야
+하므로, 비대화형 세션에서 실행하면 응답 없이 멈춘다. 에이전트가 푸시까지 하게 하려면 WSL 쪽에
+헬퍼를 한 번 심어둔다.
+
+```bash
+gh auth login --hostname github.com --git-protocol https --web
+```
+
+```bash
+gh auth setup-git
+```
+
+`--hostname` 과 `--git-protocol` 을 주면 선택 메뉴가 건너뛰어지고 기기 코드 화면으로 바로 간다.
+`wsl -d <distro> -- gh auth login` 처럼 한 줄로 던지면 TTY가 제대로 안 붙어 화살표 입력이 먹지 않을 수
+있으니, WSL 셸에 먼저 들어가서 실행한다.
+
+**public 리포라는 점을 의식할 것.** 이 저장소는 소속 기관이 쓰는 TLS 검사 장비 벤더명과 로컬 Windows
+계정명, 내부 레퍼런스 경로를 담고 있다. 자격증명·토큰·IP·호스트명은 없다. 새로 뭘 적을 때 그 선을
+지킨다.
 
 **디렉토리 이름을 `bioinfo-agent` 로 유지할 것.** 다른 이름으로 clone 하면 아래 스크립트들의
 `$BIOINFO_HOME` 기본값과 어긋난다. 굳이 바꾸려면 아래 [경로 이름 바꾸기](#경로-이름-바꾸기) 를 본다.
