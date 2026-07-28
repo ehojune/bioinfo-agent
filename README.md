@@ -87,11 +87,22 @@ STAR 게놈 인덱스 빌드는 약 40GB를 요구한다. 부족하다는 경고
 Nextflow는 exit 137이라는 불친절한 숫자만 남긴다. 한 시간 태우고 나서 알게 된다.
 
 ```
-memory=52GB      # 호스트 RAM에서 12GB쯤 빼고
-processors=22    # 코어에서 2개 남기고
+[wsl2]
+memory=52GB
+processors=22
+swap=16GB
 ```
 
-적용은 `wsl --shutdown` 후부터다. `wsl -d Ubuntu-24.04 -- free -g` 의 total이 올라갔는지로 확인한다.
+적용은 `wsl --shutdown` 후부터다. 이 머신 실측으로 **31GB → 50GB, 코어 22개**가 됐다.
+`wsl -d Ubuntu-24.04 -- free -g` 의 total로 확인한다.
+
+함정 둘. **`.wslconfig` 는 값 뒤 인라인 주석을 못 받는다.** `swap=16GB  # 여유분` 처럼 쓰면 그 키
+전체가 거부된다. 주석은 반드시 별도 줄로. 그리고 **`sparseVhd` 는 넣지 말 것** — WSL 2.7.10이 `[wsl2]`
+아래에서 이 키를 거부한다(깨끗한 LF 줄, 주석 없음에도). 필요하면 CLI로
+`wsl --manage <distro> --set-sparse true` 를 쓰되, 이미 쓰고 있는 디스크에는 `--allow-unsafe` 를
+요구하므로 그냥 안 쓰는 편이 낫다.
+
+시작할 때 키 이름과 줄 번호가 찍힌 경고가 뜨면 그 키가 거부된 것이다. WSL은 뜨지만 설정은 안 먹는다.
 
 ### 다른 머신으로 옮겼을 때
 

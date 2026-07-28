@@ -152,8 +152,11 @@ fi
 if ! command -v nf-core >/dev/null 2>&1; then
   fail 'nf-core not on PATH — run bootstrap/03-nextflow.sh'
 else
-  NFC="$(nf-core --version 2>&1 | head -1)"
-  if [ -n "$NFC" ]; then ok "$NFC"; else fail 'nf-core present but --version failed'; fi
+  # nf-core prints an ASCII banner before the version string, and that banner opens with a
+  # blank line — `head -1` captures the blank and the check reads as a failure on a perfectly
+  # healthy install. Take the last line that actually carries a version number.
+  NFC="$(nf-core --version 2>&1 | grep -E '[0-9]+\.[0-9]+' | tail -1 | sed 's/^[[:space:]]*//')"
+  if [ -n "$NFC" ]; then ok "$NFC"; else fail 'nf-core present but --version produced no version string'; fi
 fi
 
 # ============================================================ 6. NXF_* placement

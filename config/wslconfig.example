@@ -3,18 +3,34 @@
 # WSL2 defaults to 50% of host RAM. That default is the single most common cause of a
 # mysterious exit 137 on this stack: a human STAR genome index wants roughly 40 GB, and
 # half of a 64 GB machine is not enough. Nothing warns you — the process is OOM-killed and
-# Nextflow reports an exit code.
+# Nextflow reports an exit code with no explanation.
 #
-# Sizing rule: memory = host RAM minus ~12 GB for Windows.
-#              processors = cores minus 2.
+# TRAP: .wslconfig does NOT accept trailing comments on a value line. Writing
+#     sparseVhd=true    # reclaim space
+# makes WSL reject the whole key with "invalid value '...'" on startup. Every comment goes
+# on its own line. This was hit for real while building this repo.
+#
+# Sizing rule: memory = host RAM minus ~12 GB for Windows
+#              processors = cores minus 2
 # Values below are for the 24-core / 63.5 GB host this repo was built on.
 
 [wsl2]
 memory=52GB
 processors=22
 swap=16GB
-sparseVhd=true
+
+# sparseVhd is deliberately absent. WSL 2.7.10 rejects it under [wsl2] with
+# "invalid value" even on a clean LF line with no trailing comment — tested. The
+# supported route is the CLI, on a distro that is fully shut down:
+#   wsl --manage <distro> --set-sparse true
+# On an already-provisioned disk that returns E_INVALIDARG and asks for --allow-unsafe.
+# Sparse is an optimisation (it lets the VHDX shrink after cleanup), not a requirement.
+# Forcing it on a disk holding a populated reference store is not worth the risk.
 
 # Verify after applying:
 #   wsl --shutdown
-#   wsl -d Ubuntu-24.04 -- free -g      # "total" should now read ~51
+#   wsl -d <distro> -- free -g    # "total" should read ~50, not ~31
+#   wsl -d <distro> -- nproc      # should read 22
+# Measured on the build host: 31 GB -> 50 GB, 24 -> 22 cores, 16 GB swap.
+# A startup warning naming a key and a line number means that key was rejected;
+# WSL still boots, but the setting is not applied.

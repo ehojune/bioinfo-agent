@@ -131,7 +131,7 @@ log "nf-core tools"
 NFCORE_BIN="$HOME/.local/bin/nf-core"
 
 if command -v nf-core >/dev/null 2>&1 && [ "$DO_UPDATE" -eq 0 ]; then
-  info "already installed: $(nf-core --version 2>&1 | head -1)"
+  info "already installed: $(nf-core --version 2>&1 | grep -E '[0-9]+\.[0-9]+' | tail -1 | sed 's/^[[:space:]]*//')"
 elif command -v pipx >/dev/null 2>&1; then
   export PIPX_HOME="${PIPX_HOME:-$HOME/.local/pipx}"
   export PIPX_BIN_DIR="${PIPX_BIN_DIR:-$HOME/.local/bin}"
@@ -210,25 +210,45 @@ case \$- in
     unset __v
     ;;
 esac
+
+# Set last, so the .bashrc / .profile guards can tell "already loaded" from "never loaded".
+# Both files carry the hook because non-interactive login shells read .profile but bail out
+# of Ubuntu's stock .bashrc before reaching its end.
+export BIOINFO_ENV_LOADED=1
 EOF
 chmod 0644 "$ENVFILE"
 info "written"
 
-# Hook it into .bashrc between markers so re-runs replace rather than accumulate.
-BASHRC="$HOME/.bashrc"
+# Hook the contract into BOTH ~/.bashrc and ~/.profile, between markers so re-runs replace
+# rather than accumulate.
+#
+# ~/.bashrc alone is not enough, and the failure is silent. Ubuntu's stock .bashrc opens with
+#
+#     case $- in *i*) ;; *) return;; esac
+#
+# so a NON-INTERACTIVE shell returns before ever reaching a hook appended at the end. That is
+# precisely how this stack gets driven: `wsl -d Ubuntu-24.04 -- bash -lc '<cmd>'` is a login
+# shell but not an interactive one. Every variable would come back unset, -work-dir would
+# expand to /<run-id>, and $BIOINFO_REFS paths would resolve to nothing — with no error saying
+# why. ~/.profile IS read by non-interactive login shells, so the hook must live there too.
+#
+# Guard against double-sourcing since .profile also sources .bashrc for interactive shells.
 MARK_A='# >>> bioinfo env >>>'
 MARK_B='# <<< bioinfo env <<<'
-touch "$BASHRC"
-if grep -qF "$MARK_A" "$BASHRC"; then
-  info "~/.bashrc hook already present"
-else
-  {
-    printf '\n%s\n' "$MARK_A"
-    printf '[ -f "%s" ] && . "%s"\n' "$ENVFILE" "$ENVFILE"
-    printf '%s\n' "$MARK_B"
-  } >> "$BASHRC"
-  info "~/.bashrc hook added"
-fi
+
+for rc in "$HOME/.bashrc" "$HOME/.profile"; do
+  touch "$rc"
+  if grep -qF "$MARK_A" "$rc"; then
+    info "$(basename "$rc") hook already present"
+  else
+    {
+      printf '\n%s\n' "$MARK_A"
+      printf '[ -z "${BIOINFO_ENV_LOADED:-}" ] && [ -f "%s" ] && . "%s"\n' "$ENVFILE" "$ENVFILE"
+      printf '%s\n' "$MARK_B"
+    } >> "$rc"
+    info "$(basename "$rc") hook added"
+  fi
+done
 
 # ------------------------------------------------------------------ verify
 log "verify"
@@ -243,7 +263,7 @@ fi
 info "nextflow    $NXF_VER"
 
 if command -v nf-core >/dev/null 2>&1; then
-  NFC_VER="$(nf-core --version 2>&1 | head -1)"
+  NFC_VER="$(nf-core --version 2>&1 | grep -E '[0-9]+\.[0-9]+' | tail -1 | sed 's/^[[:space:]]*//')"
   info "nf-core     $NFC_VER"
 else
   die "nf-core not on PATH after install — check $HOME/.local/bin"
