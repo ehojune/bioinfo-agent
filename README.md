@@ -132,6 +132,12 @@ cd D:\bioinfo
 .\install.ps1 -ExtraConfigDirs 'C:\Users\admin\.claude'
 ```
 
+**스킬은 모든 설정 폴더에 들어가지만 에이전트는 첫 번째(primary)에만 들어간다.** Claude Code가 스킬은
+이름으로 중복 제거하는데 에이전트는 안 하기 때문이다. 양쪽에 에이전트 파일을 두면 선택 목록에 똑같은
+게 두 번 뜬다. 이 머신에서 실제로 그랬다 — 작업 폴더가 `C:\Users\admin\llm-wiki` 라서 Claude가 상위
+경로를 훑다가 `C:\Users\admin\.claude` 를 프로젝트 설정으로 잡고, 거기 있던 에이전트가 user-level 것과
+겹쳤다. 굳이 양쪽에 넣어야 하면 `-AgentsEverywhere` 를 붙인다.
+
 기존 폴더를 덮어쓰지 않는다. `<config>\skills\bioinfo-analyze` 가 실제 디렉토리로 이미 있거나 다른 곳을
 가리키는 정션이면 멈추고 알려준다. `-Force` 는 **잘못된 정션**만 교체한다.
 

@@ -26,6 +26,23 @@
     profiles that should share one canonical copy of the repo, e.g.
         .\install.ps1 -ExtraConfigDirs 'C:\Users\admin\.claude'
 
+.PARAMETER AgentsEverywhere
+    Install agent definitions into the extra config directories too. OFF by default, and
+    you almost certainly want it off.
+
+    Skills and agents are not discovered the same way. Claude Code de-duplicates skills by
+    name, so the same skill junctioned into two config directories shows up once. Agents are
+    NOT de-duplicated: the same agent file in two discoverable config directories registers
+    twice, and the agent picker lists it twice with identical descriptions.
+
+    This bites specifically when a second config directory sits on the path from the drive
+    root down to your working directory, because Claude Code walks parents looking for
+    project config. On the machine this repo was built on, the primary is
+    C:\Users\<user>\.claude while work happens in C:\Users\admin\llm-wiki — so
+    C:\Users\admin\.claude is discovered as project config and every agent under it doubles.
+
+    Default behaviour: skills go into every config directory, agents only into the primary.
+
 .PARAMETER Force
     Replace a junction or symlink that points somewhere other than this repo. Never
     replaces a real (non-reparse-point) directory or an unmanaged regular file.
@@ -41,6 +58,7 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [string[]] $ExtraConfigDirs = @(),
+    [switch]   $AgentsEverywhere,
     [switch]   $Force
 )
 
@@ -220,7 +238,7 @@ function Install-AgentFile {
 # ------------------------------------------------------------------------ per-config
 
 function Install-IntoConfigDir {
-    param([string]$ConfigDir)
+    param([string]$ConfigDir, [bool]$IsPrimary = $true)
 
     $label = $ConfigDir
     Write-Host ""
@@ -253,7 +271,14 @@ function Install-IntoConfigDir {
     }
 
     # --- agents: .md definitions as files; any agent packaged as a folder gets a junction.
-    if (Test-Path -LiteralPath $AgentsRoot) {
+    #
+    # Skipped for non-primary config dirs by default. Claude Code de-duplicates skills by
+    # name but NOT agents, so the same agent file discovered under two config directories
+    # registers twice. See the -AgentsEverywhere help text.
+    if (-not $IsPrimary -and -not $AgentsEverywhere) {
+        Add-Result $label 'agents/' 'SKIPPED' 'not primary config dir - agents would register twice (-AgentsEverywhere to override)'
+    }
+    elseif (Test-Path -LiteralPath $AgentsRoot) {
         $agentFiles = @(Get-ChildItem -LiteralPath $AgentsRoot -Filter '*.md' -File -ErrorAction SilentlyContinue)
         $agentDirs  = @(Get-ChildItem -LiteralPath $AgentsRoot -Directory -ErrorAction SilentlyContinue)
         if ($agentFiles.Count -eq 0 -and $agentDirs.Count -eq 0) {
@@ -303,7 +328,8 @@ foreach ($extra in $ExtraConfigDirs) {
     if ($targets -notcontains $n) { $null = $targets.Add($n) }
 }
 
-foreach ($t in $targets) { Install-IntoConfigDir -ConfigDir $t }
+$primary = $targets[0]
+foreach ($t in $targets) { Install-IntoConfigDir -ConfigDir $t -IsPrimary ($t -eq $primary) }
 
 # --------------------------------------------------------------------------- report
 
