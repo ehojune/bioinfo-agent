@@ -170,6 +170,11 @@ cat > "$ENVFILE" <<EOF
 export BIOINFO_HOME="$BIOINFO_HOME_V"
 export BIOINFO_REFS="$BIOINFO_REFS_V"
 
+# The ext4 scratch root. config/local.config and the skill both compose per-run work
+# directories as \$BIOINFO_WORK/<run-id>, so this MUST be exported — an unset value
+# expands to nothing and -work-dir becomes /<run-id>, i.e. a write attempt at /.
+export BIOINFO_WORK="$WORK_ROOT"
+
 export JAVA_HOME="$JAVA_HOME_V"
 export PATH="\$HOME/.local/bin:\$PATH"
 
