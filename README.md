@@ -8,6 +8,11 @@ nf-core 파이프라인을 로컬에서 실제로 돌리기 위한 자립형 환
 사람 유전체 작업을 전제로 만들었다. 단일염기 수준 WGS/WES, RNA-seq, 메틸화, ATAC/ChIP, 단일세포, 그리고
 이 머신에 이미 레퍼런스가 갖춰져 있는 STR·반복서열 확장 분석과 한국인 집단 대립유전자빈도 비교까지.
 
+**바로 찾아가기** — [설치한 다음 실제로 어떻게 시키는가](#설치한-다음--실제로-어떻게-시키는가) ·
+[동작 구조](#동작-구조) · [사용 가능한 파이프라인](#사용-가능한-nf-core-파이프라인) ·
+[sarek 예시](#예시-sarek-으로-germline-변이-찾기) ·
+[다른 호스트로 옮기기](docs/other-hosts.md)
+
 - **리포지토리**: [`ehojune/bioinfo-agent`](https://github.com/ehojune/bioinfo-agent) (public)
 - **이 머신의 위치**: `D:\bioinfo-agent` == `/mnt/d/bioinfo-agent` (WSL)
 - **영문판**: [README.en.md](README.en.md)
@@ -48,8 +53,10 @@ bioinfo/
 ├── install.ps1                skills/ 와 agents/ 를 Claude 설정 폴더에 연결
 ├── .gitignore                 실행 산출물·work 디렉토리·레퍼런스를 git에서 제외
 ├── .gitattributes             *.sh 를 LF로 강제 (Windows 체크아웃이 bash를 깨뜨리지 않게)
-├── .claude-plugin/            플러그인 패키징 (미검증 — 아래 참고)
+├── .claude-plugin/            플러그인 패키징 (동작 확인됨)
 ├── bootstrap/                 번호순 멱등 셋업 스크립트 00 → 06
+├── docs/
+│   └── other-hosts.md         네이티브 리눅스 / 공용 서버 / 클러스터로 옮기기
 ├── config/
 │   ├── local.config           executor, CPU/RAM 상한, 컨테이너 엔진, work 디렉토리
 │   ├── genomes.config         게놈 빌드 이름 → $BIOINFO_REFS 경로 매핑
@@ -221,16 +228,379 @@ cd D:\bioinfo-agent
 기존 폴더를 덮어쓰지 않는다. `<config>\skills\bioinfo-analyze` 가 실제 디렉토리로 이미 있거나 다른 곳을
 가리키는 정션이면 멈추고 알려준다. `-Force` 는 **잘못된 정션**만 교체한다.
 
-### (b) 플러그인 마켓플레이스 — 이식성은 좋으나 스키마 **미검증**
+### (b) 플러그인 마켓플레이스 — **동작 확인됨. 새 머신에서는 이쪽을 쓴다.**
+
+```bash
+claude plugin marketplace add ehojune/bioinfo-agent
+```
+
+```bash
+claude plugin install bioinfo@bioinfo
+```
+
+실제 출력:
 
 ```
-/plugin marketplace add <이 리포의 git URL 또는 로컬 경로>
-/plugin install bioinfo@bioinfo
+✔ Successfully added marketplace: bioinfo (declared in user settings)
+✔ Successfully installed plugin: bioinfo@bioinfo (scope: user)
 ```
 
-> `.claude-plugin/` 의 두 JSON은 최선의 추정이고 **실제 마켓플레이스 로드로 검증한 적이 없다.**
-> `/plugin install` 이 성공하는 걸 눈으로 확인하기 전까지 **`install.ps1` 이 지원되는 경로**이고
-> 이쪽은 실험이다. 실패하면 에러 메시지를 보고 JSON을 고치면 된다.
+확인:
+
+```bash
+claude plugin details bioinfo@bioinfo
+```
+
+```
+bioinfo 0.1.0
+Component inventory
+  Skills (1)  bioinfo-analyze
+  Agents (1)  bioinfo-tech
+Projected token cost
+  Always-on:   ~521 tok   added to every session
+```
+
+`skills/` 와 `agents/` 를 자동 발견하므로 `plugin.json` 에 경로 배열을 적을 필요가 없었다. 상시 비용은
+521 토큰이고, 스킬이나 에이전트가 실제로 발동할 때 각각 2k 정도가 추가로 든다.
+
+Claude Code 대화 안에서라면 슬래시 형태도 같다: `/plugin marketplace add ehojune/bioinfo-agent`.
+
+**두 방식을 같이 쓰지 말 것.** 정션과 플러그인이 같은 스킬을 각각 등록하면 중복으로 잡힌다. 이 머신은
+정션(a)을 쓰고, 다른 머신은 플러그인(b)을 쓴다.
+
+---
+
+## 설치한 다음 — 실제로 어떻게 시키는가
+
+플러그인을 깔았다고 뭐가 자동으로 돌지는 않는다. 세 가지 방식이 있다.
+
+### 1. 그냥 말한다 (평소 쓰는 방식)
+
+스킬은 설명문에 걸린 트리거로 **자동 발동**한다. 별도 명령이 필요 없다.
+
+```
+~/data/rnaseq 에 FASTQ 8개 있어. 마우스 간조직이고 대조군 4 처리군 4야.
+발현 차이 보고 싶은데 돌려줘.
+```
+
+`FASTQ`, `RNA-seq`, 발현 차이 같은 표현에서 `bioinfo-analyze` 가 뜨고, 접수 질문부터 시작한다.
+
+### 2. 이름으로 명시한다
+
+트리거가 애매할 때, 또는 확실히 그 절차를 밟게 하고 싶을 때.
+
+```
+/bioinfo-analyze
+```
+
+```
+bioinfo-analyze 스킬 써서 이 samplesheet 검증해줘
+```
+
+### 3. 에이전트에 위임한다 (긴 실행에는 이쪽)
+
+```
+bioinfo-tech 에이전트한테 sarek 돌리라고 시켜줘
+```
+
+**몇 시간짜리 실행은 반드시 이 방식을 쓴다.** `nextflow run` 은 로그를 수만 줄 뱉는데, 서브에이전트
+안에서 돌면 그게 거기서 소화되고 결론만 돌아온다. 메인 대화에서 돌리면 그 로그가 컨텍스트를 밀어내
+정작 하던 논의가 사라진다.
+
+### 무엇을 주면 되는가
+
+에이전트가 계획을 세우기 전에 알아야 하는 것들이다. 모르면 물어보지만, 미리 주면 왕복이 줄어든다.
+
+| 항목 | 예시 |
+|---|---|
+| 데이터 절대경로 | `~/data/wgs/` 또는 `/mnt/e/proj/fastq/` |
+| 몇 샘플, 어떤 형식 | 12샘플, paired-end, `fastq.gz`, PE150 |
+| 종과 게놈 빌드 | human GRCh38 / 이미 있는 `GRCh38gatk` 씀 |
+| 실제 질문 | "희귀변이 찾기" vs "발현 차이" — 여기서 파이프라인이 갈린다 |
+| 설계 | 그룹, 반복수, 배치, tumour/normal 짝 |
+| 시간 허용치 | 하룻밤 OK / 24시간 넘으면 안 됨 |
+| 기존 산출물 | 이전 BAM, 만들어둔 인덱스, 중단된 실행의 work 디렉토리 |
+
+데이터 경로만 줘도 시작은 한다. `ls -l` 로 직접 세어보고 FASTQ 헤더까지 읽어서 나머지를 추정한 뒤
+확인을 요청한다.
+
+---
+
+## 동작 구조
+
+```mermaid
+flowchart TB
+    U([사용자]) -->|"FASTQ 경로 + 원하는 분석"| S
+
+    subgraph CC["Claude Code"]
+        S["skill: bioinfo-analyze<br/>절차와 지식"]
+        A["agent: bioinfo-tech<br/>실행 격리"]
+        S -.->|긴 실행은 위임| A
+    end
+
+    A -->|"wsl -d Ubuntu-24.04 -- bash -lc"| N
+
+    subgraph WSL["WSL2 Ubuntu (ext4)"]
+        N["Nextflow<br/>+ nf-core"]
+        D["Docker engine<br/>컨테이너별 도구"]
+        W[("work/<br/>-resume 캐시")]
+        N --> D
+        N --> W
+    end
+
+    N -->|표준 경로만| R
+    subgraph REFS["$BIOINFO_REFS = /refs"]
+        R["genomes/GRCh38/...<br/>genomes/GRCh38gatk/...<br/>catalogs/str/..."]
+        M["refs.manifest.tsv<br/>유일한 진실"] -.->|04-refs.sh| R
+    end
+
+    R -.->|"symlink (순차읽기)"| O[("/mnt/d 원본<br/>hg38.fa 등")]
+
+    N --> OUT["results/ + MultiQC"]
+    OUT --> A
+    A -->|"QC 판정 + 산출물 위치"| U
+
+    style S fill:#e8f0fe,stroke:#4285f4
+    style A fill:#e8f0fe,stroke:#4285f4
+    style M fill:#fff4e5,stroke:#f5a623
+    style OUT fill:#e6f4ea,stroke:#34a853
+```
+
+읽는 순서는 이렇다. 사용자가 데이터와 목적을 준다 → 스킬이 절차를 잡고 긴 실행은 에이전트에 넘긴다 →
+에이전트가 WSL 안에서 Nextflow를 띄운다 → Nextflow가 도구마다 Docker 컨테이너를 받아 돌리고 work
+디렉토리에 캐시를 쌓는다(`-resume` 의 근거) → 레퍼런스는 반드시 `/refs` 표준 경로로만 참조하고, 그
+표준 경로는 매니페스트가 원본 파일로 이어준다 → 결과와 MultiQC가 나오면 에이전트가 판정만 만들어
+돌려준다.
+
+### 7단계 절차
+
+| # | 단계 | 산출물 |
+|---|---|---|
+| 1 | **접수** | 파일을 직접 본다. 설명을 믿지 않는다 |
+| 2 | **파이프라인 선정** | 파이프라인 + 고정 리비전, 그리고 그걸 고른 이유 한 줄 |
+| 3 | **실행 계획서 + 승인** | `runs/<runid>/plan.md` — 예상 시간·디스크, 없는 레퍼런스, 임의로 좁힌 범위 |
+| 4 | **사전점검 + stub 실행** | 디스크 1.5배 확인, 샘플시트 검증, `-stub-run` 통과 |
+| 5 | **실행** | 백그라운드, 로그 파일, ext4 work 디렉토리 |
+| 6 | **QC 판정** | 샘플별 PASS / PASS WITH CAVEATS / FAIL |
+| 7 | **인계** | `runs/<runid>/handoff.md` |
+
+3번에서 멈춰서 승인을 기다린다. 24시간 넘는 작업, 10GB 넘는 다운로드는 승인 없이 시작하지 않는다.
+
+---
+
+## 사용 가능한 nf-core 파이프라인
+
+스킬이 **깊이 다루는** 9개다. 샘플시트 스키마, 자원 추정, QC 기준, 실패 유형까지 문서화돼 있다.
+
+| 파이프라인 | 무엇을 하는가 | 최소 입력 | 주 산출물 |
+|---|---|---|---|
+| **rnaseq** | bulk RNA-seq 정량 (STAR+Salmon 기본) | FASTQ + `strandedness` | `salmon.merged.gene_counts.tsv` |
+| **differentialabundance** | 발현 차이 검정 (DESeq2) | rnaseq 카운트 행렬 + `contrasts.csv` | HTML 리포트, DE 결과표 |
+| **fetchngs** | SRA/ENA/GEO 공개 데이터 내려받기 | 액세션 목록 (`SRR`, `PRJNA`, `GSE`…) | FASTQ + 다음 파이프라인용 샘플시트 |
+| **sarek** | germline / 체세포 변이 검출 (WGS·WES·패널) | FASTQ 또는 BAM/CRAM | VCF, 정렬 CRAM |
+| **methylseq** | 메틸화 (WGBS / RRBS / EM-seq) | FASTQ | CpG 메틸화율, bisulfite 전환율 |
+| **atacseq** | 염색질 접근성 | FASTQ + `replicate` | consensus peak, bigWig |
+| **chipseq** | ChIP-seq | FASTQ + `antibody`, `control` | peak, FRiP |
+| **cutandrun** | CUT&RUN / CUT&Tag | FASTQ + `control` | peak (SEACR/MACS2) |
+| **scrnaseq** | 단일세포 RNA | FASTQ + `expected_cells` | count matrix, h5ad |
+
+**그 밖의 파이프라인은 요청 시점에 조달한다.** nf-core에는 100개 넘게 있고 전부 미리 문서화하는 건
+낭비이자 부패의 원인이다. 절차는 [new-pipeline.md](skills/bioinfo-analyze/references/new-pipeline.md)
+에 있다.
+
+```bash
+nf-core pipelines list
+```
+
+조달 시 성숙도, 최근 릴리스 시점, 아카이브 여부, 컨테이너 유무를 먼저 보고, `-profile test` 가 이
+머신에서 통과하는지 확인한 다음 리비전을 고정한다.
+
+### 이 스택으로 커버되지 **않는** 것
+
+솔직하게 적어둔다. 이게 없으면 헛돌게 된다.
+
+- **STR / 반복서열 확장** — `sarek` 은 반복 확장을 호출하지 않는다. ExpansionHunter, TRGT, HipSTR은
+  별도 도구다. 카탈로그는 `/refs/catalogs/str/` 에 이미 있고, `sarek --step mapping` 으로 CRAM을 만든
+  다음 STR 도구를 따로 돌리는 흐름이 된다. `Ubuntu-legacy` 배포판의 `expansion`, `ephdn` conda 환경이
+  그 용도다.
+- **롱리드** (ONT, PacBio HiFi) — 위 9개는 전부 일루미나 숏리드 전제다. TRGT는 HiFi 전용이다.
+- **생물학적 해석** — 에이전트는 QC 판정까지다.
+
+---
+
+## 예시: sarek 으로 germline 변이 찾기
+
+가장 많이 묻는 게 이거라 실제 값으로 적는다. 아래는 **리비전 3.9.0 스키마를 직접 읽어서** 확인한
+내용이다 (`assets/schema_input.json`, `nextflow_schema.json`).
+
+### 대화는 이렇게 시작하면 된다
+
+```
+/mnt/e/proj/wgs 에 WGS FASTQ 6샘플 있어. human, 30x 정도.
+희귀질환 후보 변이 찾으려고 해. germline이고 tumour는 없어.
+sarek 돌려줘.
+```
+
+에이전트가 파일을 직접 세어보고, 없는 레퍼런스를 짚고, 예상 시간과 디스크를 계산해서 계획서를 낸다.
+**6샘플 30x WGS는 이 머신에서 일주일 넘는 작업**이라 그 사실부터 말하고 대안을 제시한다.
+
+### 입력 — 샘플시트
+
+`patient` 와 `sample` **두 개만 필수**다. 나머지는 상황에 따라 붙인다.
+
+```csv
+patient,sample,sex,status,lane,fastq_1,fastq_2
+FAM01,FAM01-proband,XY,0,L001,/mnt/e/proj/wgs/P1_L001_R1.fastq.gz,/mnt/e/proj/wgs/P1_L001_R2.fastq.gz
+FAM01,FAM01-proband,XY,0,L002,/mnt/e/proj/wgs/P1_L002_R1.fastq.gz,/mnt/e/proj/wgs/P1_L002_R2.fastq.gz
+FAM01,FAM01-father,XY,0,L001,/mnt/e/proj/wgs/F1_L001_R1.fastq.gz,/mnt/e/proj/wgs/F1_L001_R2.fastq.gz
+FAM01,FAM01-mother,XX,0,L001,/mnt/e/proj/wgs/M1_L001_R1.fastq.gz,/mnt/e/proj/wgs/M1_L001_R2.fastq.gz
+```
+
+| 컬럼 | 필수 | 의미 |
+|---|---|---|
+| `patient` | ✅ | 개인/가족 묶음. 같은 `patient` 안에서 tumour/normal 짝이 맺힌다 |
+| `sample` | ✅ | 샘플 식별자. 한 `patient` 에 여러 샘플 가능 |
+| `sex` | | `XX` / `XY` / `NA`. 성염색체 처리와 sex-check에 쓰인다 |
+| `status` | | `0` = normal, `1` = tumour. 생략하면 0 |
+| `lane` | | **여러 레인이면 반드시 넣는다.** read group이 갈려서 중복 표시가 정확해진다 |
+| `fastq_1` / `fastq_2` | | FASTQ부터 시작할 때 |
+| `bam`/`bai`, `cram`/`crai` | | 정렬된 것부터 시작할 때 (`--step markduplicates` 등) |
+| `vcf`, `variantcaller` | | 어노테이션만 할 때 (`--step annotate`) |
+
+같은 `patient`+`sample` 에 `lane` 만 다른 행을 여러 개 두면 자동으로 병합된다. 위 예시의 proband가
+그렇다.
+
+### 레퍼런스 — 세 가지 방식
+
+이게 질문의 핵심이다. **셋 다 유효하고, 셋 중 어느 쪽인지 계획서에 명시된다.**
+
+#### (A) nf-core가 알아서 — 기본값
+
+`--genome` 의 기본값이 이미 `GATK.GRCh38` 이고, `--igenomes_base` 는
+`s3://ngi-igenomes/igenomes` 를 가리킨다. **아무것도 안 주면 AWS에서 받아온다.**
+
+```bash
+nextflow run nf-core/sarek -r 3.9.0 -profile docker \
+  --input samplesheet.csv --outdir results --tools haplotypecaller
+```
+
+동작은 한다. 대신 fasta·인덱스·GATK 번들을 수십 GB 내려받고, 어디서 뭘 썼는지 통제가 안 된다.
+VEP/snpEff 캐시도 기본이 S3 경로다. **에이전트는 이 경로를 기본으로 고르지 않는다** — 10GB 넘는
+다운로드는 승인 대상이기 때문에 먼저 물어본다.
+
+#### (B) 로컬 레퍼런스를 명시 — 이 머신의 기본
+
+레퍼런스 스토어에 이미 있는 것을 표준 경로로 넘긴다. 원본 파일명(`hg38.fa` 등)은 절대 쓰지 않는다.
+
+```bash
+REFS=${BIOINFO_REFS:-/refs}/genomes/GRCh38gatk
+nextflow run nf-core/sarek -r 3.9.0 -profile docker \
+  -c $BIOINFO_HOME/config/local.config \
+  --input samplesheet.csv --outdir results \
+  --fasta     $REFS/fasta/genome.fa \
+  --fasta_fai $REFS/fasta/genome.fa.fai \
+  --dict      $REFS/fasta/genome.dict \
+  --bwa       $REFS/index/bwa \
+  --dbsnp        $REFS/gatkbundle/dbsnp.vcf.gz \
+  --known_indels $REFS/gatkbundle/known_indels.vcf.gz \
+  --tools haplotypecaller --joint_germline
+```
+
+**이 머신의 실제 상태** (`bootstrap/04-refs.sh` 가 매번 알려준다):
+
+| 필요한 것 | 상태 | 비고 |
+|---|---|---|
+| `fasta/genome.fa` + `.fai` | ✅ 있음 | GATK analysis set, no ALT/HLA/decoy |
+| `index/bwa/` | ✅ 있음 | ext4로 복사됨 (drvfs 랜덤액세스가 느려서) |
+| `fasta/genome.dict` | ❌ **없음** | `gatk CreateSequenceDictionary` 2분. 없으면 sarek이 시작조차 안 한다 |
+| `gatkbundle/dbsnp` · `known_indels` | ❌ **없음** | BQSR과 HaplotypeCaller에 필요. 수 GB 다운로드 |
+| `gatkbundle/germline_resource` | ❌ 없음 | Mutect2 체세포 변이용. germline만 하면 불필요 |
+| `cache/vep` 또는 `snpeff` | ❌ 없음 | `--tools vep` 쓸 때만. GRCh38 기준 ~25GB |
+
+즉 **지금 당장 sarek germline을 완주할 수는 없다.** `.dict` 생성과 GATK 번들 확보가 선행 조건이고,
+에이전트는 이걸 12시간 뒤가 아니라 계획서 단계에서 말한다.
+
+#### (C) 갖고 있는 걸 대화로 알려주기 — 권장
+
+**네, 알아서 참조합니다.** 그게 레퍼런스 스토어를 만든 이유다.
+
+```
+dbsnp 파일 /mnt/e/refs/dbsnp_146.hg38.vcf.gz 여기 있어. 이거 써.
+```
+
+에이전트가 하는 일:
+
+1. `config/refs.manifest.tsv` 에 행 하나를 추가한다
+   ```
+   genomes/GRCh38gatk/gatkbundle/dbsnp.vcf.gz	link	/mnt/e/refs/dbsnp_146.hg38.vcf.gz
+   ```
+2. `bootstrap/04-refs.sh` 를 돌려 표준 경로에 심링크를 건다
+3. 그 뒤로는 **`--dbsnp $REFS/gatkbundle/dbsnp.vcf.gz` 만 쓴다.** 원본 경로는 다시 등장하지 않는다
+
+이 간접층이 있어야 컴퓨터를 옮길 때 매니페스트의 source 컬럼만 고치면 끝난다. 파일을 손으로
+`/refs` 에 갖다 놓으면 그 정보가 매니페스트에 없어서 다음 머신에서 사라진다. **에이전트는 손으로
+갖다 놓지 않는다.**
+
+### 주요 파라미터 (3.9.0 확인)
+
+```
+--step     mapping | markduplicates | prepare_recalibration | recalibrate
+           | variant_calling | annotate            (기본: mapping)
+
+--tools    haplotypecaller  deepvariant  strelka  freebayes  mpileup  lofreq
+           mutect2  muse  varlociraptor            (변이 검출)
+           manta  tiddit  cnvkit  ascat  controlfreec   (구조변이 / CNV)
+           msisensorpro  msisensor2  ngscheckmate  indexcov
+           vep  snpeff  snpsift  bcfann            (어노테이션)
+           sentieon_dedup  sentieon_haplotyper  sentieon_dnascope  sentieon_tnscope
+                                                  (라이선스 필요)
+
+--wes                 exome/패널일 때 켠다
+--intervals <bed>     캡처 영역. WES에서 이걸 빼면 전체 게놈을 훑어 몇 배 느려진다
+--joint_germline      GATK HaplotypeCaller 조인트 콜링 (가족 분석에 쓴다)
+--save_reference      만든 인덱스를 저장 → 다음 실행에서 재사용
+--build_only_index    인덱스만 만들고 끝. 사전 준비용
+```
+
+`--step` 은 재시작에 쓴다. 정렬까지 끝난 CRAM이 있으면 `--step variant_calling` 으로 앞단을 건너뛴다.
+샘플시트에 `cram`/`crai` 컬럼을 채워 넣으면 된다.
+
+### 소요 시간 — 먼저 알아야 하는 숫자
+
+이 머신(22코어, 50GB RAM, ext4)에서 대략 이렇다.
+
+| 작업 | 샘플당 | 비고 |
+|---|---|---|
+| WES 100x, haplotypecaller | 4~8시간 | `--wes --intervals` 필수 |
+| **WGS 30x, haplotypecaller** | **하루 이상** | 6샘플이면 일주일 넘는다 |
+| WGS 30x + SV/CNV 도구 추가 | 1.5~2배 | `--tools` 를 늘릴수록 곱해진다 |
+| `.dict` 생성 | 2분 | 1회 |
+| GATK 번들 다운로드 | 회선에 따라 | 1회, 수 GB |
+
+**로컬 WGS 코호트는 현실적이지 않다.** 그럴 때 에이전트가 제시하는 대안은 이렇다 — 샘플 줄이기,
+WES로 바꾸기, `--tools` 줄이기, 아니면 클러스터가 필요하다고 결론 내기. 조용히 시작해서 일주일 뒤에
+알게 하지 않는다.
+
+### 스키마는 버전마다 바뀐다
+
+위 표는 3.9.0 기준이다. 다른 리비전을 쓸 거면 그 리비전에서 직접 뽑아 확인한다.
+
+```bash
+nextflow info nf-core/sarek                      # 사용 가능한 리비전
+nextflow run nf-core/sarek -r <rev> --help
+```
+
+에셋 경로는 Nextflow 26.x에서 **커밋 sha별 디렉토리**로 바뀌었으니 글롭으로 잡는다.
+
+```bash
+cat $NXF_ASSETS/.repos/nf-core/sarek/clones/*/assets/schema_input.json
+```
+
+경로를 외워 쓰지 말고 못 찾으면 이렇게 찾는다.
+
+```bash
+find "$NXF_ASSETS" -path '*nf-core/sarek*' -name schema_input.json | head -1
+```
 
 ---
 
@@ -372,7 +742,7 @@ nf-core 샘플시트 컬럼과 파라미터 이름은 리비전마다 바뀐다.
 
 ```bash
 nextflow run nf-core/<pipeline> -r <rev> --help
-cat "$NXF_ASSETS/nf-core/<pipeline>/assets/schema_input.json"
+cat "$NXF_ASSETS/.repos/nf-core/<pipeline>/clones/*/assets/schema_input.json"
 nf-core pipelines schema docs
 ```
 

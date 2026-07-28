@@ -89,7 +89,7 @@ report the observed number alongside the band, never the band alone.
 
 Note: nf-core/rnaseq's strandedness column accepts `auto`; when it does, the pipeline infers and
 reports, and the disagreement check becomes an inference-confidence check instead.
-<!-- UNVERIFIED: confirm `auto` support for your revision via `cat $NXF_ASSETS/nf-core/rnaseq/assets/schema_input.json` -->
+<!-- UNVERIFIED: confirm `auto` support for your revision via `cat $NXF_ASSETS/.repos/nf-core/rnaseq/clones/*/assets/schema_input.json` -->
 
 ### 3.2 WGS / WES (germline)
 

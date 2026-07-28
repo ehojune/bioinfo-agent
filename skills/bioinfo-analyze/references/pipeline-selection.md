@@ -23,7 +23,7 @@ nextflow run nf-core/<pipeline> -r <rev> --help
 nextflow run nf-core/<pipeline> -r <rev> --help --show_hidden
 
 # 3. the authoritative samplesheet schema (this is the file the pipeline actually validates against)
-cat "$NXF_ASSETS/nf-core/<pipeline>/assets/schema_input.json"
+cat "$NXF_ASSETS/.repos/nf-core/<pipeline>/clones/*/assets/schema_input.json"
 
 # 4. human-readable rendering of both
 nf-core pipelines schema docs nf-core/<pipeline>
@@ -463,7 +463,7 @@ analysis. Not for single-cell ATAC.
 | `--aligner` | `bowtie2` | the ATAC convention; `chromap` is much faster if you accept its filtering behaviour |
 | `--read_length` | actual read length | selects the matching index/mappability settings |
 | `--macs_gsize` | `2.7e9` for human | wrong gsize silently distorts every peak call |
-| `--blacklist` | ENCODE hg38 blacklist | the pipeline ships blacklists under `assets/blacklists/`; not having one leaves a ring of artefact peaks <!-- UNVERIFIED: confirm the bundled filename in $NXF_ASSETS/nf-core/atacseq/assets/blacklists/ --> |
+| `--blacklist` | ENCODE hg38 blacklist | the pipeline ships blacklists under `assets/blacklists/`; not having one leaves a ring of artefact peaks <!-- UNVERIFIED: confirm the bundled filename in $NXF_ASSETS/.repos/nf-core/atacseq/clones/*/assets/blacklists/ --> |
 | `--mito_name` | `chrM` | must match the FASTA. UCSC hg38 uses `chrM`. Getting this wrong means mito reads are never removed and the library looks far better than it is |
 | `--min_reps_consensus` | 1 or 2 | how many replicates a peak must appear in to enter the consensus set. **This is a bounded choice — state it in the handoff** |
 
@@ -499,7 +499,7 @@ differential binding as a finished product (same limitation as atacseq).
 revisions, and control rows themselves leaving `antibody`/`control` empty.
 <!-- UNVERIFIED: the exact 2.x column set (whether `replicate` and `control_replicate` are present)
      is the single thing to check before writing this samplesheet. Read
-     $NXF_ASSETS/nf-core/chipseq/assets/schema_input.json. Do not guess. -->
+     $NXF_ASSETS/.repos/nf-core/chipseq/clones/*/assets/schema_input.json. Do not guess. -->
 
 **Parameters that matter here:** `--narrow_peak` vs broad (default is broad in some revisions —
 check; TFs want narrow, H3K27me3/H3K36me3 want broad), `--macs_gsize 2.7e9`, `--blacklist`,

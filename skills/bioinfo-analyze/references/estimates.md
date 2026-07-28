@@ -145,7 +145,7 @@ nf-core assigns resource labels per process. Typical requests, before capping:
 | `process_high` | 12 | 72 GB |
 | `process_high_memory` | — | 200 GB |
 
-<!-- UNVERIFIED: these are the conventional nf-core base.config values; confirm for your revision with `cat $NXF_ASSETS/nf-core/<pipeline>/conf/base.config` -->
+<!-- UNVERIFIED: these are the conventional nf-core base.config values; confirm for your revision with `cat $NXF_ASSETS/.repos/nf-core/<pipeline>/clones/*/conf/base.config` -->
 
 `process_high`'s 72 GB and `process_high_memory`'s 200 GB exceed this box. Cap them or Nextflow will
 either refuse to schedule or attempt them and OOM.

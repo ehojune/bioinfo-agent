@@ -266,7 +266,7 @@ re-derives it from the pipeline you are actually about to run:
 
 ```bash
 nextflow run nf-core/<pipeline> -r <rev> --help
-cat "$NXF_ASSETS/nf-core/<pipeline>/assets/schema_input.json"
+cat "$NXF_ASSETS/.repos/nf-core/<pipeline>/clones/*/assets/schema_input.json"
 nf-core pipelines schema docs
 ```
 

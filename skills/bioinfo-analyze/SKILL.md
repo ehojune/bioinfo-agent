@@ -64,7 +64,7 @@ first run of a pipeline at a revision you have not used on this machine:
 ```bash
 nextflow info nf-core/<pipeline>                       # available revisions
 nextflow run nf-core/<pipeline> -r <rev> --help
-cat "$NXF_ASSETS/nf-core/<pipeline>/assets/schema_input.json"   # authoritative column list
+cat "$NXF_ASSETS/.repos/nf-core/<pipeline>/clones/*/assets/schema_input.json"   # authoritative column list
 nf-core pipelines schema docs                          # nf-core/tools >= 3.x; older: nf-core schema docs
 ```
 

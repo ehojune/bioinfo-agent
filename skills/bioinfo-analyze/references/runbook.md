@@ -172,7 +172,7 @@ explicit yes before launching; do not discover it at hour 25.
 index *construction* for human peaks well above this machine's RAM. Set `aligner: bwa-mem` in
 `params.yaml` to reuse the index we already have.
 <!-- UNVERIFIED: confirm the aligner option name and accepted values for the pinned revision via
-     `nextflow run nf-core/sarek -r <REV> --help` and `grep -n aligner $NXF_ASSETS/nf-core/sarek/nextflow_schema.json` -->
+     `nextflow run nf-core/sarek -r <REV> --help` and `grep -n aligner $NXF_ASSETS/.repos/nf-core/sarek/clones/*/nextflow_schema.json` -->
 
 ### Samplesheet schema: re-derive it, do not trust a table
 
@@ -183,8 +183,8 @@ samplesheet for a pipeline/revision combination you have not used before:
 REV=3.14.0; PIPE=rnaseq
 nextflow pull nf-core/$PIPE -r $REV
 nextflow run nf-core/$PIPE -r $REV --help
-cat "$NXF_ASSETS/nf-core/$PIPE/assets/schema_input.json"
-head -3 "$NXF_ASSETS/nf-core/$PIPE/assets/samplesheet.csv"     # shipped example, if present
+cat "$NXF_ASSETS/.repos/nf-core/$PIPE/clones/*/assets/schema_input.json"
+head -3 "$NXF_ASSETS/.repos/nf-core/$PIPE/clones/*/assets/samplesheet.csv"     # shipped example, if present
 ```
 
 `schema_input.json` is authoritative: it lists required columns, allowed values (e.g. `strandedness`

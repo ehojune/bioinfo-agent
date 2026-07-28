@@ -284,7 +284,7 @@ cat <<EOF
 
       nf-core --help
       nextflow run nf-core/rnaseq -r <rev> --help
-      cat \$NXF_ASSETS/nf-core/rnaseq/assets/schema_input.json
+      cat \$NXF_ASSETS/.repos/nf-core/rnaseq/clones/*/assets/schema_input.json
 
   Next:  bash \$BIOINFO_HOME/bootstrap/04-refs.sh
 ============================================================================

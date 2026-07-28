@@ -25,7 +25,7 @@ nextflow pull nf-core/rnaseq -r 3.18.0
 nextflow info nf-core/rnaseq
 
 # 3. Read the input schema. This is ground truth.
-cat "$NXF_ASSETS/nf-core/rnaseq/assets/schema_input.json"
+cat "$NXF_ASSETS/.repos/nf-core/rnaseq/clones/*/assets/schema_input.json"
 ```
 
 A one-liner that turns the schema into a column table, for the common
@@ -194,7 +194,7 @@ derived from sample and lane — approximately
 `@RG ID:<sample>_<lane> SM:<sample> LB:<sample> PU:<lane> PL:ILLUMINA`.
 
 <!-- UNVERIFIED: exact @RG ID construction. Confirm by reading
-     $NXF_ASSETS/nf-core/sarek/modules/nf-core/bwa/mem/ and the sarek `main.nf` meta handling,
+     $NXF_ASSETS/.repos/nf-core/sarek/clones/*/modules/nf-core/bwa/mem/ and the sarek `main.nf` meta handling,
      or just `samtools view -H` the first BAM out of a stub-free single-sample run. -->
 
 Read groups are not cosmetic:
@@ -315,7 +315,7 @@ perfectly and reports every sign inverted.
 
 <!-- UNVERIFIED: 1.5.x may also accept `pairing`, `exclude_samples_col` and
      `exclude_samples_values` columns. Verify with
-     `cat $NXF_ASSETS/nf-core/differentialabundance/assets/schema_contrasts.json`
+     `cat $NXF_ASSETS/.repos/nf-core/differentialabundance/clones/*/assets/schema_contrasts.json`
      (filename may differ — list assets/ if it is not there). -->
 
 Failure modes specific to this pipeline:

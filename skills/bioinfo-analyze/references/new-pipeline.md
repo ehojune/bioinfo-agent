@@ -132,7 +132,7 @@ We run `-profile docker` against the engine inside the distro (not Docker Deskto
 ```bash
 # what images the pipeline will want
 grep -rhoE "(quay\.io|docker\.io|community\.wave\.seqera\.io|ghcr\.io)/[A-Za-z0-9._/:@-]+" \
-     "$NXF_ASSETS/nf-core/<name>/modules" | sort -u
+     "$NXF_ASSETS/.repos/nf-core/<name>/clones/*/modules" | sort -u
 ```
 
 Two things go wrong. Older pipelines pin biocontainer tags that have since been retagged or
@@ -149,7 +149,7 @@ Read `conf/base.config` in the cloned asset directory and map the process labels
 override it in `config/local.config` rather than editing the pipeline.
 
 ```bash
-sed -n '/withLabel/,$p' "$NXF_ASSETS/nf-core/<name>/conf/base.config"
+sed -n '/withLabel/,$p' "$NXF_ASSETS/.repos/nf-core/<name>/clones/*/conf/base.config"
 ```
 
 ### 2.7 References
@@ -164,7 +164,7 @@ exists to prevent.
 jq -r '.["$defs"] // .definitions | to_entries[]
        | select(.key | test("reference|genome"; "i"))
        | .value.properties | keys[]' \
-  "$NXF_ASSETS/nf-core/<name>/nextflow_schema.json"
+  "$NXF_ASSETS/.repos/nf-core/<name>/clones/*/nextflow_schema.json"
 ```
 
 <!-- UNVERIFIED: nextflow_schema.json switched from "definitions" to "$defs" across nf-core/tools
