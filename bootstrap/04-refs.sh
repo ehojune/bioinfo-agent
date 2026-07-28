@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 04-refs.sh — materialise $BIOINFO_REFS from config/refs.manifest.tsv.
 #
-#   bash /mnt/d/bioinfo/bootstrap/04-refs.sh [--dry-run] [--force] [--quiet]
+#   bash /mnt/d/bioinfo-agent/bootstrap/04-refs.sh [--dry-run] [--force] [--quiet]
 #                                            [--manifest PATH] [--refs PATH]
 #
 # The manifest is the source of truth. This script never invents a path and never
@@ -21,7 +21,7 @@
 if [ -z "${BIOINFO_CRLF_REEXEC:-}" ] && grep -q $'\r' "$0" 2>/dev/null; then export BIOINFO_CRLF_REEXEC=1; exec bash <(tr -d '\r' < "$0") "$@"; fi  # CRLF self-heal
 set -euo pipefail
 
-BIOINFO_HOME_V="${BIOINFO_HOME:-/mnt/d/bioinfo}"
+BIOINFO_HOME_V="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}"
 REFS="${BIOINFO_REFS:-/refs}"
 MANIFEST="$BIOINFO_HOME_V/config/refs.manifest.tsv"
 DRY=0; FORCE=0; QUIET=0

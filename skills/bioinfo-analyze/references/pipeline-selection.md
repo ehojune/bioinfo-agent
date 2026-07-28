@@ -124,7 +124,7 @@ second machine. Consequences:
 Every command in this document elides the constant preamble:
 
 ```bash
-export BIOINFO_HOME=/mnt/d/bioinfo
+export BIOINFO_HOME=/mnt/d/bioinfo-agent
 export BIOINFO_REFS=/refs
 export NXF_ASSETS="$BIOINFO_REFS/cache/nf-assets"
 

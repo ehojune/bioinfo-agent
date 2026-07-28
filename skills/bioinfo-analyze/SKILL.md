@@ -80,7 +80,7 @@ Always pass `-r <rev>` explicitly. A run without a pinned revision is not reprod
   slower. The Nextflow **work directory, the launch directory** (it holds `.nextflow/cache`, which
   `-resume` depends on), **container images, and index files must all be on ext4.** Only
   sequentially-read reference files may be symlinked out to `/mnt/d`.
-- **Paths**: repo `$BIOINFO_HOME` = `/mnt/d/bioinfo`; references `$BIOINFO_REFS` = `/refs`;
+- **Paths**: repo `$BIOINFO_HOME` = `/mnt/d/bioinfo-agent`; references `$BIOINFO_REFS` = `/refs`;
   scratch/work/results on ext4 under `$BIOINFO_WORK` = `/work`. All four are exported by
   `~/.bioinfo.env`, which `bootstrap/03-nextflow.sh` generates. If `$BIOINFO_WORK` is ever empty,
   stop: `-work-dir $BIOINFO_WORK/<run-id>` becomes `-work-dir /<run-id>` and the run tries to write

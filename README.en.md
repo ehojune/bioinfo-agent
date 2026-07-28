@@ -118,7 +118,7 @@ Both mechanisms point Claude at the same files. Pick one.
 ### (a) `install.ps1` — junctions. Verified working on this machine.
 
 ```powershell
-cd D:\bioinfo
+cd D:\bioinfo-agent
 .\install.ps1 -WhatIf          # dry run, shows every action, changes nothing
 .\install.ps1                  # do it
 ```
@@ -166,7 +166,7 @@ after editing the agent.
 Start here, always, before theorising:
 
 ```bash
-bash /mnt/d/bioinfo/bootstrap/05-verify.sh
+bash /mnt/d/bioinfo-agent/bootstrap/05-verify.sh
 ```
 
 It walks every layer — distro, systemd, Docker daemon, Java, Nextflow, `$BIOINFO_REFS` contents,
@@ -209,7 +209,7 @@ Inside `Ubuntu-24.04`: user `ehojune` (uid 1000, sudo, NOPASSWD). `/etc/wsl.conf
 with the default data-root `/var/lib/docker`, which is already inside the D: VHDX, so there is
 nothing to relocate.
 
-**Path translation:** `D:\bioinfo` (Windows) == `/mnt/d/bioinfo` (WSL). Write file paths in whichever
+**Path translation:** `D:\bioinfo-agent` (Windows) == `/mnt/d/bioinfo-agent` (WSL). Write file paths in whichever
 form matches the shell you are in.
 
 **Performance rule that overrides convenience:** `/mnt/c`, `/mnt/d`, `/mnt/e` go through Windows

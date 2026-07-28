@@ -2,7 +2,7 @@
 # 03-nextflow.sh — Nextflow + nf-core tooling + the environment contract.
 # Run as the PIPELINE USER, not root:
 #
-#   wsl -d Ubuntu-24.04 -- bash /mnt/d/bioinfo/bootstrap/03-nextflow.sh
+#   wsl -d Ubuntu-24.04 -- bash /mnt/d/bioinfo-agent/bootstrap/03-nextflow.sh
 #
 # Flags:  --update   also self-update an existing Nextflow and upgrade nf-core
 #         --help
@@ -33,7 +33,7 @@ if [ "$(id -u)" -eq 0 ]; then
 fi
 
 # ------------------------------------------------------------------ the contract
-BIOINFO_HOME_V="${BIOINFO_HOME:-/mnt/d/bioinfo}"
+BIOINFO_HOME_V="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}"
 BIOINFO_REFS_V="${BIOINFO_REFS:-/refs}"
 WORK_ROOT="${BIOINFO_WORK_ROOT:-/work}"
 
@@ -98,7 +98,7 @@ if [ -x "$NXF_BIN" ]; then
 else
   # The official installer writes ./nextflow into $PWD. Do it in a scratch dir so a
   # failed download cannot leave a stray launcher in whatever directory we were called
-  # from (which, on a bad day, is /mnt/d/bioinfo).
+  # from (which, on a bad day, is /mnt/d/bioinfo-agent).
   TMPD="$(mktemp -d)"
   trap 'rm -rf "$TMPD"' EXIT
   info "downloading via get.nextflow.io"

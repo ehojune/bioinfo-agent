@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 05-verify.sh — end-to-end substrate health check. Read-only, safe to run anytime.
 #
-#   bash /mnt/d/bioinfo/bootstrap/05-verify.sh
+#   bash /mnt/d/bioinfo-agent/bootstrap/05-verify.sh
 #
 # Prints one line per check and a final verdict: READY, or a numbered list of what is
 # broken. Exits non-zero unless READY. Warnings never fail the run — a missing VEP cache
@@ -26,7 +26,7 @@ else
   ENV_SOURCED=0
 fi
 
-BIOINFO_HOME_V="${BIOINFO_HOME:-/mnt/d/bioinfo}"
+BIOINFO_HOME_V="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}"
 REFS="${BIOINFO_REFS:-/refs}"
 EXPECT_DISTRO="${BIOINFO_DISTRO:-Ubuntu-24.04}"
 

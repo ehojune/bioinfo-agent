@@ -28,7 +28,7 @@
   Diagnostics only. Useful for "why can't I see my distro?" triage.
 
 .EXAMPLE
-  powershell -ExecutionPolicy Bypass -File D:\bioinfo\bootstrap\00-windows-wsl.ps1
+  powershell -ExecutionPolicy Bypass -File D:\bioinfo-agent\bootstrap\00-windows-wsl.ps1
 
 .EXAMPLE
   .\00-windows-wsl.ps1 -Drive E -Distro Ubuntu-24.04 -DryRun

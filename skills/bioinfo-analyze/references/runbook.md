@@ -29,7 +29,7 @@ Two directories per run, one on each filesystem, sharing a run ID.
 ```
 RUNID = <YYYYMMDD>-<pipeline>-<slug>          e.g. 20260728-rnaseq-koges-pilot
 
-/mnt/d/bioinfo/runs/$RUNID/            NTFS via drvfs — human-visible, small text + deliverables
+/mnt/d/bioinfo-agent/runs/$RUNID/            NTFS via drvfs — human-visible, small text + deliverables
   ├── run-plan.md                        written BEFORE launch, never edited after
   ├── samplesheet.csv
   ├── params.yaml
@@ -94,7 +94,7 @@ sudo chown -R "$USER:$USER" /work
 Put this in `~/.bashrc` (or the skill's env preamble):
 
 ```bash
-export BIOINFO_HOME=/mnt/d/bioinfo
+export BIOINFO_HOME=/mnt/d/bioinfo-agent
 export BIOINFO_REFS=/refs
 export NXF_WORKROOT=/work/nxf
 export NXF_ASSETS="$BIOINFO_REFS/cache/nf-assets"    # pipeline clones live on ext4
@@ -400,7 +400,7 @@ set -euo pipefail
 RUNID=20260728-rnaseq-koges-pilot
 PIPE=nf-core/rnaseq
 REV=3.14.0                                  # example only — pin what `nextflow info` reports
-RUNDIR=/mnt/d/bioinfo/runs/$RUNID
+RUNDIR=/mnt/d/bioinfo-agent/runs/$RUNID
 NXFDIR=/work/nxf/$RUNID
 TS=$(date +%Y%m%d-%H%M%S)
 
@@ -412,7 +412,7 @@ nohup nextflow -log "$NXFDIR/.nextflow.log" \
     -r "$REV" \
     -profile docker \
     -params-file "$RUNDIR/params.yaml" \
-    -c /mnt/d/bioinfo/config/local.config \
+    -c /mnt/d/bioinfo-agent/config/local.config \
     --outdir "$NXFDIR/results" \
     -work-dir "$NXFDIR/work" \
     -with-report   "$NXFDIR/reports/report.$TS.html" \

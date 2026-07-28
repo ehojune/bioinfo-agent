@@ -8,7 +8,14 @@ nf-core 파이프라인을 로컬에서 실제로 돌리기 위한 자립형 환
 사람 유전체 작업을 전제로 만들었다. 단일염기 수준 WGS/WES, RNA-seq, 메틸화, ATAC/ChIP, 단일세포, 그리고
 이 머신에 이미 레퍼런스가 갖춰져 있는 STR·반복서열 확장 분석과 한국인 집단 대립유전자빈도 비교까지.
 
-영문판은 [README.en.md](README.en.md).
+- **리포지토리**: [`ehojune/bioinfo-agent`](https://github.com/ehojune/bioinfo-agent) (private)
+- **이 머신의 위치**: `D:\bioinfo-agent` == `/mnt/d/bioinfo-agent` (WSL)
+- **영문판**: [README.en.md](README.en.md)
+
+디렉토리 이름과 리포 이름은 같게 유지한다. `$BIOINFO_HOME`, 스킬 정션, `bootstrap/*.sh` 의 기본값이
+모두 이 경로를 기준으로 잡히기 때문에, 폴더 이름만 바꾸면 26곳이 한꺼번에 어긋난다. 실제로 `bioinfo` →
+`bioinfo-agent` 로 옮겼을 때 그렇게 됐다. 옮겨야 한다면 [경로 이름 바꾸기](#경로-이름-바꾸기) 절차를
+따른다.
 
 ---
 
@@ -62,7 +69,23 @@ bioinfo/
 
 ## 새 컴퓨터에 세팅하기
 
-순서대로 실행한다. 모든 스크립트가 멱등이라 이미 끝난 단계를 다시 돌려도 재확인만 하고 넘어간다.
+private 리포이므로 clone 전에 인증이 한 번 필요하다.
+
+```bash
+gh auth login
+```
+
+```bash
+git clone https://github.com/ehojune/bioinfo-agent.git D:\bioinfo-agent
+```
+
+`gh` 가 없으면 Git Credential Manager가 clone 시점에 브라우저를 띄운다. 어느 쪽이든 인증은 사람이
+한다 — 에이전트에게 토큰을 넘기지 않는다.
+
+**디렉토리 이름을 `bioinfo-agent` 로 유지할 것.** 다른 이름으로 clone 하면 아래 스크립트들의
+`$BIOINFO_HOME` 기본값과 어긋난다. 굳이 바꾸려면 아래 [경로 이름 바꾸기](#경로-이름-바꾸기) 를 본다.
+
+그다음 순서대로 실행한다. 모든 스크립트가 멱등이라 이미 끝난 단계를 다시 돌려도 재확인만 하고 넘어간다.
 
 | # | 스크립트 | 실행 위치 | 소요 | 하는 일 |
 |---|---|---|---|---|
@@ -113,6 +136,38 @@ swap=16GB
 4. `bootstrap/05-verify.sh` 재실행. 진짜로 없는 것들이 `MISSING` 으로 뜨는 건 정상이다 — 스크립트가
    일을 한 거지 실패한 게 아니다. `mode=fetch` 나 `mode=build` 로 채워 넣으면 된다.
 
+### 경로 이름 바꾸기
+
+리포 경로는 세 곳에 박혀 있고, 폴더 이름만 바꾸면 셋 다 조용히 어긋난다. `bioinfo` →
+`bioinfo-agent` 로 옮길 때 실제로 그랬다. 순서대로 한다.
+
+1. **리포 안의 경로 문자열.** `D:\<old>` 와 `/mnt/d/<old>` 가 26곳에 있었다. 재실행에 안전하게:
+
+   ```bash
+   git ls-files -z | xargs -0 perl -pi -e 's{/mnt/d/OLD(?!-NEWSUFFIX)}{/mnt/d/NEW}g; s{D:\x5cOLD(?!-NEWSUFFIX)}{D:\x5cNEW}g'
+   ```
+
+   Windows 경로의 백슬래시는 셸을 거치며 이스케이프가 어긋나기 쉬우니 `\x5c` 로 직접 쓴다.
+   끝나면 `grep -rn 'OLD' .` 로 0건인지 확인한다.
+
+2. **스킬 정션.** `~/.claude/skills/<skill>` 이 옛 경로를 가리키는 죽은 정션으로 남는다.
+   `Test-Path` 는 정션 자체가 있으니 `True` 를 돌려주므로 이것만으로는 안 잡힌다.
+
+   ```powershell
+   .\install.ps1 -ExtraConfigDirs 'C:\Users\admin\.claude' -Force
+   ```
+
+   `-Force` 가 필요하다. 잘못된 곳을 가리키는 정션은 기본적으로 교체하지 않는다.
+
+3. **WSL 환경 계약.** `~/.config/bioinfo/env.sh` 의 `BIOINFO_HOME` 이 옛 경로다.
+
+   ```bash
+   BIOINFO_HOME=/mnt/d/NEW bash /mnt/d/NEW/bootstrap/03-nextflow.sh
+   ```
+
+마지막으로 `bootstrap/05-verify.sh` 가 READY를 찍는지 본다. `/refs` 는 영향받지 않는다 — 매니페스트는
+레퍼런스 원본(`/mnt/d/Research/...`)을 가리키고 리포 경로와 무관하다.
+
 ---
 
 ## 스킬과 에이전트 설치
@@ -126,7 +181,7 @@ swap=16GB
 ### (a) `install.ps1` — 정션 방식. 이 머신에서 동작 확인됨.
 
 ```powershell
-cd D:\bioinfo
+cd D:\bioinfo-agent
 .\install.ps1 -WhatIf
 .\install.ps1
 ```
@@ -170,7 +225,7 @@ cd D:\bioinfo
 이론을 세우기 전에 항상 여기부터.
 
 ```bash
-bash /mnt/d/bioinfo/bootstrap/05-verify.sh
+bash /mnt/d/bioinfo-agent/bootstrap/05-verify.sh
 ```
 
 배포판, systemd, Docker 데몬, Java, Nextflow, `$BIOINFO_REFS` 내용, ext4 여유 공간까지 훑고 항목별로
@@ -251,7 +306,7 @@ bash bootstrap/06-tls-trust.sh --accept   # 발견한 CA를 세 저장소에 설
 기본 사용자 `ehojune`, `appendWindowsPath=false`. OpenJDK 17.0.19. Docker 엔진 29.6.2, data-root는 기본값
 `/var/lib/docker` 인데 이미 D: VHDX 안이라 옮길 게 없다. Nextflow 26.04.6, nf-core 4.0.3.
 
-**경로 변환**: `D:\bioinfo` (Windows) == `/mnt/d/bioinfo` (WSL). 지금 있는 셸에 맞는 형식으로 쓴다.
+**경로 변환**: `D:\bioinfo-agent` (Windows) == `/mnt/d/bioinfo-agent` (WSL). 지금 있는 셸에 맞는 형식으로 쓴다.
 
 **편의보다 우선하는 성능 규칙**: `/mnt/c`, `/mnt/d`, `/mnt/e` 는 Windows drvfs를 거치므로 배포판 네이티브
 ext4보다 대략 5~10배 느리다. Nextflow work 디렉토리, 컨테이너 이미지, 랜덤 액세스가 많은 인덱스 파일은

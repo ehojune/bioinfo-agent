@@ -60,7 +60,7 @@ of a previous run.
   and poll the log file; do not hold a foreground `wsl.exe` open for six hours.
 - The other distro, **`Ubuntu-legacy`**, is a read-only archive of the user's old environment. Pull
   a script or a data file out of it if you need one. Never run a pipeline there and never write to it.
-- Repo `$BIOINFO_HOME` = `/mnt/d/bioinfo` (= `D:\bioinfo` from Windows). Config in `config/`,
+- Repo `$BIOINFO_HOME` = `/mnt/d/bioinfo-agent` (= `D:\bioinfo-agent` from Windows). Config in `config/`,
   run records in `runs/<runid>/`.
 - References `$BIOINFO_REFS` = `/refs`, governed by `config/refs.manifest.tsv`. Standard paths only.
   Sarek → build `GRCh38gatk`; RNA-seq and most else → `GRCh38`; Korean assembly → `KOREF1`.

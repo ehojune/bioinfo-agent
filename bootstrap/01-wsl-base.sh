@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 01-wsl-base.sh — distro baseline. Run as root inside the WSL distro.
 #
-#   wsl -d Ubuntu-24.04 -u root -- bash /mnt/d/bioinfo/bootstrap/01-wsl-base.sh
+#   wsl -d Ubuntu-24.04 -u root -- bash /mnt/d/bioinfo-agent/bootstrap/01-wsl-base.sh
 #
 # Writes /etc/wsl.conf, creates the pipeline user with passwordless sudo, installs the
 # base toolchain, and stakes out the two ext4 directories everything else depends on
@@ -203,14 +203,14 @@ if [ "$RESTART_NEEDED" -eq 1 ] || [ "$(ps -p 1 -o comm=)" != "systemd" ]; then
 
   Then continue:
 
-      wsl -d $DISTRO -u root -- bash /mnt/d/bioinfo/bootstrap/02-docker.sh
+      wsl -d $DISTRO -u root -- bash /mnt/d/bioinfo-agent/bootstrap/02-docker.sh
 ============================================================================
 EOF
 else
   cat <<EOF
 ============================================================================
   Baseline in place and systemd is already PID 1 — no restart needed.
-  Next:  wsl -d $DISTRO -u root -- bash /mnt/d/bioinfo/bootstrap/02-docker.sh
+  Next:  wsl -d $DISTRO -u root -- bash /mnt/d/bioinfo-agent/bootstrap/02-docker.sh
 ============================================================================
 EOF
 fi
