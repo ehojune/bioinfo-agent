@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 778" width="880" height="778"
+     role="img" aria-label="Claude Code 세션 예시: 한 줄 요청으로 시작해 기존 BAM 재사용 판단과 승인 프롬프트까지">
+  <title>실제 세션 — 한 줄 요청에서 승인 프롬프트까지</title>
+  <desc>사용자가 데이터 경로와 분석 목적을 한 줄로 말하면, 에이전트가 디렉토리와 BAM 헤더를 직접 확인해
+        기존 정렬 결과를 재사용할 수 있다고 판단하고, 산출물 범위를 사람에게 물어본다.</desc>
+
+  <defs>
+    <style>
+      .m { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
+                        "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR",
+                        "Segoe UI Symbol", monospace;
+           font-size: 12.5px; }
+      .fg   { fill: #e6edf3; }
+      .dim  { fill: #7d8590; }
+      .dim2 { fill: #656c76; }
+      .ok   { fill: #3fb950; }
+      .blue { fill: #79c0ff; }
+      .amb  { fill: #d29922; }
+      .clay { fill: #d97757; }
+      .b    { font-weight: 700; }
+      .sm   { font-size: 11.5px; }
+    </style>
+  </defs>
+
+  <!-- ── terminal chrome ──────────────────────────────────────────────────── -->
+  <rect x="8" y="8" width="864" height="762" rx="12" fill="#0d1117" stroke="#30363d" stroke-width="1.2"/>
+  <circle cx="32" cy="26" r="5.5" fill="#ff5f57"/>
+  <circle cx="51" cy="26" r="5.5" fill="#febc2e"/>
+  <circle cx="70" cy="26" r="5.5" fill="#28c840"/>
+  <text class="m sm dim" x="94" y="30">Claude Code &#160;·&#160; /mnt/d/Research/y_str_202605</text>
+  <line x1="8" y1="44" x2="872" y2="44" stroke="#30363d" stroke-width="1"/>
+
+  <!-- ── install ──────────────────────────────────────────────────────────── -->
+  <text class="m" x="28" y="70"><tspan class="dim2">$ </tspan><tspan class="fg">/plugin marketplace add ehojune/bioinfo-agent</tspan></text>
+  <text class="m ok" x="48" y="89">✓ Successfully added marketplace: bioinfo</text>
+
+  <!-- ── the whole input: one sentence ────────────────────────────────────── -->
+  <rect x="24" y="106" width="832" height="54" rx="8" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+  <rect x="24" y="106" width="3" height="54" fill="#1f6feb"/>
+  <text class="m blue" x="40" y="128">❯</text>
+  <text class="m fg"   x="60" y="128">/mnt/d/Research/y_str_202605에 SRR26793256 fastq로 WGRS 분석해줘.</text>
+  <text class="m fg"   x="60" y="147">한국어로 응답.</text>
+
+  <!-- ── the agent looks around before planning ───────────────────────────── -->
+  <text class="m clay" x="28" y="182">●</text>
+  <text class="m fg"   x="48" y="182">먼저 디렉토리 상태와 새로 추가된 bioinfo 플러그인의 기능을 확인하겠습니다.</text>
+  <text class="m dim2" x="48" y="201">Listed 2 directories · ran 1 shell command</text>
+
+  <text class="m clay" x="28" y="226">●</text>
+  <text class="m fg"   x="48" y="226">이 프로젝트는 Y-STR 분석을 위한 WGRS(전장유전체 재서열분석) 작업이며, 이미 수동으로</text>
+  <text class="m fg"   x="48" y="245">BWA 정렬까지 진행된 흔적이 있습니다 (SRR26793256.sorted.bam).</text>
+
+  <text class="m clay" x="28" y="270">●</text>
+  <text class="m blue" x="48" y="270">Skill(bioinfo:bioinfo-analyze)</text>
+  <text class="m ok"   x="48" y="289">✓ Successfully loaded skill</text>
+
+  <text class="m clay" x="28" y="314">●</text>
+  <text class="m fg"   x="48" y="314">WGRS 분석 계획을 세우기 위해 먼저 실제 데이터와 환경을 점검하겠습니다.</text>
+  <text class="m dim2" x="48" y="333">Searched 3 patterns · read 6 files · listed 3 directories · ran 6 shell commands</text>
+
+  <text class="m clay" x="28" y="358">●</text>
+  <text class="m fg"   x="48" y="358">기존 BAM 파일 헤더를 빠르게 확인해서 재사용 가능성을 검증하겠습니다</text>
+  <text class="m fg"   x="48" y="377">(Docker로 samtools 실행, 헤더만 조회하므로 빠름).</text>
+  <text class="m dim2" x="48" y="396">Ran 2 shell commands</text>
+
+  <!-- ── what reading the header actually bought ──────────────────────────── -->
+  <rect x="24" y="414" width="832" height="96" rx="8" fill="#1a1509" stroke="#574317" stroke-width="1.2"/>
+  <text class="m amb b" x="44" y="437">핵심 판단</text>
+  <text class="m fg"    x="44" y="460">기존 sorted.bam은 sarek이 쓰는 GRCh38gatk 참조서열(같은 파일)에 정렬되어 있고, 단일</text>
+  <text class="m fg"    x="44" y="479">리드그룹(HYYTGDSXY.3)이며 중복제거(MarkDuplicates)는 아직 수행되지 않았습니다.</text>
+  <text class="m fg"    x="44" y="498">이 정렬을 재사용하면 FASTQ부터 재정렬하는 수십~수백 시간을 절약할 수 있습니다.</text>
+
+  <!-- ── and then it stops and asks ───────────────────────────────────────── -->
+  <text class="m clay" x="28" y="536">●</text>
+  <text class="m fg"   x="48" y="536">계획을 확정하기 전에 몇 가지 범위를 확인하겠습니다.</text>
+
+  <text class="m fg b" x="28" y="562">WGRS 분석의 최종 산출물 범위를 어디까지로 할까요?</text>
+  <text class="m dim"  x="28" y="581">기존 sorted.bam을 재사용해 sarek --step markduplicates 부터 재진입하는 것을 전제로 함.</text>
+  <text class="m dim"  x="28" y="600">FASTQ 재정렬은 43x 커버리지 기준 90~270시간이 걸려 비효율적.</text>
+
+  <!-- option 1 — recommended -->
+  <rect x="24" y="618" width="406" height="100" rx="8" fill="#0d1f14" stroke="#238636" stroke-width="1.4"/>
+  <text class="m ok b"  x="40" y="641">❯ 1. 전처리 + Germline 변이콜링 (권장)</text>
+  <text class="m dim"   x="40" y="663">MarkDuplicates → (선택적 BQSR) → HaplotypeCaller</text>
+  <text class="m fg"    x="40" y="685">분석용 CRAM과 SNV/indel VCF를 생성.</text>
+  <text class="m fg"    x="40" y="704">king(친족분석)이 SNP VCF를 요구한다면 이 범위.</text>
+
+  <!-- option 2 -->
+  <rect x="450" y="618" width="406" height="100" rx="8" fill="#0d1726" stroke="#1f6feb" stroke-width="1.2"/>
+  <text class="m blue b" x="466" y="641">2. 전처리만 (MarkDuplicates까지)</text>
+  <text class="m dim"    x="466" y="663">중복제거된 CRAM만, 변이콜링 없음</text>
+  <text class="m fg"     x="466" y="685">ExpansionHunter 등 STR 툴은 BAM/CRAM만</text>
+  <text class="m fg"     x="466" y="704">있으면 되므로 이걸로 충분하고 훨씬 빠름.</text>
+
+  <text class="m dim2"    x="28" y="738">3. Type something. &#160;·&#160; 4. Chat about this</text>
+  <text class="m sm dim2" x="28" y="755">Enter to select · Tab/Arrow keys to navigate · Esc to cancel</text>
+</svg>
