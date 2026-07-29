@@ -3,12 +3,23 @@
 </p>
 
 <p align="center">
-  <a href="#설치">설치</a> ·
+  <img src="https://img.shields.io/badge/Claude_Code-skill_%2B_agent-D97757?style=flat-square&logo=anthropic&logoColor=white" alt="Claude Code">
+  <img src="https://img.shields.io/badge/Nextflow-workflow_engine-0DC09D?style=flat-square&logo=nextflow&logoColor=white" alt="Nextflow">
+  <img src="https://img.shields.io/badge/nf--core-9_pipelines-24B064?style=flat-square" alt="nf-core">
+  <img src="https://img.shields.io/badge/Docker_%7C_Apptainer-containers-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Containers">
+  <br>
+  <img src="https://img.shields.io/badge/Linux_%7C_WSL2_%7C_HPC-supported-333333?style=flat-square&logo=linux&logoColor=white" alt="Platforms">
+  <img src="https://img.shields.io/badge/Java-17%2B-ED8B00?style=flat-square&logo=openjdk&logoColor=white" alt="Java 17+">
+  <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT">
+</p>
+
+<p align="center">
+  <a href="#빠른-시작">빠른 시작</a> ·
+  <a href="#직접-설치">직접 설치</a> ·
   <a href="#사용법">사용법</a> ·
   <a href="#아키텍처">아키텍처</a> ·
   <a href="#지원-파이프라인">파이프라인</a> ·
-  <a href="#예시-sarek-germline-변이-검출">예시</a> ·
-  <a href="docs/other-hosts.md">다른 호스트</a>
+  <a href="#예시-sarek-germline-변이-검출">예시</a>
 </p>
 
 ---
@@ -20,9 +31,45 @@ nf-core Nextflow 파이프라인을 대신 돌려주는 Claude Code 스킬 + 에
 추정해 계획서를 내고, 승인을 받은 뒤 실행·감시하고, MultiQC를 읽어 QC 판정을 돌려준다.
 
 **개인 워크스테이션에서도, 공용 서버나 HPC 클러스터에서도 돈다.** 달라지는 건 컨테이너 엔진과
-executor 설정뿐이고, 스킬·에이전트·레퍼런스 매니페스트는 그대로다.
+executor 설정뿐이다.
 
-리포 전체가 텍스트다. git clone 한 번과 bootstrap 실행으로 같은 환경이 재현된다.
+---
+
+## 빠른 시작
+
+### 스킬만 먼저 써보기 — clone 불필요
+
+```bash
+claude plugin marketplace add ehojune/bioinfo-agent
+claude plugin install bioinfo@bioinfo
+```
+
+끝이다. Claude Code에게 데이터 경로와 원하는 분석을 말하면 된다. 파이프라인 선정, 샘플시트 작성,
+소요 추정, 계획서까지 바로 받을 수 있다.
+
+`claude` CLI가 없으면 먼저:
+
+```bash
+curl -fsSL https://claude.ai/install.sh | bash
+```
+
+### 실제로 파이프라인을 돌리려면
+
+Nextflow, 컨테이너 엔진, 레퍼런스가 필요하다. **직접 세팅하지 말고 Claude Code에게 시키면 된다.**
+
+```
+https://github.com/ehojune/bioinfo-agent
+이거 clone 하고 내 환경에서 쓸 수 있게 설정해줘.
+```
+
+이러면 Claude가 [docs/agent-setup.md](docs/agent-setup.md)를 따라간다. 호스트 종류(개인 PC / 공용
+서버 / 클러스터)를 먼저 판별하고, 필요한 스크립트만 골라 돌리고, 무엇이 준비됐고 무엇이 빠졌는지
+보고한다. **셸 스크립트를 하나씩 순서 맞춰 돌릴 필요가 없다.**
+
+직접 하고 싶으면 [직접 설치](#직접-설치)로.
+
+> 어느 쪽이든 **디스크가 필요하다.** 작업 공간 500GB 이상을 `$HOME` 이 아닌 큰 디스크에 잡는다.
+> 사람 게놈 레퍼런스만 30GB대, 파이프라인 중간 산출물은 최종 결과의 몇 배로 부푼다.
 
 **하지 않는 것**: 생물학적 해석. `duplication 43%, 임계 30% 초과` 까지가 이 에이전트의 일이고,
 그게 연구에 무슨 의미인지는 사람의 일이다.
@@ -51,7 +98,9 @@ nextflow run nf-core/rnaseq -r 3.26.0 -profile docker --input samplesheet.csv --
 
 ---
 
-## 설치
+## 직접 설치
+
+빠른 시작으로 충분하면 이 절은 건너뛴다. 여기는 손으로 세팅하려는 사람을 위한 것이다.
 
 ### 먼저 — 어디서 돌릴 것인가
 
@@ -331,20 +380,12 @@ $BIOINFO_REFS/genomes/GRCh38/fasta/genome.fa
 
 ### 그 밖의 분석
 
-**nf-core에 있으면 조달한다.** 100개 넘게 있고 전부 미리 문서화하는 건 낭비이자 부패의 원인이다.
-성숙도·최근 릴리스·컨테이너 유무를 확인하고 `-profile test` 를 통과시킨 뒤 리비전을 고정한다.
-절차는 [new-pipeline.md](skills/bioinfo-analyze/references/new-pipeline.md).
+**nf-core에 있으면 조달한다.** 100개가 넘고, 요청하면 그때 가져와 쓴다.
 
-```bash
-nf-core pipelines list
-```
+**nf-core에 없어도 한다.** ExpansionHunter, TRGT, HipSTR 같은 STR 도구가 그렇다. 도구를 직접 돌리되
+버전은 컨테이너로 고정하고 실행 기록에 남긴다.
 
-**nf-core에 없으면** — ExpansionHunter, TRGT, HipSTR 같은 STR 도구가 그렇다 — 도구를 직접 돌린다.
-다만 그때도 컨테이너로 버전을 고정하고, 무엇을 어떻게 돌렸는지 실행 기록에 남긴다. 이건
-"기존 파이프라인을 손으로 재현하지 않는다" 와 충돌하지 않는다. 그 규칙은 **sarek이 있는데 sarek을
-다시 짜지 말라**는 뜻이다.
-
-**커버하지 않는 것**: 롱리드(ONT, PacBio) 파이프라인은 위 9개에 없다. 그리고 생물학적 해석.
+**커버하지 않는 것**: 롱리드(ONT, PacBio) 파이프라인, 그리고 생물학적 해석.
 
 ---
 
@@ -456,15 +497,8 @@ dbsnp는 /data/refs/dbsnp_146.hg38.vcf.gz 여기 있어.
 그렇게 말하고 대안을 제시한다 — 샘플 축소, WES 전환, `--tools` 축소, 또는 **클러스터로 옮기기**.
 `executor = 'slurm'` 이면 같은 6샘플이 하루 남짓이다.
 
-### 스키마는 버전마다 바뀐다
-
-```bash
-nextflow info nf-core/sarek                    # 사용 가능한 리비전
-nextflow run nf-core/sarek -r <rev> --help
-find "$NXF_ASSETS" -path '*nf-core/sarek*' -name schema_input.json | head -1
-```
-
-Nextflow 26.x는 에셋을 커밋 sha별 디렉토리에 둔다. 경로를 외워 쓰지 말고 위처럼 찾는다.
+> 위 표는 sarek **3.9.0** 기준이다. nf-core는 리비전마다 컬럼과 파라미터가 바뀌므로, 에이전트는
+> 실행 전에 해당 리비전의 스키마를 직접 확인한 뒤 샘플시트를 만든다.
 
 ---
 
@@ -488,6 +522,7 @@ bioinfo-agent/
 ├── scripts/
 │   └── check-samplesheet.sh  샘플시트 검증 — 경로, 페어링, CRLF, 중복 ID
 ├── docs/
+│   ├── agent-setup.md      **AI용** — repo 주소만 받고 설치를 수행할 때의 절차
 │   ├── other-hosts.md      네이티브 리눅스 / 공용 서버 / 클러스터
 │   └── logo.svg
 └── install.ps1             Windows용 정션 설치

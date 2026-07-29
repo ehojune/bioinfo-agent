@@ -21,12 +21,15 @@
 
   <!-- mark: a double helix whose strands straighten into a pipeline arrow -->
   <g transform="translate(20,20)">
-    <!-- helix rungs, tightening left to right as the strands resolve -->
+    <!-- Helix rungs. Longest where the strands are furthest apart (x=24, x=56); none at the
+         crossings (x=8, 40, 72) where the two strands meet and a rung would have zero length. -->
     <g class="rung">
-      <line x1="22" y1="38" x2="22" y2="82"/>
-      <line x1="40" y1="30" x2="40" y2="90"/>
-      <line x1="58" y1="34" x2="58" y2="86"/>
-      <line x1="76" y1="46" x2="76" y2="74"/>
+      <line x1="17" y1="47" x2="17" y2="73"/>
+      <line x1="24" y1="37" x2="24" y2="83"/>
+      <line x1="31" y1="47" x2="31" y2="73"/>
+      <line x1="49" y1="47" x2="49" y2="73"/>
+      <line x1="56" y1="37" x2="56" y2="83"/>
+      <line x1="63" y1="47" x2="63" y2="73"/>
     </g>
 
     <!-- upper strand: coils twice, then flattens -->
