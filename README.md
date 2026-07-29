@@ -14,6 +14,11 @@
 </p>
 
 <p align="center">
+  <b>한국어</b> ·
+  <a href="README.en.md">English</a>
+</p>
+
+<p align="center">
   <a href="#빠른-시작">빠른 시작</a> ·
   <a href="#실제-세션">실제 세션</a> ·
   <a href="#직접-설치">직접 설치</a> ·
@@ -39,8 +44,8 @@ executor 설정뿐이다.
 그게 연구에 무슨 의미인지는 사람의 일이다.
 
 <p align="center">
-  <img src="docs/how-it-works.svg" width="880"
-       alt="7단계 절차. 1 접수, 2 파이프라인 선정, 3 계획서까지는 읽기 전용이고, 사람이 승인한 뒤 4 사전점검과 stub-run, 5 실행과 감시, 6 QC 판정, 7 인계로 이어진다.">
+  <img src="docs/how-it-works.svg" width="664"
+       alt="7단계 절차. 승인 전에 1 접수, 2 파이프라인 선정, 3 계획서. 여기서 사람이 승인한다. 승인 후에 4 사전점검, 5 실행 및 모니터링, 6 QC 판정, 7 인계.">
 </p>
 
 ---
@@ -102,17 +107,19 @@ Y-STR 프로젝트에서 실제로 오간 세션이다. 읽기 좋게 줄바꿈�
 
 ## Nextflow와 nf-core
 
-**Nextflow** — 생명정보 분석용 워크플로 엔진. 분석 단계를 프로세스로 쓰면 의존성을 따져 병렬로
-돌리고, 각 단계를 컨테이너 안에서 실행하며, 중간 결과를 캐시한다. 그래서:
+**[Nextflow](https://www.nextflow.io/)** ([GitHub](https://github.com/nextflow-io/nextflow) ·
+[문서](https://docs.seqera.io/nextflow/)) — 생명정보 분석용 워크플로 엔진. 분석 단계를 프로세스로
+쓰면 의존성을 따져 병렬로 돌리고, 각 단계를 컨테이너 안에서 실행하며, 중간 결과를 캐시한다. 그래서:
 
 - **재현된다** — 도구 버전이 컨테이너에 고정되므로 6개월 뒤에도, 남의 컴퓨터에서도 같은 결과
 - **재개된다** — 12시간짜리가 11시간째 죽어도 `-resume` 이면 죽은 지점부터
 - **어디서든 돈다** — 같은 코드가 노트북, 서버, SLURM 클러스터, 클라우드에서 실행
 
-**nf-core** — Nextflow 파이프라인 커뮤니티 표준. RNA-seq, 변이 검출, 메틸화 같은 흔한 분석을
-동일한 규약(샘플시트 CSV, `-profile`, `--outdir`, MultiQC 리포트)으로 맞춘 100개 이상의
-파이프라인 모음. 워크플로를 새로 짜기보다 검증된 nf-core 것을 그대로 가져다 쓴다. 그게 이
-에이전트의 기본 방침이다.
+**[nf-core](https://nf-co.re/)** ([GitHub](https://github.com/nf-core) ·
+[파이프라인 목록](https://nf-co.re/pipelines)) — Nextflow 파이프라인 커뮤니티 표준. RNA-seq, 변이
+검출, 메틸화 같은 흔한 분석을 동일한 규약(샘플시트 CSV, `-profile`, `--outdir`, MultiQC 리포트)으로
+맞춘 150개 넘는 파이프라인 모음. 워크플로를 새로 짜기보다 검증된 nf-core 것을 그대로 가져다 쓴다.
+그게 이 에이전트의 기본 방침이다.
 
 ```bash
 nextflow run nf-core/rnaseq -r 3.26.0 -profile docker --input samplesheet.csv --outdir results
@@ -405,7 +412,7 @@ $BIOINFO_REFS/genomes/GRCh38/fasta/genome.fa
 
 ### 그 밖의 분석
 
-**nf-core에 있으면 조달한다.** 100개가 넘고, 요청하면 그때 가져와 쓴다.
+**nf-core에 있으면 조달한다.** 150개가 넘고, 요청하면 그때 가져와 쓴다.
 
 **nf-core에 없어도 한다.** ExpansionHunter, TRGT, HipSTR 같은 STR 도구가 그렇다. 도구를 직접 돌리되
 버전은 컨테이너로 고정하고 실행 기록에 남긴다.

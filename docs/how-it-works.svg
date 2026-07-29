@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 438" width="880" height="438"
-     role="img" aria-label="bioinfo-agent 7단계 절차: 승인 전에는 읽기만 하고, 승인 후에 실행한다">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 664 460" width="664" height="460"
+     role="img" aria-label="7단계 절차. 승인 전에 접수, 파이프라인 선정, 계획서. 사람이 승인한 뒤 사전점검, 실행 및 모니터링, QC 판정, 인계.">
   <title>bioinfo-agent — 7단계 절차</title>
-  <desc>1 접수, 2 파이프라인 선정, 3 계획서까지는 읽기 전용. 사람이 승인한 뒤 4 사전점검과 stub-run,
-        5 실행과 감시, 6 QC 판정, 7 인계를 수행한다.</desc>
+  <desc>승인 전: 1 접수, 2 파이프라인 선정, 3 계획서. 여기서 사람이 승인한다.
+        승인 후: 4 사전점검, 5 실행 및 모니터링, 6 QC 판정, 7 인계.</desc>
 
   <defs>
     <style>
@@ -11,137 +11,95 @@
       .mono { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
                            "Malgun Gothic", monospace; }
 
-      .head    { font-size: 13px; fill: #57606a; }
-      .head-b  { font-weight: 700; fill: #1f2328; }
-      .band    { font-size: 12.5px; font-weight: 700; letter-spacing: .2px; }
-      .band-b  { fill: #1a63cf; }
-      .band-g  { fill: #1a7f37; }
-      .hint    { font-size: 11.5px; fill: #8c959f; }
-      .title   { font-size: 13.5px; font-weight: 700; fill: #1f2328; }
-      .desc    { font-size: 11.5px; fill: #57606a; }
-      .badge   { font-size: 11.5px; font-weight: 700; fill: #ffffff; }
-      .gate    { font-size: 13px; font-weight: 700; fill: #7a4e02; }
-      .foot-h  { font-size: 12.5px; font-weight: 700; fill: #1f2328; }
-      .foot    { font-size: 11.5px; fill: #57606a; }
-      .chev    { font-size: 15px; fill: #afb8c1; }
+      .h1    { font-size: 13.5px; font-weight: 700; fill: #1f2328; letter-spacing: .2px; }
+      .h2    { font-size: 12px;   fill: #57606a; }
+      .phase { font-size: 11.5px; font-weight: 700; letter-spacing: 1.2px; }
+      .p-b   { fill: #1a63cf; }
+      .p-g   { fill: #1a7f37; }
+      .num   { font-size: 11.5px; fill: #8c959f; }
+      .step  { font-size: 13px; font-weight: 700; fill: #1f2328; }
+      .body  { font-size: 12px; fill: #57606a; }
+      .gate  { font-size: 12.5px; font-weight: 700; fill: #9a6700; }
 
-      .card-b  { fill: #f2f7fe; stroke: #b3ccf5; }
-      .card-g  { fill: #f0f9f3; stroke: #aedcbb; }
-      .card-a  { fill: #fff8ea; stroke: #f5cd8a; }
+      .rule    { stroke: #d0d7de; }
+      .spine-b { stroke: #4285f4; }
+      .spine-g { stroke: #34a853; }
+      .spine-a { stroke: #d4a72c; }
+      .dot-b   { fill: #4285f4; }
+      .dot-g   { fill: #34a853; }
+      .dia     { fill: #d4a72c; }
 
       @media (prefers-color-scheme: dark) {
-        .head   { fill: #8b949e; }
-        .head-b { fill: #e6edf3; }
-        .band-b { fill: #6ea8fa; }
-        .band-g { fill: #56d364; }
-        .hint   { fill: #6e7681; }
-        .title  { fill: #e6edf3; }
-        .desc   { fill: #9aa4ae; }
-        .gate   { fill: #e3b341; }
-        .foot-h { fill: #e6edf3; }
-        .foot   { fill: #9aa4ae; }
-        .chev   { fill: #484f58; }
+        .h1   { fill: #e6edf3; }
+        .h2   { fill: #8b949e; }
+        .p-b  { fill: #6ea8fa; }
+        .p-g  { fill: #56d364; }
+        .num  { fill: #6e7681; }
+        .step { fill: #e6edf3; }
+        .body { fill: #9aa4ae; }
+        .gate { fill: #e3b341; }
 
-        .card-b { fill: #0e1a2b; stroke: #1f3f6b; }
-        .card-g { fill: #0c1d13; stroke: #1f4a2c; }
-        .card-a { fill: #1f1707; stroke: #5c4310; }
+        .rule    { stroke: #30363d; }
+        .spine-b { stroke: #388bfd; }
+        .spine-g { stroke: #2ea043; }
+        .spine-a { stroke: #bb8009; }
+        .dot-b   { fill: #388bfd; }
+        .dot-g   { fill: #2ea043; }
+        .dia     { fill: #bb8009; }
       }
     </style>
   </defs>
 
   <!-- ── header ───────────────────────────────────────────────────────────── -->
-  <text class="sans head" x="16" y="26">
-    <tspan class="head-b">7단계 절차</tspan> — 데이터 경로와 하고 싶은 분석을 말하면 이 순서로 진행한다
-  </text>
+  <text class="sans h1" x="16" y="24">7단계 절차</text>
+  <text class="sans h2" x="16" y="44">데이터 경로와 하고 싶은 분석을 말하면 이 순서로 진행한다</text>
+  <line class="rule" x1="16" y1="58" x2="648" y2="58" stroke-width="1"/>
 
-  <!-- ── band 1: read-only ────────────────────────────────────────────────── -->
-  <text class="sans band band-b" x="16" y="52">① 승인 전 — 읽기만 한다</text>
-  <text class="sans hint" x="864" y="52" text-anchor="end">허용되는 명령: ls · du · file · FASTQ 헤더 몇 줄</text>
+  <!-- ── 승인 전 ───────────────────────────────────────────────────────────── -->
+  <text class="mono phase p-b" x="16" y="84">승인 전</text>
+  <line class="spine-b" x1="30" y1="94" x2="30" y2="194" stroke-width="1.5"/>
 
-  <g>
-    <rect class="card-b" x="16"  y="62" width="272" height="104" rx="10" stroke-width="1.2"/>
-    <circle cx="42" cy="88" r="12" fill="#4285f4"/>
-    <text class="mono badge" x="42" y="92" text-anchor="middle">1</text>
-    <text class="sans title" x="64" y="93">접수</text>
-    <text class="sans desc"  x="32" y="122">샘플 수 · 페어링 · 형식 · 리드 길이를</text>
-    <text class="sans desc"  x="32" y="140">설명이 아니라 실물 파일로 확인한다</text>
-  </g>
-  <text class="mono chev" x="296" y="120" text-anchor="middle">›</text>
+  <circle class="dot-b" cx="30" cy="110" r="3.5"/>
+  <text class="mono num"  x="46"  y="114">01</text>
+  <text class="sans step" x="76"  y="114">접수</text>
+  <text class="sans body" x="216" y="114">샘플 수, 페어링, 파일형식, 리드 길이 등을 실물 파일로 알아서 확인</text>
 
-  <g>
-    <rect class="card-b" x="304" y="62" width="272" height="104" rx="10" stroke-width="1.2"/>
-    <circle cx="330" cy="88" r="12" fill="#4285f4"/>
-    <text class="mono badge" x="330" y="92" text-anchor="middle">2</text>
-    <text class="sans title" x="352" y="93">파이프라인 선정</text>
-    <text class="sans desc"  x="320" y="122">목적에 맞는 nf-core 파이프라인을 고르고</text>
-    <text class="sans desc"  x="320" y="140">리비전을 고정한다. 고른 이유도 남긴다</text>
-  </g>
-  <text class="mono chev" x="584" y="120" text-anchor="middle">›</text>
+  <circle class="dot-b" cx="30" cy="144" r="3.5"/>
+  <text class="mono num"  x="46"  y="148">02</text>
+  <text class="sans step" x="76"  y="148">파이프라인 선정</text>
+  <text class="sans body" x="216" y="148">목적에 맞는 nf-core 파이프라인 선정</text>
 
-  <g>
-    <rect class="card-b" x="592" y="62" width="272" height="104" rx="10" stroke-width="1.2"/>
-    <circle cx="618" cy="88" r="12" fill="#4285f4"/>
-    <text class="mono badge" x="618" y="92" text-anchor="middle">3</text>
-    <text class="sans title" x="640" y="93">계획서</text>
-    <text class="sans desc"  x="608" y="122">예상 시간 · 디스크, 없는 레퍼런스,</text>
-    <text class="sans desc"  x="608" y="140">임의로 좁힌 범위까지 적어서 낸다</text>
-  </g>
+  <circle class="dot-b" cx="30" cy="178" r="3.5"/>
+  <text class="mono num"  x="46"  y="182">03</text>
+  <text class="sans step" x="76"  y="182">계획서</text>
+  <text class="sans body" x="216" y="182">예상 시간, 디스크, 레퍼런스 유무와 임의로 좁힌 범위를 참고하여 작성</text>
 
-  <!-- ── the approval gate ────────────────────────────────────────────────── -->
-  <rect class="card-a" x="16" y="182" width="848" height="38" rx="8" stroke-width="1.2" stroke-dasharray="5 3"/>
-  <text class="sans gate" x="440" y="206" text-anchor="middle">
-    여기서 사람이 승인한다 — 추정 24시간을 넘는 작업은 승인 없이 시작하지 않는다
-  </text>
+  <!-- ── the spine goes dashed: this is where it waits ─────────────────────── -->
+  <line class="spine-a" x1="30" y1="194" x2="30" y2="272" stroke-width="1.5" stroke-dasharray="4 4"/>
+  <path class="dia" d="M30 222 L37 230 L30 238 L23 230 Z"/>
+  <text class="sans gate" x="46" y="234">여기서 사람이 승인한다 → 승인 대기</text>
 
-  <!-- ── band 2: execute ──────────────────────────────────────────────────── -->
-  <text class="sans band band-g" x="16" y="246">② 승인 후 — 실제로 돌린다</text>
-  <text class="sans hint" x="864" y="246" text-anchor="end">도구는 컨테이너에서만 온다 · work 디렉토리는 지우지 않는다</text>
+  <!-- ── 승인 후 ───────────────────────────────────────────────────────────── -->
+  <text class="mono phase p-g" x="16" y="296">승인 후</text>
+  <line class="spine-g" x1="30" y1="306" x2="30" y2="440" stroke-width="1.5"/>
 
-  <g>
-    <rect class="card-g" x="16" y="256" width="200" height="104" rx="10" stroke-width="1.2"/>
-    <circle cx="42" cy="282" r="12" fill="#34a853"/>
-    <text class="mono badge" x="42" y="286" text-anchor="middle">4</text>
-    <text class="sans title" x="64" y="287">사전점검</text>
-    <text class="sans desc"  x="32" y="316">디스크 1.5배 확인,</text>
-    <text class="sans desc"  x="32" y="334">샘플시트 검증,</text>
-    <text class="mono desc"  x="32" y="352">-stub-run</text>
-  </g>
-  <text class="mono chev" x="224" y="314" text-anchor="middle">›</text>
+  <circle class="dot-g" cx="30" cy="322" r="3.5"/>
+  <text class="mono num"  x="46"  y="326">04</text>
+  <text class="sans step" x="76"  y="326">사전점검</text>
+  <text class="sans body" x="216" y="326">디스크 여유공간 확인, 계획 시 작성한 샘플시트 검증</text>
 
-  <g>
-    <rect class="card-g" x="232" y="256" width="200" height="104" rx="10" stroke-width="1.2"/>
-    <circle cx="258" cy="282" r="12" fill="#34a853"/>
-    <text class="mono badge" x="258" y="286" text-anchor="middle">5</text>
-    <text class="sans title" x="280" y="287">실행 · 감시</text>
-    <text class="sans desc"  x="248" y="316">백그라운드로 돌리고</text>
-    <text class="sans desc"  x="248" y="334">죽으면 로그를 읽어</text>
-    <text class="mono desc"  x="248" y="352">-resume</text>
-  </g>
-  <text class="mono chev" x="440" y="314" text-anchor="middle">›</text>
+  <circle class="dot-g" cx="30" cy="356" r="3.5"/>
+  <text class="mono num"  x="46"  y="360">05</text>
+  <text class="sans step" x="76"  y="360">실행 및 모니터링</text>
+  <text class="sans body" x="216" y="360">백그라운드로 돌리고 로그를 모니터링하며 이상 감지</text>
 
-  <g>
-    <rect class="card-g" x="448" y="256" width="200" height="104" rx="10" stroke-width="1.2"/>
-    <circle cx="474" cy="282" r="12" fill="#34a853"/>
-    <text class="mono badge" x="474" y="286" text-anchor="middle">6</text>
-    <text class="sans title" x="496" y="287">QC 판정</text>
-    <text class="sans desc"  x="464" y="316">MultiQC를 읽어</text>
-    <text class="sans desc"  x="464" y="334">샘플별 PASS /</text>
-    <text class="sans desc"  x="464" y="352">FAIL을 매긴다</text>
-  </g>
-  <text class="mono chev" x="656" y="314" text-anchor="middle">›</text>
+  <circle class="dot-g" cx="30" cy="390" r="3.5"/>
+  <text class="mono num"  x="46"  y="394">06</text>
+  <text class="sans step" x="76"  y="394">QC 판정</text>
+  <text class="sans body" x="216" y="394">MultiQC를 읽어 샘플별 PASS / FAIL</text>
 
-  <g>
-    <rect class="card-g" x="664" y="256" width="200" height="104" rx="10" stroke-width="1.2"/>
-    <circle cx="690" cy="282" r="12" fill="#34a853"/>
-    <text class="mono badge" x="690" y="286" text-anchor="middle">7</text>
-    <text class="sans title" x="712" y="287">인계</text>
-    <text class="sans desc"  x="680" y="316">산출물 위치와</text>
-    <text class="sans desc"  x="680" y="334">결정 사항,</text>
-    <text class="sans desc"  x="680" y="352">다음 단계</text>
-  </g>
-
-  <!-- ── footer: the scope limit ──────────────────────────────────────────── -->
-  <line x1="16" y1="378" x2="864" y2="378" stroke="#d0d7de" stroke-width="1" opacity=".7"/>
-  <text class="sans foot-h" x="16" y="400">하지 않는 것 — 생물학적 해석.</text>
-  <text class="sans foot"   x="16" y="422">「NF1-201 발현 17%」까지가 에이전트의 일이고, 그게 연구에 무슨 의미인지는 사람의 일이다.</text>
+  <circle class="dot-g" cx="30" cy="424" r="3.5"/>
+  <text class="mono num"  x="46"  y="428">07</text>
+  <text class="sans step" x="76"  y="428">인계</text>
+  <text class="sans body" x="216" y="428">산출물 위치와 결정 사항을 사용자에게 보고</text>
 </svg>
