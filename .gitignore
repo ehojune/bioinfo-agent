@@ -143,3 +143,6 @@ __pycache__/
 .RData
 .venv/
 venv/
+
+# 개인 메모 — 머신별 실측값, 진행 상황. 공개 리포에 넣지 않는다.
+sync.md

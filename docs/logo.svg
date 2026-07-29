@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" width="640" height="160" role="img" aria-label="bioinfo-agent">
+  <title>bioinfo-agent</title>
+  <defs>
+    <linearGradient id="strand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#4285f4"/>
+      <stop offset="55%"  stop-color="#34a853"/>
+      <stop offset="100%" stop-color="#f5a623"/>
+    </linearGradient>
+    <style>
+      .lbl   { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
+      .name  { font-size: 40px; font-weight: 700; fill: #1f2328; letter-spacing: -0.5px; }
+      .tag   { font-size: 13.5px; fill: #57606a; letter-spacing: 2.6px; }
+      .rung  { stroke: #8c959f; stroke-width: 2.4; stroke-linecap: round; opacity: .55; }
+      @media (prefers-color-scheme: dark) {
+        .name { fill: #e6edf3; }
+        .tag  { fill: #8b949e; }
+        .rung { stroke: #6e7681; opacity: .7; }
+      }
+    </style>
+  </defs>
+
+  <!-- mark: a double helix whose strands straighten into a pipeline arrow -->
+  <g transform="translate(20,20)">
+    <!-- helix rungs, tightening left to right as the strands resolve -->
+    <g class="rung">
+      <line x1="22" y1="38" x2="22" y2="82"/>
+      <line x1="40" y1="30" x2="40" y2="90"/>
+      <line x1="58" y1="34" x2="58" y2="86"/>
+      <line x1="76" y1="46" x2="76" y2="74"/>
+    </g>
+
+    <!-- upper strand: coils twice, then flattens -->
+    <path d="M8 60 C 8 26, 40 26, 40 60 C 40 94, 72 94, 72 60 L 118 60"
+          fill="none" stroke="url(#strand)" stroke-width="7" stroke-linecap="round"/>
+    <!-- lower strand: mirror, converging on the same line -->
+    <path d="M8 60 C 8 94, 40 94, 40 60 C 40 26, 72 26, 72 60 L 118 60"
+          fill="none" stroke="url(#strand)" stroke-width="7" stroke-linecap="round" opacity=".78"/>
+
+    <!-- arrowhead: the run -->
+    <path d="M112 44 L 140 60 L 112 76 Z" fill="#f5a623"/>
+  </g>
+
+  <g class="lbl" transform="translate(196,0)">
+    <text class="name" x="0" y="78">bioinfo-agent</text>
+    <text class="tag"  x="2" y="106">NF-CORE PIPELINE TECHNICIAN</text>
+  </g>
+</svg>
