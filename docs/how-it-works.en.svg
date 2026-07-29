@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 704 460" width="704" height="460"
+     role="img" aria-label="The seven steps. Before approval: intake, pipeline choice, run plan. A human approves. After approval: preflight, run and monitor, QC verdict, handoff.">
+  <title>bioinfo-agent — the seven steps</title>
+  <desc>Before approval: 1 intake, 2 pipeline choice, 3 run plan. A human approves here.
+        After approval: 4 preflight, 5 run and monitor, 6 QC verdict, 7 handoff.</desc>
+
+  <defs>
+    <style>
+      .sans { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+      .mono { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
+
+      .h1    { font-size: 13.5px; font-weight: 700; fill: #1f2328; letter-spacing: .2px; }
+      .h2    { font-size: 12px;   fill: #57606a; }
+      .phase { font-size: 11px; font-weight: 700; letter-spacing: 1.4px; }
+      .p-b   { fill: #1a63cf; }
+      .p-g   { fill: #1a7f37; }
+      .num   { font-size: 11.5px; fill: #8c959f; }
+      .step  { font-size: 13px; font-weight: 700; fill: #1f2328; }
+      .body  { font-size: 12px; fill: #57606a; }
+      .gate  { font-size: 12.5px; font-weight: 700; fill: #9a6700; }
+
+      .rule    { stroke: #d0d7de; }
+      .spine-b { stroke: #4285f4; }
+      .spine-g { stroke: #34a853; }
+      .spine-a { stroke: #d4a72c; }
+      .dot-b   { fill: #4285f4; }
+      .dot-g   { fill: #34a853; }
+      .dia     { fill: #d4a72c; }
+
+      @media (prefers-color-scheme: dark) {
+        .h1   { fill: #e6edf3; }
+        .h2   { fill: #8b949e; }
+        .p-b  { fill: #6ea8fa; }
+        .p-g  { fill: #56d364; }
+        .num  { fill: #6e7681; }
+        .step { fill: #e6edf3; }
+        .body { fill: #9aa4ae; }
+        .gate { fill: #e3b341; }
+
+        .rule    { stroke: #30363d; }
+        .spine-b { stroke: #388bfd; }
+        .spine-g { stroke: #2ea043; }
+        .spine-a { stroke: #bb8009; }
+        .dot-b   { fill: #388bfd; }
+        .dot-g   { fill: #2ea043; }
+        .dia     { fill: #bb8009; }
+      }
+    </style>
+  </defs>
+
+  <!-- ── header ───────────────────────────────────────────────────────────── -->
+  <text class="sans h1" x="16" y="24">The seven steps</text>
+  <text class="sans h2" x="16" y="44">Say where the data is and what you want to know; it proceeds in this order</text>
+  <line class="rule" x1="16" y1="58" x2="688" y2="58" stroke-width="1"/>
+
+  <!-- ── before approval ──────────────────────────────────────────────────── -->
+  <text class="mono phase p-b" x="16" y="84">BEFORE APPROVAL</text>
+  <line class="spine-b" x1="30" y1="94" x2="30" y2="194" stroke-width="1.5"/>
+
+  <circle class="dot-b" cx="30" cy="110" r="3.5"/>
+  <text class="mono num"  x="46"  y="114">01</text>
+  <text class="sans step" x="76"  y="114">Intake</text>
+  <text class="sans body" x="204" y="114">Sample count, pairing, file format and read length — read off the actual files</text>
+
+  <circle class="dot-b" cx="30" cy="144" r="3.5"/>
+  <text class="mono num"  x="46"  y="148">02</text>
+  <text class="sans step" x="76"  y="148">Pipeline choice</text>
+  <text class="sans body" x="204" y="148">Picks the nf-core pipeline that fits the question</text>
+
+  <circle class="dot-b" cx="30" cy="178" r="3.5"/>
+  <text class="mono num"  x="46"  y="182">03</text>
+  <text class="sans step" x="76"  y="182">Run plan</text>
+  <text class="sans body" x="204" y="182">Written from estimated time, disk, which references exist, and any narrowed scope</text>
+
+  <!-- ── the spine goes dashed: this is where it waits ─────────────────────── -->
+  <line class="spine-a" x1="30" y1="194" x2="30" y2="272" stroke-width="1.5" stroke-dasharray="4 4"/>
+  <path class="dia" d="M30 222 L37 230 L30 238 L23 230 Z"/>
+  <text class="sans gate" x="46" y="234">A human approves here → waiting for approval</text>
+
+  <!-- ── after approval ───────────────────────────────────────────────────── -->
+  <text class="mono phase p-g" x="16" y="296">AFTER APPROVAL</text>
+  <line class="spine-g" x1="30" y1="306" x2="30" y2="440" stroke-width="1.5"/>
+
+  <circle class="dot-g" cx="30" cy="322" r="3.5"/>
+  <text class="mono num"  x="46"  y="326">04</text>
+  <text class="sans step" x="76"  y="326">Preflight</text>
+  <text class="sans body" x="204" y="326">Checks free disk, validates the samplesheet written during planning</text>
+
+  <circle class="dot-g" cx="30" cy="356" r="3.5"/>
+  <text class="mono num"  x="46"  y="360">05</text>
+  <text class="sans step" x="76"  y="360">Run and monitor</text>
+  <text class="sans body" x="204" y="360">Runs in the background, watching the log for trouble</text>
+
+  <circle class="dot-g" cx="30" cy="390" r="3.5"/>
+  <text class="mono num"  x="46"  y="394">06</text>
+  <text class="sans step" x="76"  y="394">QC verdict</text>
+  <text class="sans body" x="204" y="394">Reads MultiQC, PASS / FAIL per sample</text>
+
+  <circle class="dot-g" cx="30" cy="424" r="3.5"/>
+  <text class="mono num"  x="46"  y="428">07</text>
+  <text class="sans step" x="76"  y="428">Handoff</text>
+  <text class="sans body" x="204" y="428">Reports where the outputs are and what was decided</text>
+</svg>
