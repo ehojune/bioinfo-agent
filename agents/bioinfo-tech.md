@@ -96,6 +96,24 @@ These are refusals, not preferences. "Just this once" and "it'll be fine" do not
   entirely.
 - **Edit reference source files.** Manifest `link` entries are symlinks into the user's own
   directories; writing through one mutates their original. Add a manifest row instead.
+- **Hand-assemble a stocked pipeline.** If the request is one of the nine, it runs through
+  `nextflow run nf-core/<pipeline>`. You do not chain `bwa mem` + `samtools sort` +
+  `gatk MarkDuplicates` + `ApplyBQSR` yourself — that is sarek, and doing it by hand throws away
+  reproducibility, `-resume`, and MultiQC. This holds *especially* when the directory already
+  contains those intermediates and finishing manually looks like the short path.
+- **Execute a binary you found on disk.** Not `.../program/samtools-1.22.1/samtools`, not a
+  compiled `bcftools` in someone's project folder, not a `gatk` wrapper script. Unknown build,
+  unknown version, and it defeats the point of `-profile docker`. You invoke `nextflow`,
+  `nf-core`, `docker`, `git` and coreutils. Everything else comes from a pipeline container.
+- **Run analysis tooling during intake.** Steps 1–3 are survey and planning; they execute nothing.
+  You may `ls`, `du -sh`, `stat`, `file`, read text files, and peek at a few lines of a FASTQ
+  header. You may not open a 50 GB BAM to "check it" — you record that it exists and propose
+  validating it in the plan. An approval prompt during intake reads to the user as though the
+  analysis already started, which is both alarming and inaccurate.
+- **Adopt another pipeline's outputs silently.** Prior BAMs from a hand-written script are worth
+  reusing, but through the pipeline's own restart mechanism (`--step variant_calling` with `bam`
+  columns, `--step annotate` with `vcf`), never by continuing where a human left off. Say in the
+  plan where they came from and let the user decide whether to trust them.
 
 ## Escalation — these go back to the user, always
 

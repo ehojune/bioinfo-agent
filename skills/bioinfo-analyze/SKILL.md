@@ -20,12 +20,45 @@ description: >-
 You are running real pipelines on the user's own hardware. Every mistake costs hours of wall clock
 and tens of gigabytes. Plan before you run; validate before you commit.
 
+## The gate — read this before the seven steps
+
+**Steps 1–3 are survey and planning. They execute nothing.** Until the user approves a run plan,
+the only commands you may issue are read-only inventory:
+
+| Allowed during steps 1–3 | Forbidden until the plan is approved |
+|---|---|
+| `ls`, `du -sh`, `df -h`, `find`, `stat`, `file` | `samtools`, `bcftools`, `gatk`, `bwa`, `picard`, `fastqc` — any analysis tool |
+| `head`/`zcat \| head` on a FASTQ (a few lines) | anything that reads a whole BAM/CRAM/FASTQ |
+| reading text: logs, scripts, existing samplesheets | `nextflow run` (except `-stub-run` at step 4) |
+| `bash bootstrap/05-verify.sh`, `04-refs.sh --dry-run` | anything that writes into the user's data directory |
+
+A 50 GB BAM does not get opened to "check it". You record that it exists, its size, and its
+mtime, and you propose validating it **in the plan**. Running `samtools quickcheck` on it during
+intake is minutes of I/O the user did not ask for, and it produces an approval prompt that looks
+like the analysis has already started.
+
+**If the request maps to a stocked pipeline, you run that pipeline. You never hand-assemble the
+equivalent.** Do not chain `bwa mem` + `samtools sort` + `gatk MarkDuplicates` + `ApplyBQSR`
+yourself because a directory happens to contain those intermediates. That is what sarek is. If a
+directory already holds hand-built outputs, the correct move is to feed them to the pipeline at the
+matching `--step`, not to continue someone's manual pipeline by hand.
+
+**Tools come from pipeline containers.** Never execute a binary you found lying on disk
+(`.../program/samtools-1.22.1/samtools`, `.../script/gatk`, a compiled `bcftools`). You do not know
+how it was built or what version it is, and using it destroys the reproducibility that
+`-profile docker` exists to provide. The only binaries you invoke directly are `nextflow`,
+`nf-core`, `docker`, `git` and coreutils.
+
 ## The seven steps
 
 Do them in order. Do not skip step 3 or step 4.
 
-1. **Intake.** Answer every intake question below. Inspect the actual files — do not trust a
-   description of them. `ls -l`, count reads, check the FASTQ header, confirm pairing.
+1. **Intake.** Answer every intake question below. Survey the actual files — do not trust a
+   description of them. Read-only only: `ls -l`, `du -sh`, file extensions, and at most a few lines
+   of one FASTQ header to confirm pairing and read length. If the user's request does not name a
+   specific analysis — "WGRS 분석해줘", "이 데이터 좀 봐줘" — **stop and ask what question they
+   want answered** before selecting anything. Whole-genome resequencing alone does not tell you
+   whether they want germline variants, somatic variants, repeat expansions, or coverage.
 2. **Pipeline selection.** Match analysis intent to a stocked pipeline and a revision.
    Read `references/pipeline-selection.md`.
 3. **Run plan and approval.** Write the plan to `$BIOINFO_HOME/runs/<runid>/plan.md`: pipeline +
@@ -113,6 +146,34 @@ Always pass `-r <rev>` explicitly. A run without a pinned revision is not reprod
    handoff, in plain words.
 8. **No silent large downloads.** Anything over ~10 GB (GATK bundle, VEP cache, iGenomes, SRA
    fetches) gets named, sized, and approved first.
+9. **Never hand-roll a stocked pipeline.** If the analysis is one of the nine, it runs through
+   `nextflow run nf-core/<pipeline>`. Assembling the same steps yourself out of `bwa`, `samtools`,
+   `gatk` and `picard` is forbidden even when the intermediates are already sitting there — it is
+   unreproducible, unresumable, and produces no MultiQC.
+10. **Never execute binaries found on disk.** Analysis tools come from the pipeline's containers.
+    A `samtools` compiled into someone's project folder is of unknown provenance and version.
+11. **Nothing executes before the plan is approved.** See the gate above. Read-only inventory is
+    the entire permitted surface of steps 1–3.
+
+### Reusing what is already there
+
+Finding prior outputs is good and you should look for them. What you do with them is the part that
+goes wrong.
+
+| Found | Wrong move | Right move |
+|---|---|---|
+| Recalibrated BAM/CRAM | run `samtools`/`gatk` on it and carry on manually | sarek `--step variant_calling`, `bam`/`bai` columns in the samplesheet |
+| Duplicate-marked BAM | continue the hand pipeline | sarek `--step prepare_recalibration` |
+| Trimmed FASTQ | re-trim, or trim again by hand | feed as `fastq_1`/`fastq_2`, skip the trimming step by flag |
+| VCF only | write bcftools one-liners | sarek `--step annotate` |
+| An existing STAR/BWA index | rebuild it | point the manifest at it, add a row, resolve by standard path |
+
+In every row the reuse happens **through the pipeline's own restart mechanism**, not by taking over
+where a human left off. That is what makes the result reproducible and `-resume`-able.
+
+If the existing outputs came from an unknown or hand-written pipeline, say so in the plan and let
+the user decide whether to trust them. Do not silently adopt another pipeline's intermediates as if
+they were yours — you cannot vouch for how they were produced.
 
 ## Intake questions — all answered before any plan is written
 
