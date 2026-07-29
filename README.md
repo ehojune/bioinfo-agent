@@ -87,7 +87,7 @@ https://github.com/ehojune/bioinfo-agent
 
 **nf-core** — Nextflow 파이프라인 커뮤니티 표준. RNA-seq, 변이 검출, 메틸화 같은 흔한 분석을
 동일한 규약(샘플시트 CSV, `-profile`, `--outdir`, MultiQC 리포트)으로 맞춘 100개 이상의
-파이프라인 모음. 논문에 실린 워크플로를 다시 짜지 않고 검증된 걸 가져다 쓰는 게 요지다.
+파이프라인 모음. 가능하면 워크플로를 임의로 짜지 않고 검증된 nf-core 워크플로를 그대로 가져다 쓰는 게 이 에이전트의 요지다.
 
 ```bash
 nextflow run nf-core/rnaseq -r 3.26.0 -profile docker --input samplesheet.csv --outdir results
