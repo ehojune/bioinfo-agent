@@ -61,14 +61,21 @@ Do them in order. Do not skip step 3 or step 4.
    whether they want germline variants, somatic variants, repeat expansions, or coverage.
 2. **Pipeline selection.** Match analysis intent to a stocked pipeline and a revision.
    Read `references/pipeline-selection.md`.
-3. **Run plan and approval.** Write the plan to `$BIOINFO_HOME/runs/<runid>/plan.md`: pipeline +
-   pinned revision, sample count, reference build, estimated wall clock, estimated peak disk,
-   what is missing and must be built or downloaded, and every bounded choice you intend to make.
-   Present it. Wait for a yes.
-4. **Preflight and stub run.** Verify references resolve, disk is ≥ 1.5× the estimate, Docker is
-   up. Then `-stub-run` (or `-preview`) the real command with the real samplesheet. A stub run
+3. **Run plan and approval.** The run directory `$BIOINFO_HOME/runs/<runid>/` gets all four files
+   now, not later: `plan.md`, `samplesheet.csv`, `params.yaml`, `cmd.sh`. Step 4's preflight fails
+   hard on a missing `cmd.sh` or `samplesheet.csv`, so writing them at step 5 is too late.
+   `plan.md` carries: pipeline + pinned revision, sample count, reference build, estimated wall
+   clock, estimated peak disk, what is missing and must be built or downloaded, and every bounded
+   choice you intend to make. Present it. Wait for a yes.
+4. **Preflight and stub run.** Run the shipped gates, do not restate them:
+   `bash $BIOINFO_HOME/bin/preflight.sh <rundir> <est_work_gb>` — refs, disk ≥ 1.5× estimate, Docker, pin.
+   `bash $BIOINFO_HOME/scripts/check-samplesheet.sh --deep --pipeline <pipeline> <samplesheet.csv>`
+   — the input CSV. Without `--pipeline` the required-column gate is skipped.
+   Then `-stub-run` (or `-preview`) the real command with the real samplesheet. A stub run
    that fails is a real failure — fix it, do not "try it for real and see".
 5. **Execution.** Launch from ext4, detached, logging to file. Read `references/runbook.md`.
+   If a `bioinfo-tech` subagent is available and the estimate exceeds ~1 h, hand steps 5–6 to it and
+   resume at step 7 from its handoff — Nextflow logs must not land in the main conversation.
 6. **QC verdict.** Read MultiQC and the pipeline's own metrics. Report PASS / PASS WITH CAVEATS /
    FAIL per sample against stated thresholds. Read `references/qc-interpretation.md`.
 7. **Handoff.** Output locations, sizes, what was decided, what the user does next. No biology.
@@ -85,8 +92,8 @@ Do them in order. Do not skip step 3 or step 4.
 | `references/reference-store.md` | Any time a genome, GTF, index, or catalog path is needed. |
 | `references/new-pipeline.md` | The analysis is outside the stocked set and a pipeline must be procured. |
 
-Stocked pipelines: `rnaseq`, `differentialabundance`, `fetchngs`, `sarek`, `methylseq`, `atacseq`,
-`chipseq`, `cutandrun`, `scrnaseq`. Anything else goes through `new-pipeline.md`.
+Stocked pipelines and the revision each is pinned to: `config/pipelines.tsv`, the single source of
+the pin. A pipeline with no row there is not stocked — it goes through `new-pipeline.md`.
 
 ## Schemas drift — always re-derive before first use
 
@@ -97,11 +104,12 @@ first run of a pipeline at a revision you have not used on this machine:
 ```bash
 nextflow info nf-core/<pipeline>                       # available revisions
 nextflow run nf-core/<pipeline> -r <rev> --help
-cat "$NXF_ASSETS/.repos/nf-core/<pipeline>/clones/*/assets/schema_input.json"   # authoritative column list
+find "$NXF_ASSETS" -path '*nf-core/<pipeline>*' -name schema_input.json | head -1   # authoritative column list
 nf-core pipelines schema docs                          # nf-core/tools >= 3.x; older: nf-core schema docs
 ```
 
-Always pass `-r <rev>` explicitly. A run without a pinned revision is not reproducible.
+Always pass `-r <rev>` explicitly, taken from `config/pipelines.tsv`. A run without a pinned
+revision is not reproducible.
 
 ## Environment contract
 
@@ -114,17 +122,18 @@ Always pass `-r <rev>` explicitly. A run without a pinned revision is not reprod
   `-resume` depends on), **container images, and index files must all be on ext4.** Only
   sequentially-read reference files may be symlinked out to `/mnt/d`.
 - **Paths**: repo `$BIOINFO_HOME` = `/mnt/d/bioinfo-agent`; references `$BIOINFO_REFS` = `/refs`;
-  scratch/work/results on ext4 under `$BIOINFO_WORK` = `/work`. All four are exported by
-  `~/.bioinfo.env`, which `bootstrap/03-nextflow.sh` generates. If `$BIOINFO_WORK` is ever empty,
-  stop: `-work-dir $BIOINFO_WORK/<run-id>` becomes `-work-dir /<run-id>` and the run tries to write
-  at the filesystem root.
+  work root `$BIOINFO_WORK` = `/work`; outdirs `$BIOINFO_RUNS` = `/runs`; run records
+  `$BIOINFO_RUNLOG` = `/mnt/d/bioinfo-agent/runs`. All five are exported by
+  `~/.config/bioinfo/env.sh`, which `bootstrap/03-nextflow.sh` generates. If any of them is empty,
+  stop: every path built on it collapses to the filesystem root — `-work-dir $BIOINFO_WORK/<run-id>`
+  becomes `-work-dir /<run-id>`, and the same for an outdir or a run record.
 - **References**: resolve *only* through `$BIOINFO_REFS` standard paths. If you are about to type
   `hg38.fa` or `Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta` into a command, stop — add the
   manifest row instead. Sarek uses build `GRCh38gatk`; RNA-seq and most else use `GRCh38`.
 - **Run records**: `$BIOINFO_HOME/runs/<runid>/` holds `plan.md`, the params file, the samplesheet,
   the trimmed log, and `handoff.md`. Text only — it lives on drvfs. Run id: `YYYYMMDD-<pipeline>-<slug>`.
-- **Hardware budget**: 24 logical cores, 63.5 GB RAM. Leave headroom — cap at ~20 cores and ~48 GB
-  unless the user says the machine is theirs alone. A human STAR index build alone wants ~40 GB.
+- **Hardware budget**: host 24 cores / 63.5 GB, WSL2 VM 22 / 52, Nextflow pool 18 / 40 — the pool
+  clamps tasks, so quote it. `BIOINFO_MAX_CPUS` / `BIOINFO_MAX_MEMORY`. A human STAR index wants ~40 GB.
 - **Disk**: never target `C:` (74 GB free). `D:` 2.2 TB, `E:` 3.7 TB, ext4 VHDX ~955 GB free.
 
 ## Hard rules
@@ -132,9 +141,9 @@ Always pass `-r <rev>` explicitly. A run without a pinned revision is not reprod
 1. **Never start a job estimated over 24 h without explicit user approval.** State the estimate and
    the reasoning, then ask.
 2. **Never skip the stub run / `-preview`.** No exceptions for "small" or "same as last time".
-3. **Never delete, clean, or move a work directory.** `nextflow clean`, `rm -rf work/`, and tidying
-   between runs are all forbidden — they destroy `-resume`. Disk pressure is escalated, not solved
-   by deletion.
+3. **Never delete, clean, or move a work directory while a run may still be resumed, and never to
+   free disk mid-run.** Disk pressure is escalated, not solved by deletion. A finished run's work
+   dir is reclaimed only through the `references/runbook.md` section 9 checklist.
 4. **Refuse to start when free disk on the target filesystem is below 1.5× the estimate.** Report
    the shortfall.
 5. **Always `-resume` on restart.** Never silently re-run from scratch; if `-resume` is impossible,

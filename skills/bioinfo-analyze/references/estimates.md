@@ -16,23 +16,17 @@ a starting prior, not a measurement.
 ### 0.1 WSL2 gives the distro half the host RAM by default
 
 Default WSL2 memory allocation is ~50% of host RAM, so **~31.7 GB**, not 63.5 GB. A human STAR index
-build peaks near 32–40 GB and a STAR alignment against that index holds ~30 GB resident. Both will
+build peaks near 32–38 GB and a STAR alignment against that index holds ~30 GB resident. Both will
 OOM at the default. Check and fix before estimating anything:
 
 ```bash
 free -g                     # inside WSL — this is your real ceiling, not the host's
 ```
 
-```ini
-# %UserProfile%\.wslconfig  on the Windows side, then: wsl --shutdown
-[wsl2]
-memory=52GB
-processors=24
-swap=16GB
-```
-
-Leave ~10 GB for Windows. Every memory figure below assumes 52 GB is available to the distro; at
-31.7 GB the STAR path is simply not runnable and you must say so rather than start it.
+Copy `config/wslconfig.example` to `%UserProfile%\.wslconfig`, then `wsl --shutdown`. That file is
+the tested copy target and the only `.wslconfig` source in this repo: 52 GB and 22 cores to the VM,
+the rest left to Windows. Every memory figure below assumes it has been applied; at 31.7 GB the STAR
+path is simply not runnable and you must say so rather than start it.
 
 ### 0.2 The VHDX grows and does not shrink
 
@@ -77,8 +71,7 @@ factor from §3. It is not what you observe per sample when Nextflow is running 
 | **differentialabundance** | whole experiment, ≤100 samples | 0.2 – 0.7 h **total, not per sample** | <10 GB | <2 GB | Number of contrasts and whether GSEA runs |
 | **fetchngs** | download-bound | see §1.1 | ≈ 1.05 × downloaded bytes | = downloaded bytes | Network only |
 
-Row provenance: rnaseq 3.14–3.18, sarek 3.4–3.5, methylseq 2.6–3.x, atacseq/chipseq 2.x,
-cutandrun 3.x, scrnaseq 2.x, differentialabundance 1.4–1.5.
+Row provenance: the rows were written against the pins in `config/pipelines.tsv`.
 <!-- UNVERIFIED: per-pipeline default tool selection changes between minor revisions. Confirm the actual module list for your pinned `-r` with `nextflow run nf-core/<pipeline> -r <rev> --help` and by reading the pipeline's `conf/modules.config` before quoting a time. -->
 
 ### 1.1 fetchngs / download time
@@ -111,7 +104,7 @@ run and destroys trust in the next estimate.
 | One-off | Wall clock | Peak RAM | Disk produced | Notes |
 |---|---|---|---|---|
 | `gatk CreateSequenceDictionary` (`.dict`) | 1 – 3 min | <4 GB | ~1 MB | Missing for both builds right now. Trivial; just do it |
-| **STAR index**, GRCh38 + GENCODE v50, `--sjdbOverhang 149` | 45 – 90 min at 20 threads | **32 – 40 GB** | 32 – 40 GB | Run it alone. Nothing else on the box. Requires the `.wslconfig` fix from §0.1 |
+| **STAR index**, GRCh38 + GENCODE v50, `--sjdbOverhang 149` | 45 – 90 min at 18 threads | **32 – 38 GB** | 32 – 38 GB | Run it alone. Nothing else on the box. Requires the `.wslconfig` fix from §0.1 |
 | **salmon index**, decoy-aware (gentrome = transcripts + genome decoys) | 20 – 50 min | 16 – 28 GB | 15 – 22 GB | Non-decoy is ~8 min / 3 GB but is the wrong index for human DE work |
 | **bismark index** (bowtie2, two converted genomes) | 1.5 – 3 h | 8 – 16 GB | 10 – 14 GB | Cheap on RAM, expensive on time. `--parallel` helps modestly |
 | **bowtie2 index** | 2 – 3 h | 4 – 8 GB | ~4 GB | Only if a pipeline needs it directly |
@@ -125,11 +118,12 @@ run and destroys trust in the next estimate.
 | **`-profile test` smoke run** (any pipeline) | 10 – 30 min | modest | 2 – 10 GB | Pays for itself the first time it catches a broken container or reference path |
 | **`-stub-run` / `-preview`** | 1 – 5 min | trivial | <1 GB | Non-negotiable per the guardrails. Costs nothing |
 
-Total cold-start for a first RNA-seq run with nothing built: **2.0 – 3.5 h** and **60 – 85 GB** of
-reference/index/container disk.
+Total cold-start for a first RNA-seq run with nothing built (STAR + salmon indexes, container pulls,
+stub + `-profile test`): **1.6 – 3.7 h** and **57 – 92 GB** of reference/index/container disk — the
+sum of the rows above, and the same subtotal §6 step 2 uses.
 
-Total cold-start for a first sarek germline run: **1.5 – 3.5 h** and **50 – 75 GB** (bundle +
-VEP cache + images; BWA index already exists, `.dict` is minutes).
+Total cold-start for a first sarek germline run: **2.0 – 5.7 h** and **50 – 82 GB** (images + GATK
+bundle + VEP cache download *and* unpack + stub/test; BWA index already exists, `.dict` is minutes).
 
 ---
 
@@ -145,23 +139,15 @@ nf-core assigns resource labels per process. Typical requests, before capping:
 | `process_high` | 12 | 72 GB |
 | `process_high_memory` | — | 200 GB |
 
-<!-- UNVERIFIED: these are the conventional nf-core base.config values; confirm for your revision with `cat $NXF_ASSETS/.repos/nf-core/<pipeline>/clones/*/conf/base.config` -->
+<!-- UNVERIFIED: these are the conventional nf-core base.config values; confirm for your revision with `find "$NXF_ASSETS" -path '*nf-core/<pipeline>*' -name base.config | head -1` -->
 
-`process_high`'s 72 GB and `process_high_memory`'s 200 GB exceed this box. Cap them or Nextflow will
-either refuse to schedule or attempt them and OOM.
+`process_high`'s 72 GB and `process_high_memory`'s 200 GB exceed this box. `config/local.config`
+section 2 caps them and is the only place the caps are set — always pass
+`-c "$BIOINFO_HOME/config/local.config"`; never hand-tune per run.
 
-```groovy
-// config/local.config — modern nf-core / Nextflow >= 24.04
-process {
-    resourceLimits = [ cpus: 22, memory: 54.GB, time: 240.h ]
-}
-```
-
-Older revisions use the deprecated flags instead: `--max_cpus 22 --max_memory 54.GB --max_time 240.h`.
-<!-- UNVERIFIED: the `max_cpus`/`max_memory` → `resourceLimits` migration happened around nf-core tooling 3.x. Check which your pinned revision honours with `nextflow run nf-core/<pipeline> -r <rev> --help | grep -iE 'max_cpus|resourceLimits'` — setting the wrong one silently does nothing. -->
-
-Leave 2 cores and ~9 GB unclaimed. Docker daemon, the Nextflow JVM head process, and Windows all
-need to breathe, and a fully saturated WSL2 VM makes the host unusable.
+That pool is **18 cpus / 40 GB**, inside a 22-core / 52 GB WSL2 VM on a 24-core / 63.5 GB host. It
+is smaller than the VM on purpose: the Docker daemon, the Nextflow JVM head process, and Windows
+all need to breathe.
 
 ### 3.1 Effective slots
 
@@ -169,18 +155,18 @@ need to breathe, and a fully saturated WSL2 VM makes the host unusable.
 slots(stage) = floor( min( CPU_budget / cpus_per_task , MEM_budget / mem_per_task ) )
 ```
 
-At 22 CPU / 54 GB:
+At 18 CPU / 40 GB:
 
 | Stage | Request | CPU-limited slots | MEM-limited slots | **Effective** |
 |---|---|---|---|---|
 | STAR align (human) | 12 cpu / ~38 GB resident | 1 | 1 | **1 — strictly serial** |
-| salmon quant | 6 cpu / 12 GB | 3 | 4 | 3 |
-| bwa-mem + sort | 12 cpu / 16 GB | 1 | 3 | 1 |
+| salmon quant | 6 cpu / 12 GB | 3 | 3 | 3 |
+| bwa-mem + sort | 12 cpu / 16 GB | 1 | 2 | 1 |
 | MarkDuplicates | 6 cpu / 30 GB | 3 | 1 | 1 |
-| GATK HaplotypeCaller (per interval) | 1 cpu / 8 GB | 22 | 6 | 6 |
-| fastqc / trimming | 2–6 cpu / 6–12 GB | 3–11 | 4–9 | 3–4 |
-| MACS2 / peak calling | 1–2 cpu / 8 GB | 11–22 | 6 | 6 |
-| qualimap / RSeQC | 1–4 cpu / 6–16 GB | 5–22 | 3–9 | 3 |
+| GATK HaplotypeCaller (per interval) | 1 cpu / 8 GB | 18 | 5 | 5 |
+| fastqc / trimming | 2–6 cpu / 6–12 GB | 3–9 | 3–6 | 3–6 |
+| MACS2 / peak calling | 1–2 cpu / 8 GB | 9–18 | 5 | 5 |
+| qualimap / RSeQC | 1–4 cpu / 6–16 GB | 4–18 | 2–6 | 2–6 |
 
 **The headline fact: for human RNA-seq this machine serialises on memory at STAR, not on cores.**
 One STAR at a time. Eight samples means eight STAR runs back to back. No amount of core count changes
@@ -202,8 +188,9 @@ Simplified form when a single stage dominates:
 T_total ≈ T_oneoff + (N × T_serial_per_sample) / C_eff × 1.2
 ```
 
-with `C_eff` ≈ 1.3 for human rnaseq with STAR, 2.5 for salmon-only rnaseq, 1.2 for sarek WGS,
-2.0–2.5 for atacseq/chipseq/cutandrun, 1.5 for methylseq, 1.5 for scrnaseq with STARsolo.
+with `C_eff` ≈ 1.25 for human rnaseq with STAR, 2.3 for salmon-only rnaseq, 1.15 for sarek WGS,
+1.8–2.2 for atacseq/chipseq/cutandrun, 1.4 for methylseq, 1.3 for scrnaseq with STARsolo — derived
+from the §3.1 slots.
 
 Show the substitution in the run plan. A user who can see the arithmetic can argue with an
 assumption; a user handed "about 12 hours" can only argue with you.
@@ -313,7 +300,7 @@ Alignment and quant scale roughly linearly; QC less so. Per-sample serialised: 0
 
 | Item | Time | Disk |
 |---|---|---|
-| STAR index (GRCh38 + GENCODE v50) | 0.75 – 1.5 h | 32 – 40 GB |
+| STAR index (GRCh38 + GENCODE v50) | 0.75 – 1.5 h | 32 – 38 GB |
 | salmon decoy-aware index | 0.35 – 0.85 h | 15 – 22 GB |
 | Container pulls (rnaseq set) | 0.25 – 0.75 h | 8 – 20 GB |
 | `.dict` (not needed for rnaseq) | — | — |
@@ -321,16 +308,16 @@ Alignment and quant scale roughly linearly; QC less so. Per-sample serialised: 0
 | **One-off subtotal** | **1.6 – 3.7 h** | **57 – 92 GB** |
 
 **Step 3 — per-sample subtotal with concurrency.** STAR is memory-serialised (§3.1), everything else
-runs 3-wide, so `C_eff ≈ 1.3`:
+runs 3-wide, so `C_eff ≈ 1.25`:
 
 ```
-(8 × 1.4 h) / 1.3 × 1.2  =  11.2 / 1.3 × 1.2  ≈  10.3 h
+(8 × 1.4 h) / 1.25 × 1.2  =  11.2 / 1.25 × 1.2  ≈  10.8 h
 ```
 
-Range using the endpoints: `(8 × 0.95)/1.3 × 1.2 = 7.0 h` to `(8 × 2.1)/1.3 × 1.2 = 15.5 h`.
+Range using the endpoints: `(8 × 0.95)/1.25 × 1.2 = 7.3 h` to `(8 × 2.1)/1.25 × 1.2 = 16.1 h`.
 
-**Step 4 — total.** 1.6 + 7.0 = **8.6 h** best case; 3.7 + 15.5 = **19.2 h** worst case. Say
-**9–19 h, most likely 12–14 h.** Under the 24 h approval gate, but not by a comfortable margin.
+**Step 4 — total.** 1.6 + 7.3 = **8.9 h** best case; 3.7 + 16.1 = **19.8 h** worst case. Say
+**9–20 h, most likely 12–15 h.** Under the 24 h approval gate, but not by a comfortable margin.
 
 **Step 5 — disk.**
 
@@ -350,9 +337,9 @@ That must be said, not buried.
 
 > Eight RNA-seq samples at 40 M PE reads, STAR+salmon, GRCh38 + GENCODE v50. I have no STAR or salmon
 > index yet, so there's a one-off build of about 1.6–3.7 h (STAR index alone is ~1 h and holds
-> 32–40 GB of RAM — nothing else can run during it). After that, roughly 7–15.5 h for the eight
+> 32–38 GB of RAM — nothing else can run during it). After that, roughly 7.3–16 h for the eight
 > samples: STAR is memory-bound so it runs one sample at a time here, which is what dominates.
-> **Total 9–19 h, most likely 12–14.** Under the 24 h approval line, so I'll proceed unless you say
+> **Total 9–20 h, most likely 12–15.** Under the 24 h approval line, so I'll proceed unless you say
 > otherwise — but it will occupy the machine overnight.
 >
 > Disk is the tighter constraint. Work dir peaks cumulatively at 265–535 GB (Nextflow keeps every
@@ -412,6 +399,7 @@ concurrency) or too tight (risking OOM). `%cpu` well under `100 × cpus` means t
 bound and giving it more cores is pointless — a common trap when the work dir accidentally landed on
 `/mnt/d`.
 
-After the first real run of each pipeline on this box, **edit the §1 row for that pipeline** with the
-observed range and note the input size it came from. A measured number with provenance beats every
-estimate in this file.
+After the first real run of each pipeline on this box, **append pipeline, revision, input size, wall
+clock, work-dir peak and run id to `$BIOINFO_RUNLOG/measured.tsv`**. Do not edit §1 — this file
+ships inside the plugin and is overwritten on reinstall, so measurements cannot accumulate here. A
+measured number with provenance beats every estimate in this file.
