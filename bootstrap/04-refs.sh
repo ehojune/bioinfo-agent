@@ -3,6 +3,7 @@
 #
 #   bash /mnt/d/bioinfo-agent/bootstrap/04-refs.sh [--dry-run] [--force] [--quiet]
 #                                            [--manifest PATH] [--refs PATH]
+#                                            [--verify] [--hash STANDARD_PATH]
 #
 # The manifest is the source of truth. This script never invents a path and never
 # guesses a source; it only enforces what the manifest already declares.
@@ -11,6 +12,13 @@
 #   copy   materialise into ext4, skipped when size matches and the copy is not older.
 #   build  a tool generates it. Parent dir is created; status NOT BUILT until it exists.
 #   fetch  must be downloaded. Status MISSING with the manifest's hint.
+#
+# Integrity. The manifest carries an OPTIONAL sha256 as its 5th column. The default run
+# never hashes anything — size and mtime only, so a 3 GB BWT is not re-read every time.
+#
+#   --verify              hash every row that carries a digest; non-zero on any mismatch
+#   --hash STANDARD_PATH  hash one materialised file and write the digest into its
+#                         blank cell. Refuses to overwrite a digest that is already there.
 #
 # Exit code is non-zero ONLY when a link/copy SOURCE is absent — that is a broken
 # manifest or a missing drive, and it is actionable. build and fetch gaps are the
@@ -21,10 +29,18 @@
 if [ -z "${BIOINFO_CRLF_REEXEC:-}" ] && grep -q $'\r' "$0" 2>/dev/null; then export BIOINFO_CRLF_REEXEC=1; exec bash <(tr -d '\r' < "$0") "$@"; fi  # CRLF self-heal
 set -euo pipefail
 
+# config/host.env — per-machine overrides, sourced before the defaults so the values
+# here are genuine fallbacks. `|| true`: an unquoted value there must not stop the run.
+HOST_ENV="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}/config/host.env"
+. "$(dirname "$0")/lib/host-env.sh"      # parses; never executes host.env
+load_host_env "$HOST_ENV"
+
 BIOINFO_HOME_V="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}"
 REFS="${BIOINFO_REFS:-/refs}"
 MANIFEST="$BIOINFO_HOME_V/config/refs.manifest.tsv"
 DRY=0; FORCE=0; QUIET=0
+RUNMODE=copy            # copy | verify | hash
+HASH_TARGET=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -33,7 +49,9 @@ while [ $# -gt 0 ]; do
     --quiet|-q) QUIET=1 ;;
     --manifest) shift; MANIFEST="${1:-}" ;;
     --refs)     shift; REFS="${1:-}" ;;
-    -h|--help)  sed -n '2,20p' "$0"; exit 0 ;;
+    --verify)   RUNMODE=verify ;;
+    --hash)     RUNMODE=hash; shift; HASH_TARGET="${1:-}" ;;
+    -h|--help)  sed -n '2,26p' "$0"; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2 ;;
   esac
   shift
@@ -57,12 +75,63 @@ fi
 # Standard skeleton. Present regardless of what the manifest happens to list, because
 # the pipeline configs reference these cache dirs by name whether or not a row exists.
 for d in genomes catalogs cache cache/nf-assets cache/containers cache/vep cache/snpeff cache/igenomes; do
-  [ "$DRY" -eq 1 ] || mkdir -p "$REFS/$d"
+  [ "$DRY" -eq 1 ] || [ "$RUNMODE" != copy ] || mkdir -p "$REFS/$d"
 done
 
 human() { awk -v b="${1:-0}" 'BEGIN{s="B KiB MiB GiB TiB";n=split(s,u," ");i=1;while(b>=1024&&i<n){b/=1024;i++}printf (i==1?"%d %s":"%.1f %s"), b, u[i]}'; }
 
+# ------------------------------------------------------------------ sha256 column
+# The digest is the manifest's 5th column. Recognised in the note column too, by shape,
+# so a manifest that orders note and sha256 the other way round still verifies.
+is_sha256() {
+  [ "${#1}" -eq 64 ] || return 1
+  case "$1" in *[!0-9a-fA-F]*) return 1 ;; esac
+  return 0
+}
+digest_of() {   # $1=note $2=sha  ->  the digest, or nothing
+  local f
+  for f in "${1:-}" "${2:-}"; do
+    is_sha256 "$f" && { printf '%s' "$f"; return 0; }
+  done
+  printf ''
+}
+sha_of() { sha256sum "$1" | awk '{print $1}'; }
+
+# ------------------------------------------------------------------ --hash
+# Fills one blank digest cell. Deliberately one path per invocation: a bulk "hash
+# everything" would bake in whatever is on disk right now, which is the opposite of
+# what a manifest digest is for.
+if [ "$RUNMODE" = hash ]; then
+  [ -n "$HASH_TARGET" ] || die "--hash needs a standard_path (column 1 of the manifest)"
+  HDEST="$REFS/$HASH_TARGET"
+  [ -f "$HDEST" ] || die "not a regular file, nothing to hash: $HDEST"
+  [ -w "$MANIFEST" ] || die "manifest is not writable: $MANIFEST"
+  HGOT="$(sha_of "$HDEST")"
+  HTMP="$MANIFEST.hash.$$"
+  : > "$HTMP"
+  found=0
+  while IFS= read -r raw || [ -n "$raw" ]; do
+    line="${raw//$'\r'/}"
+    trimmed="${line#"${line%%[![:space:]]*}"}"
+    case "$trimmed" in ''|'#'*) printf '%s\n' "$line" >> "$HTMP"; continue ;; esac
+    IFS=$'\t' read -r std mode src note sha <<<"$line"
+    if [ "$std" != "$HASH_TARGET" ]; then printf '%s\n' "$line" >> "$HTMP"; continue; fi
+    found=1
+    if [ -n "$(digest_of "${note:-}" "${sha:-}")" ]; then
+      rm -f "$HTMP"
+      die "$HASH_TARGET already carries a digest. Check it with --verify; blank the cell by hand to replace it."
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\n' "$std" "$mode" "$src" "${note:-}" "$HGOT" >> "$HTMP"
+  done < "$MANIFEST"
+  [ "$found" -eq 1 ] || { rm -f "$HTMP"; die "no manifest row with standard_path: $HASH_TARGET"; }
+  mv -f "$HTMP" "$MANIFEST"
+  say "[04-refs] $HASH_TARGET"
+  say "[04-refs] sha256 $HGOT  written to $MANIFEST"
+  exit 0
+fi
+
 n_ok=0; n_link=0; n_copy=0; n_stale=0; n_build=0; n_fetch=0; n_hard=0; n_parse=0
+n_vok=0; n_vbad=0; n_vskip=0
 copied_bytes=0
 declare -a HARD_MISSING=()
 
@@ -165,6 +234,24 @@ do_copy() {
   n_copy=$((n_copy+1)); copied_bytes=$((copied_bytes+ssize))
 }
 
+do_verify() {
+  local std="$1" want="$2" dest="$REFS/$1" got
+  if [ -z "$want" ]; then
+    row SKIP verify "$std" "no sha256 in the manifest"; n_vskip=$((n_vskip+1)); return 0
+  fi
+  if [ ! -f "$dest" ]; then
+    row ABSENT verify "$std" "not materialised yet — run 04-refs.sh with no flags"
+    n_vskip=$((n_vskip+1)); return 0
+  fi
+  got="$(sha_of "$dest")"
+  if [ "$got" = "$want" ]; then
+    row OK verify "$std"; n_vok=$((n_vok+1))
+  else
+    row MISMATCH verify "$std" "want $want"
+    n_vbad=$((n_vbad+1)); HARD_MISSING+=("$std  sha256 want $want got $got")
+  fi
+}
+
 do_build() {
   local std="$1" hint="$2" dest="$REFS/$1"
   case "$std" in
@@ -216,11 +303,12 @@ while IFS= read -r raw || [ -n "$raw" ]; do
        n_parse=$((n_parse+1)); continue ;;
   esac
 
-  IFS=$'\t' read -r std mode src note <<<"$line"
+  IFS=$'\t' read -r std mode src note sha <<<"$line"
   std="${std#"${std%%[![:space:]]*}"}"; std="${std%"${std##*[![:space:]]}"}"
   mode="${mode#"${mode%%[![:space:]]*}"}"; mode="${mode%"${mode##*[![:space:]]}"}"
   src="${src#"${src%%[![:space:]]*}"}";   src="${src%"${src##*[![:space:]]}"}"
   note="${note:-}"
+  sha="${sha:-}"; sha="${sha#"${sha%%[![:space:]]*}"}"; sha="${sha%"${sha##*[![:space:]]}"}"
 
   # standard_path is relative to $REFS by definition. Anything absolute or with .. in it
   # is a malformed manifest, and following it would write outside the reference store.
@@ -229,6 +317,13 @@ while IFS= read -r raw || [ -n "$raw" ]; do
              n_parse=$((n_parse+1)); continue ;;
     '')      row PARSE "$mode" "line $lineno" "empty standard_path"; n_parse=$((n_parse+1)); continue ;;
   esac
+
+  # --verify hashes what is already in $REFS and never looks at a source, so the mount
+  # warning and the mode dispatch below are both irrelevant to it.
+  if [ "$RUNMODE" = verify ]; then
+    do_verify "$std" "$(digest_of "$note" "$sha")"
+    continue
+  fi
 
   # One warning per missing drvfs mount, not one per row.
   case "$src" in
@@ -252,6 +347,26 @@ while IFS= read -r raw || [ -n "$raw" ]; do
 done < "$MANIFEST"
 
 # ------------------------------------------------------------------ summary
+if [ "$RUNMODE" = verify ]; then
+  say ""
+  say "[04-refs] verify: ok=$n_vok mismatched=$n_vbad skipped=$n_vskip (no digest, or not materialised) parse-errors=$n_parse"
+  if [ "$n_vbad" -gt 0 ] || [ "$n_parse" -gt 0 ]; then
+    warn ""
+    warn "[04-refs] FAILED — content does not match the manifest digest:"
+    i=1
+    for h in "${HARD_MISSING[@]:-}"; do
+      [ -n "$h" ] || continue
+      warn "   $i. $h"; i=$((i+1))
+    done
+    warn ""
+    warn "   A mismatch means the file changed after the digest was recorded. Re-copy from"
+    warn "   the manifest SOURCE, or confirm the new content and re-record the digest."
+    exit 1
+  fi
+  say "[04-refs] OK"
+  exit 0
+fi
+
 total=$((n_ok+n_link+n_copy+n_stale+n_build+n_fetch+n_hard+n_parse))
 say ""
 say "[04-refs] $total rows: ok=$n_ok linked=$n_link copied=$n_copy stale=$n_stale not-built=$n_build fetch-missing=$n_fetch broken=$n_hard parse-errors=$n_parse"

@@ -444,7 +444,19 @@ else {
 # ============================================================ 9. next steps
 Write-Head 'Next'
 
-$repo = '/mnt/' + $Drive.ToLower() + '/bioinfo'
+# The repo is wherever THIS script was run from - not a guess from -Drive, which only
+# says where the distro's VHDX goes. The two are independent, and the old guess
+# ('/mnt/<drive>/bioinfo') was wrong on this machine and on any checkout not at a repo
+# named exactly 'bioinfo'.
+$repo = '/mnt/d/bioinfo-agent'
+$repoWin = ''
+if ($PSScriptRoot) { $repoWin = Split-Path -Parent $PSScriptRoot }
+if ($repoWin -match '^([A-Za-z]):\\(.*)$') {
+    $repo = ('/mnt/' + $Matches[1].ToLower() + '/' + ($Matches[2] -replace '\\', '/')).TrimEnd('/')
+}
+else {
+    Write-Warn "could not derive the repo path from '$repoWin' - the commands below assume $repo"
+}
 
 Write-Host ''
 Write-Host '  Run these in order. Note `bash <script>` rather than `./<script>` -' -ForegroundColor White

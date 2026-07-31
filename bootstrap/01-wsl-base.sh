@@ -4,8 +4,9 @@
 #   wsl -d Ubuntu-24.04 -u root -- bash /mnt/d/bioinfo-agent/bootstrap/01-wsl-base.sh
 #
 # Writes /etc/wsl.conf, creates the pipeline user with passwordless sudo, installs the
-# base toolchain, and stakes out the two ext4 directories everything else depends on
-# (/refs and /work). Idempotent: re-running repairs drift, it does not duplicate.
+# base toolchain, and stakes out the ext4 roots everything else depends on (BIOINFO_REFS,
+# BIOINFO_WORK, BIOINFO_RUNS). Idempotent: re-running repairs drift, it does not duplicate.
+# Read the PRIVILEGE GRANT block it prints — two of its changes are root-equivalent.
 #
 # CRLF: this repo lives on NTFS. If git checked the file out with CRLF, `./01-...sh`
 # dies on the shebang (`bad interpreter: bash^M`) before any code runs — nothing can be
@@ -16,11 +17,20 @@
 if [ -z "${BIOINFO_CRLF_REEXEC:-}" ] && grep -q $'\r' "$0" 2>/dev/null; then export BIOINFO_CRLF_REEXEC=1; exec bash <(tr -d '\r' < "$0") "$@"; fi  # CRLF self-heal
 set -euo pipefail
 
+# config/host.env is the per-machine override file host.env.example describes. Sourced
+# before every default below, so the values here are genuine fallbacks. `|| true`: an
+# unquoted value in host.env must not take the whole bootstrap down.
+HOST_ENV="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}/config/host.env"
+. "$(dirname "$0")/lib/host-env.sh"      # parses; never executes host.env
+load_host_env "$HOST_ENV"
+
+BIOINFO_HOME_V="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}"
 BIOINFO_USER="${BIOINFO_USER:-ehojune}"
 BIOINFO_UID="${BIOINFO_UID:-1000}"
-DISTRO="${WSL_DISTRO_NAME:-Ubuntu-24.04}"
+DISTRO="${WSL_DISTRO_NAME:-${BIOINFO_DISTRO:-Ubuntu-24.04}}"
 REFS_ROOT="${BIOINFO_REFS:-/refs}"
-WORK_ROOT="${BIOINFO_WORK_ROOT:-/work}"
+WORK_ROOT="${BIOINFO_WORK:-/work}"
+RUNS_ROOT="${BIOINFO_RUNS:-/runs}"
 
 log()  { printf '\n[01-base] %s\n' "$*"; }
 info() { printf '           %s\n' "$*"; }
@@ -37,7 +47,7 @@ if [ ! -e /proc/sys/fs/binfmt_misc/WSLInterop ] && [ -z "${WSL_DISTRO_NAME:-}" ]
   exit 1
 fi
 
-log "distro=$DISTRO user=$BIOINFO_USER refs=$REFS_ROOT work=$WORK_ROOT"
+log "distro=$DISTRO user=$BIOINFO_USER refs=$REFS_ROOT work=$WORK_ROOT runs=$RUNS_ROOT"
 
 # ------------------------------------------------------------------ /etc/wsl.conf
 # systemd=true            : docker.service, and anything else that expects a real init.
@@ -97,6 +107,31 @@ else
   fi
   info "created (uid $(id -u "$BIOINFO_USER"))"
 fi
+
+# ------------------------------------------------------------------ privilege grants
+# Disclosure, not a formality. Both grants below are root, and neither is obvious from
+# the outside. Printed every run, before anything is applied.
+cat <<EOF
+
+############################################################################
+  PRIVILEGE GRANT — $BIOINFO_USER becomes root-equivalent in this distro.
+
+  1. /etc/sudoers.d/90-bioinfo-nopasswd
+       $BIOINFO_USER ALL=(ALL) NOPASSWD:ALL
+     Any command, as root, with no password prompt. No password is set on
+     the account, so this drop-in IS the only path to root.
+
+  2. bootstrap/02-docker.sh puts $BIOINFO_USER in the 'docker' group.
+     The docker socket runs as root and does not check what you mount:
+     'docker run -v /:/host' reads and writes the whole filesystem as
+     root. Docker group membership is root access, not a lesser one.
+
+  Deliberate — this is a single-user pipeline box and every run needs both.
+  If this distro is shared with anyone, Ctrl-C now and grant sudo per
+  command instead.
+############################################################################
+
+EOF
 
 # No password is set. WSL never runs login(1), so a locked password costs nothing and
 # removes a credential from the box. sudo works via the NOPASSWD drop-in below.
@@ -158,15 +193,17 @@ else
 fi
 
 # ------------------------------------------------------------------ ext4 scratch roots
-# Both of these are top-level on the distro's ext4 volume on purpose.
+# All three are top-level on the distro's ext4 volume on purpose.
 #   $REFS_ROOT  — reference store per config/refs.manifest.tsv
 #   $WORK_ROOT  — Nextflow work dirs and temp. Kept out of /home so that a runaway
 #                 pipeline fills a directory you can `du` in one place, and so home
 #                 stays small enough to `wsl --export` when migrating machines.
-# Neither may ever live under /mnt/* — drvfs is 5-10x slower and Nextflow's work dir is
-# nothing but small random reads and writes.
+#   $RUNS_ROOT  — pipeline outdirs, one subdirectory per run.
+# None may ever live under /mnt/* — drvfs is 5-10x slower and Nextflow's work dir is
+# nothing but small random reads and writes. BIOINFO_RUNLOG is the exception and is
+# deliberately absent here: it is text only, and lives in the repo on NTFS.
 log "ext4 roots"
-for d in "$REFS_ROOT" "$WORK_ROOT"; do
+for d in "$REFS_ROOT" "$WORK_ROOT" "$RUNS_ROOT"; do
   case "$d" in
     /mnt/*) echo "[01-base] $d is under /mnt — that is drvfs. Refusing." >&2; exit 1 ;;
   esac
@@ -188,7 +225,7 @@ info "wsl.conf        : $(grep -c . /etc/wsl.conf) non-empty lines"
 info "user            : $BIOINFO_USER uid=$(id -u "$BIOINFO_USER") groups=$(id -nG "$BIOINFO_USER" | tr ' ' ',')"
 info "java            : $(java -version 2>&1 | head -1)"
 info "pid 1           : $(ps -p 1 -o comm=)"
-info "$REFS_ROOT / $WORK_ROOT : owned by $BIOINFO_USER"
+info "$REFS_ROOT $WORK_ROOT $RUNS_ROOT : owned by $BIOINFO_USER"
 
 echo
 if [ "$RESTART_NEEDED" -eq 1 ] || [ "$(ps -p 1 -o comm=)" != "systemd" ]; then
@@ -203,14 +240,14 @@ if [ "$RESTART_NEEDED" -eq 1 ] || [ "$(ps -p 1 -o comm=)" != "systemd" ]; then
 
   Then continue:
 
-      wsl -d $DISTRO -u root -- bash /mnt/d/bioinfo-agent/bootstrap/02-docker.sh
+      wsl -d $DISTRO -u root -- bash $BIOINFO_HOME_V/bootstrap/02-docker.sh
 ============================================================================
 EOF
 else
   cat <<EOF
 ============================================================================
   Baseline in place and systemd is already PID 1 — no restart needed.
-  Next:  wsl -d $DISTRO -u root -- bash /mnt/d/bioinfo-agent/bootstrap/02-docker.sh
+  Next:  wsl -d $DISTRO -u root -- bash $BIOINFO_HOME_V/bootstrap/02-docker.sh
 ============================================================================
 EOF
 fi

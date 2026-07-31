@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # check-samplesheet.sh -- pre-flight validation for nf-core samplesheets.
 #
+#     check-samplesheet.sh [--deep] [--pipeline <name>] <samplesheet.csv>
+#
+# --pipeline enforces that pipeline's required columns. Without it only a
+# sample-identifier column is required, so pass it whenever you know the target.
+#
 # If this dies with:  /usr/bin/env: 'bash\r': No such file or directory
 # the file was checked out with CRLF from the NTFS side. Fix once:
 #     sed -i 's/\r$//' check-samplesheet.sh
@@ -10,9 +15,16 @@
 set -euo pipefail
 
 DEEP=0
-[[ "${1:-}" == "--deep" ]] && { DEEP=1; shift; }
+PIPELINE=""
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --deep)     DEEP=1; shift ;;
+    --pipeline) PIPELINE="${2:-}"; shift 2 ;;
+    *) echo "unknown flag: $1" >&2; exit 2 ;;
+  esac
+done
 SHEET="${1:-}"
-[[ -f "$SHEET" ]] || { echo "usage: $0 [--deep] <samplesheet.csv>" >&2; exit 2; }
+[[ -f "$SHEET" ]] || { echo "usage: $0 [--deep] [--pipeline <name>] <samplesheet.csv>" >&2; exit 2; }
 
 ERR=0
 ok()   { printf 'ok    %s\n' "$*"; }
@@ -45,7 +57,8 @@ HDR=$(head -1 "$TMP")
 IFS=, read -r -a COLS <<< "$HDR"
 NCOL=${#COLS[@]}
 printf 'cols  %s  (%d)\n' "$HDR" "$NCOL"
-printf 'rows  %d data rows\n' "$(( $(wc -l < "$TMP") - 1 ))"
+NROW=$(( $(wc -l < "$TMP") - 1 ))
+(( NROW > 0 )) && printf 'rows  %d data rows\n' "$NROW" || fail "no data rows (header only)"
 
 DUP=$(printf '%s\n' "${COLS[@]}" | sort | uniq -d | paste -sd, -)
 [[ -z "$DUP" ]] && ok "header names unique" || fail "duplicate header names: $DUP"
@@ -54,7 +67,40 @@ RAGGED=$(awk -F, -v n="$NCOL" 'NR>1 && NF!=n {printf "line %d has %d fields; ", 
 [[ -z "$RAGGED" ]] && ok "all rows have $NCOL fields" || fail "ragged rows: $RAGGED"
 
 colidx() { awk -F, -v w="$1" 'NR==1{for(i=1;i<=NF;i++) if($i==w){print i; exit}}' "$TMP"; }
-colvals(){ local i; i=$(colidx "$1"); [[ -n "$i" ]] && awk -F, -v i="$i" 'NR>1{print $i}' "$TMP"; }
+colvals(){ local i; i=$(colidx "$1"); [[ -n "$i" ]] || return 0; awk -F, -v i="$i" 'NR>1{print $i}' "$TMP"; }
+
+# ---- 2b. required columns ---------------------------------------------------
+# Column sets for the stocked nine. Revisions they were read at: config/pipelines.tsv.
+case "$PIPELINE" in
+  '')                    REQ='' ;;
+  rnaseq)                REQ='sample fastq_1 strandedness' ;;
+  sarek)                 REQ='patient sample' ;;                # plus one input column, below
+  methylseq|scrnaseq)    REQ='sample fastq_1' ;;
+  atacseq)               REQ='sample fastq_1 replicate' ;;
+  chipseq)               REQ='sample fastq_1 replicate antibody control control_replicate' ;;
+  cutandrun)             REQ='group replicate fastq_1 control' ;;
+  differentialabundance) REQ='sample' ;;                        # or whatever --observations_id_col says
+  fetchngs)              REQ='' ;;                              # headerless accession list, not a CSV
+  *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
+esac
+
+if [[ "$PIPELINE" == fetchngs ]]; then
+  warn "fetchngs takes a headerless accession list; the column checks below do not apply to it"
+elif [[ -n "$REQ" ]]; then
+  MISS=''
+  for C in $REQ; do [[ -n "$(colidx "$C")" ]] || MISS="$MISS $C"; done
+  [[ -z "$MISS" ]] && ok "$PIPELINE required columns present" \
+                   || fail "$PIPELINE is missing required column(s):$MISS"
+  if [[ "$PIPELINE" == sarek ]]; then
+    [[ -n "$(colidx fastq_1)$(colidx bam)$(colidx cram)$(colidx vcf)" ]] \
+      || fail "sarek needs one of fastq_1 / bam / cram / vcf, matching --step"
+  fi
+elif [[ -z "$PIPELINE" ]]; then
+  ID=''
+  for C in sample patient group id; do [[ -z "$(colidx "$C")" ]] || { ID="$C"; break; }; done
+  [[ -n "$ID" ]] && ok "sample-identifier column: $ID" \
+                 || fail "no sample-identifier column (sample|patient|group|id); pass --pipeline <name> to check the full set"
+fi
 
 # ---- 3. path columns --------------------------------------------------------
 for C in fastq_1 fastq_2 bam bai cram crai vcf table spring_1 spring_2; do
@@ -105,7 +151,7 @@ if [[ -n "$I1" && -n "$I2" ]]; then
       && warn "fastq_1 read is much longer than fastq_2 (${L1} vs ${L2} bp) -- for 10x that means the reads are swapped" \
       || true
     if (( DEEP )); then
-      C1=$(gzip -cd < "$R1" | wc -l); C2=$(gzip -cd < "$R2" | wc -l)
+      C1=$( { gzip -cd < "$R1" 2>/dev/null || true; } | wc -l); C2=$( { gzip -cd < "$R2" 2>/dev/null || true; } | wc -l)
       (( C1 % 4 == 0 )) || fail "line count not divisible by 4: $R1 ($C1)"
       (( C1 == C2 )) || fail "mate record counts differ: $((C1/4)) vs $((C2/4))  ($R1)"
     fi
@@ -125,6 +171,8 @@ if [[ -n "$(colidx lane)" && -n "$(colidx patient)" ]]; then     # sarek FASTQ s
         'NR>1{print $p"/"$s"/"$l}' "$TMP" | sort | uniq -d | paste -sd' ' -)
   [[ -z "$D" ]] && ok "patient/sample/lane triples unique" \
                 || fail "duplicate patient/sample/lane (duplicate read groups): $D"
+  NAKED=$(colvals lane | grep -cE '^[0-9]+$' || true)
+  (( NAKED == 0 )) || warn "$NAKED lane values are bare integers; qualify with the flowcell (e.g. HKJL7DSX5.1) or two flowcells will collide"
 elif [[ -n "$(colidx patient)" && -n "$(colidx sample)" ]]; then  # sarek restart step
   D=$(awk -F, -v p="$(colidx patient)" -v s="$(colidx sample)" \
         'NR>1{print $p"/"$s}' "$TMP" | sort | uniq -d | paste -sd' ' -)
@@ -140,6 +188,11 @@ fi
 if [[ -n "$(colidx strandedness)" ]]; then
   B=$(colvals strandedness | grep -vE '^(auto|forward|reverse|unstranded)$' | sort -u | paste -sd, - || true)
   [[ -z "$B" ]] && ok "strandedness values valid" || fail "bad strandedness: $B"
+  if [[ -n "$(colidx sample)" ]]; then
+    M=$(awk -F, -v s="$(colidx sample)" -v t="$(colidx strandedness)" \
+          'NR>1{k[$s","$t]=1} END{for(x in k){split(x,a,","); c[a[1]]++} for(y in c) if(c[y]>1) printf "%s ", y}' "$TMP")
+    [[ -z "$M" ]] || fail "sample(s) with inconsistent strandedness across rows: $M"
+  fi
 fi
 if [[ -n "$(colidx status)" ]]; then
   B=$(colvals status | grep -vE '^[01]?$' | sort -u | paste -sd, - || true)
@@ -151,11 +204,15 @@ if [[ -n "$(colidx sex)" ]]; then
 fi
 
 # ---- 7. footprint -----------------------------------------------------------
-BYTES=$( { for C in fastq_1 fastq_2 bam cram; do colvals "$C"; done \
-           | grep '^/' | sort -u | xargs -r -d '\n' stat -Lc %s 2>/dev/null; } \
-         | awk '{s+=$1} END{print s+0}' || echo 0 )
-printf 'size  %s of input referenced\n' "$(numfmt --to=iec --suffix=B "$BYTES")"
-echo  "      compare against free space on the work filesystem; refuse to start below 1.5x the estimate"
+PATHS=$( { for C in fastq_1 fastq_2 bam cram; do colvals "$C"; done; } | grep '^/' | sort -u || true )
+if [[ -z "$PATHS" ]]; then
+  printf 'size  nothing to size (no absolute fastq/bam/cram paths)\n'
+else
+  BYTES=$(printf '%s\n' "$PATHS" | { xargs -d '\n' stat -Lc %s 2>/dev/null || true; } \
+          | awk '{s+=$1} END{print s+0}')
+  printf 'size  %s of input referenced\n' "$(numfmt --to=iec --suffix=B "$BYTES")"
+  echo  "      compare against free space on the work filesystem; refuse to start below 1.5x the estimate"
+fi
 
 (( ERR == 0 )) && echo "PASS  $SHEET" || echo "FAILED $SHEET"
 exit "$ERR"

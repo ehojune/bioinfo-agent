@@ -33,9 +33,18 @@ if [ "$(id -u)" -eq 0 ]; then
 fi
 
 # ------------------------------------------------------------------ the contract
+# config/host.env — per-machine overrides, sourced before every default below so the
+# values here are genuine fallbacks. Parsed, not sourced — host.env is gitignored and
+# take the bootstrap down.
+HOST_ENV="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}/config/host.env"
+. "$(dirname "$0")/lib/host-env.sh"      # parses; never executes host.env
+load_host_env "$HOST_ENV"
+
 BIOINFO_HOME_V="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}"
 BIOINFO_REFS_V="${BIOINFO_REFS:-/refs}"
-WORK_ROOT="${BIOINFO_WORK_ROOT:-/work}"
+WORK_ROOT="${BIOINFO_WORK:-/work}"
+BIOINFO_RUNS_V="${BIOINFO_RUNS:-/runs}"
+BIOINFO_RUNLOG_V="${BIOINFO_RUNLOG:-$BIOINFO_HOME_V/runs}"
 
 NXF_HOME_V="$HOME/.nextflow"
 # NXF_ASSETS is where `nextflow pull` / `nextflow run nf-core/x` clones pipeline repos.
@@ -58,12 +67,15 @@ done
 log "target layout"
 info "BIOINFO_HOME  = $BIOINFO_HOME_V   (repo; drvfs is fine, it is only text)"
 info "BIOINFO_REFS  = $BIOINFO_REFS_V"
+info "BIOINFO_RUNS  = $BIOINFO_RUNS_V"
+info "BIOINFO_RUNLOG= $BIOINFO_RUNLOG_V   (text only; drvfs on purpose)"
 info "NXF_HOME      = $NXF_HOME_V"
 info "NXF_ASSETS    = $NXF_ASSETS_V"
 info "NXF_WORK      = $NXF_WORK_V"
 info "NXF_TEMP      = $NXF_TEMP_V"
 
-for d in "$NXF_HOME_V" "$NXF_ASSETS_V" "$NXF_WORK_V" "$NXF_TEMP_V" "$NXF_CONTAINERS_V" "$HOME/.local/bin"; do
+for d in "$NXF_HOME_V" "$NXF_ASSETS_V" "$NXF_WORK_V" "$NXF_TEMP_V" "$NXF_CONTAINERS_V" \
+         "$BIOINFO_RUNS_V" "$BIOINFO_RUNLOG_V" "$HOME/.local/bin"; do
   if ! mkdir -p "$d" 2>/dev/null; then
     die "cannot create $d — check ownership. Root should have run: install -d -o $USER -g $USER $(dirname "$d")"
   fi
@@ -86,8 +98,23 @@ if [ -z "$JAVA_MAJOR" ] || [ "$JAVA_MAJOR" -lt 17 ]; then
 fi
 
 # ------------------------------------------------------------------ nextflow
+#
+# `curl https://get.nextflow.io | bash` was what this used to do. On a host that
+# bootstrap/06-tls-trust.sh exists to fix — get.nextflow.io is the exact domain that was
+# found intercepted here — piping an unauthenticated response straight into a shell is
+# the worst available option. Download first, check what landed, then run it.
+#
+# WHAT THIS DOES AND DOES NOT GUARANTEE. It catches a truncated or empty download, a
+# response that is not a shell script at all (a proxy login page, an error blob), and a
+# launcher whose version is not the one pinned. It does NOT establish authenticity: the
+# project publishes no checksum for the installer, so a middlebox that can rewrite the
+# response can also serve a valid-looking launcher reporting the pinned version. The only
+# real defence is a digest obtained out of band — set BIOINFO_NXF_SHA256 to one and this
+# enforces it.
 log "nextflow"
 NXF_BIN="$HOME/.local/bin/nextflow"
+NXF_PIN="${BIOINFO_NXF_VERSION:-24.10.5}"     # move the pin in config/host.env
+NXF_SHA="${BIOINFO_NXF_SHA256:-}"             # sha256 of the get.nextflow.io installer
 
 if [ -x "$NXF_BIN" ]; then
   info "already installed at $NXF_BIN"
@@ -101,9 +128,38 @@ else
   # from (which, on a bad day, is /mnt/d/bioinfo-agent).
   TMPD="$(mktemp -d)"
   trap 'rm -rf "$TMPD"' EXIT
-  info "downloading via get.nextflow.io"
-  ( cd "$TMPD" && curl -fsSL https://get.nextflow.io | JAVA_HOME="$JAVA_HOME_V" bash ) \
+
+  info "downloading get.nextflow.io installer (pinning nextflow $NXF_PIN)"
+  curl -fsSL -o "$TMPD/install.sh" https://get.nextflow.io \
+    || die "could not download the installer. If curl reported a certificate problem, run bootstrap/06-tls-trust.sh."
+
+  [ -s "$TMPD/install.sh" ] || die "downloaded installer is empty"
+  head -1 "$TMPD/install.sh" | grep -q '^#!.*sh' \
+    || die "downloaded installer is not a shell script — first bytes: $(head -c 80 "$TMPD/install.sh" | tr -d '\n')"
+
+  if [ -n "$NXF_SHA" ]; then
+    GOT_SHA="$(sha256sum "$TMPD/install.sh" | awk '{print $1}')"
+    [ "$GOT_SHA" = "$NXF_SHA" ] \
+      || die "installer sha256 mismatch. expected $NXF_SHA, got $GOT_SHA — do not proceed"
+    info "installer sha256 matches BIOINFO_NXF_SHA256"
+  else
+    info "BIOINFO_NXF_SHA256 unset — the download is sanity-checked, NOT authenticated"
+  fi
+
+  ( cd "$TMPD" && JAVA_HOME="$JAVA_HOME_V" NXF_VER="$NXF_PIN" bash install.sh ) \
     || die "nextflow installer failed — check network, and that NXF_OFFLINE is not set"
+  [ -x "$TMPD/nextflow" ] || die "installer exited 0 but left no ./nextflow launcher"
+
+  # `|| true`: pipefail would otherwise abort here silently on a failed -v, and the case
+  # below gives a far better message than a bare exit.
+  GOT_VER="$(JAVA_HOME="$JAVA_HOME_V" NXF_HOME="$NXF_HOME_V" NXF_VER="$NXF_PIN" \
+             "$TMPD/nextflow" -v 2>&1 | sed -n 's/.*version \([0-9][^ ]*\).*/\1/p' | head -1 || true)"
+  # -v reports the build too (24.10.5.5928), so match on the pin as a prefix.
+  case "$GOT_VER" in
+    "$NXF_PIN"|"$NXF_PIN".*) info "launcher reports $GOT_VER — matches the pin" ;;
+    *) die "launcher reports '$GOT_VER', pin is $NXF_PIN. Set BIOINFO_NXF_VERSION to move the pin deliberately." ;;
+  esac
+
   install -m 0755 "$TMPD/nextflow" "$NXF_BIN"
   info "installed to $NXF_BIN"
 fi
@@ -175,6 +231,12 @@ export BIOINFO_REFS="$BIOINFO_REFS_V"
 # expands to nothing and -work-dir becomes /<run-id>, i.e. a write attempt at /.
 export BIOINFO_WORK="$WORK_ROOT"
 
+# Pipeline outdirs (ext4) and the human-readable run record (NTFS, text only). The
+# launch commands in config/local.config compose paths from both, so both must exist
+# in the environment or those commands write to /<run-id>.
+export BIOINFO_RUNS="$BIOINFO_RUNS_V"
+export BIOINFO_RUNLOG="$BIOINFO_RUNLOG_V"
+
 export JAVA_HOME="$JAVA_HOME_V"
 export PATH="\$HOME/.local/bin:\$PATH"
 
@@ -210,6 +272,12 @@ case \$- in
     unset __v
     ;;
 esac
+
+# Machine-local additions this script must not clobber. 03 rewrites env.sh wholesale on
+# every run, so anything appended to env.sh is lost at the next run; env.local.sh is the
+# place for it. bootstrap/06-tls-trust.sh writes the certifi/Python trust vars there.
+# Sourced last so it can override anything above.
+[ -f "$ENVDIR/env.local.sh" ] && . "$ENVDIR/env.local.sh"
 
 # Set last, so the .bashrc / .profile guards can tell "already loaded" from "never loaded".
 # Both files carry the hook because non-interactive login shells read .profile but bail out
@@ -255,7 +323,7 @@ log "verify"
 # shellcheck disable=SC1090
 . "$ENVFILE"
 
-NXF_VER="$(nextflow -version 2>&1 | sed -n 's/.*version \([0-9][^ ]*\).*/\1/p' | head -1)"
+NXF_VER="$( { nextflow -version 2>&1 || true; } | sed -n 's/.*version \([0-9][^ ]*\).*/\1/p' | head -1)"
 if [ -z "$NXF_VER" ]; then
   nextflow -version || true
   die "nextflow -version produced nothing parseable"
@@ -263,7 +331,7 @@ fi
 info "nextflow    $NXF_VER"
 
 if command -v nf-core >/dev/null 2>&1; then
-  NFC_VER="$(nf-core --version 2>&1 | grep -E '[0-9]+\.[0-9]+' | tail -1 | sed 's/^[[:space:]]*//')"
+  NFC_VER="$( { nf-core --version 2>&1 || true; } | grep -E '[0-9]+\.[0-9]+' | tail -1 | sed 's/^[[:space:]]*//')"
   info "nf-core     $NFC_VER"
 else
   die "nf-core not on PATH after install — check $HOME/.local/bin"
@@ -284,7 +352,7 @@ cat <<EOF
 
       nf-core --help
       nextflow run nf-core/rnaseq -r <rev> --help
-      cat \$NXF_ASSETS/.repos/nf-core/rnaseq/clones/*/assets/schema_input.json
+      find \$NXF_ASSETS -path '*nf-core/rnaseq*' -name schema_input.json | head -1
 
   Next:  bash \$BIOINFO_HOME/bootstrap/04-refs.sh
 ============================================================================
