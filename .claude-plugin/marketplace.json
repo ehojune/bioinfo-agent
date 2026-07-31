@@ -16,6 +16,7 @@
       "author": {
         "name": "ehojune"
       },
+      "license": "MIT",
       "keywords": [
         "bioinformatics",
         "nf-core",
