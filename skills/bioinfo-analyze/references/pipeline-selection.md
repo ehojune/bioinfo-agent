@@ -9,10 +9,12 @@ command — it is twelve hours of compute and a set of numbers that look plausib
 
 ## 0. Revision pinning — read this first
 
-**nf-core samplesheet columns and parameter names drift between releases.** Every schema in this
-document was written against a specific revision, named in the table below. Treat them as a
-starting hypothesis, not truth. Re-derive before the first run of any pipeline you have not run on
-this host before:
+**`config/pipelines.tsv` is the single source of truth for revisions.** Every `-r` in this document
+is the pin in that file; nothing here restates the table. Read it before writing a command.
+
+**nf-core samplesheet columns and parameter names drift between releases.** Treat every schema in
+this document as a starting hypothesis. Re-derive before the first run of any pipeline you have not
+run on this host before:
 
 ```bash
 # 1. what revisions exist
@@ -23,7 +25,7 @@ nextflow run nf-core/<pipeline> -r <rev> --help
 nextflow run nf-core/<pipeline> -r <rev> --help --show_hidden
 
 # 3. the authoritative samplesheet schema (this is the file the pipeline actually validates against)
-cat "$NXF_ASSETS/.repos/nf-core/<pipeline>/clones/*/assets/schema_input.json"
+find "$NXF_ASSETS" -path '*nf-core/<pipeline>*' -name schema_input.json | head -1
 
 # 4. human-readable rendering of both
 nf-core pipelines schema docs nf-core/<pipeline>
@@ -32,22 +34,6 @@ nf-core pipelines schema docs nf-core/<pipeline>
 `$NXF_ASSETS` is `$BIOINFO_REFS/cache/nf-assets` on this host, so the clone is on ext4 and
 `schema_input.json` is a local read. If the clone is absent, `nextflow pull nf-core/<pipeline>
 -r <rev>` first.
-
-| Pipeline | Revision this doc was written against | Confidence |
-|---|---|---|
-| `nf-core/rnaseq` | 3.14.0 | schema stable across 3.1x |
-| `nf-core/differentialabundance` | 1.4.0 | params moved between 1.2 → 1.4 |
-| `nf-core/fetchngs` | 1.12.0 | input semantics changed in 1.11/1.12 |
-| `nf-core/sarek` | 3.4.0 | per-step schemas stable across 3.x |
-| `nf-core/methylseq` | 2.6.0 | 3.0 is a template rewrite — re-derive |
-| `nf-core/atacseq` | 2.1.2 | stable |
-| `nf-core/chipseq` | 2.0.0 | samplesheet changed 1.x → 2.x |
-| `nf-core/cutandrun` | 3.2.2 | stable |
-| `nf-core/scrnaseq` | 2.5.1 | aligner-specific params churn |
-
-<!-- UNVERIFIED: these are the newest revisions the author is confident exist. Newer releases are
-     likely. Confirm with `nextflow info nf-core/<pipeline>` and prefer the newest release that is
-     not a release-candidate. -->
 
 Always pass `-r <rev>` explicitly. A bare `nextflow run nf-core/rnaseq` silently pins to whatever
 happens to be cached in `$NXF_ASSETS`, which makes the run unreproducible and makes `-resume`
@@ -67,7 +53,7 @@ Answer these four in order. Most selections fall out of the first two.
 4. **Is the requested analysis inside the pipeline's ceiling?** See §4 and §6. Many requests are a
    pipeline *plus* downstream work the pipeline does not do.
 
-If step 1 or 2 cannot be answered from what the user said, stop and ask. §7 lists the questions.
+If step 1 or 2 cannot be answered from what the user said, stop and ask. §8 lists the questions.
 
 ---
 
@@ -108,8 +94,9 @@ second machine. Consequences:
   always pass `-c "$BIOINFO_HOME/config/local.config"`. Do not hand-tune caps per run.
   <!-- UNVERIFIED: the max_* → resourceLimits cutover landed with the nf-core tools 3.x template.
        Confirm which one your chosen revision honours via `--help --show_hidden`. -->
-- **Reserve headroom.** Cap at ~22 cpus / ~56 GB, not 24 / 63.5. Windows, the WSL VM, and Docker
-  itself need the remainder, and a hard OOM inside WSL2 can take the whole distro down.
+- **Reserve headroom.** The Nextflow pool is deliberately smaller than the host — `config/local.config`
+  section 2 sets it and is the only place it is set. Windows, the WSL VM, and Docker itself need the
+  remainder, and a hard OOM inside WSL2 can take the whole distro down.
 - **`-work-dir` must be on ext4.** Never `/mnt/d`, never `/mnt/c`. drvfs is 5–10× slower and
   Nextflow work directories are the most I/O-hostile thing on the machine. Use a path inside the
   distro; `--outdir` likewise, then copy the finished deliverable out to `/mnt/d` at the end.
@@ -154,22 +141,12 @@ dupRadar, Preseq, MultiQC).
 
 **Not for:** differential expression (it produces counts, not statistics — chain to
 differentialabundance). Not for single-cell. Not for 3'-tag/QuantSeq libraries without the caveats
-in §5.2. Not for RNA variant calling — it has no GATK RNA path. Not for de novo transcript
+in §7. Not for RNA variant calling — it has no GATK RNA path. Not for de novo transcript
 assembly; StringTie runs but the pipeline is reference-guided and quantifies against the supplied
 GTF.
 
-**Minimum input** — `--input samplesheet.csv`:
-
-| column | notes |
-|---|---|
-| `sample` | rows sharing a `sample` value are merged as technical replicates / multiple lanes |
-| `fastq_1` | required |
-| `fastq_2` | empty for single-end |
-| `strandedness` | `forward` \| `reverse` \| `unstranded` \| `auto` |
-
-`auto` makes the pipeline infer strandedness with Salmon and flag disagreements in MultiQC. Use it
-unless the library kit is documented; then set it explicitly and let `auto`'s check catch a lie.
-Typical: Illumina TruSeq Stranded mRNA → `reverse`. Lexogen QuantSeq FWD → `forward`.
+**Minimum input** — `--input samplesheet.csv`. Columns, strandedness values, and the kit → value
+mapping: `references/samplesheets.md`.
 
 **Parameters that matter here:**
 
@@ -180,7 +157,7 @@ Typical: Illumina TruSeq Stranded mRNA → `reverse`. Lexogen QuantSeq FWD → `
 | `--gencode` | set it | **the store's GTF is GENCODE v50.** Without this flag transcript IDs are parsed wrong and salmon/RSEM counts are corrupted |
 | `--save_reference` | on the first run | writes the STAR/salmon index into the store so the ~1 h, ~40 GB build happens once |
 | `--star_index` / `--salmon_index` | store paths | on every subsequent run |
-| `--trimmer` | `fastp` | faster than trim_galore on 22 cores |
+| `--trimmer` | `fastp` | faster than trim_galore here |
 | `--remove_ribo_rna` | only for ribo-depleted libraries with visible rRNA carryover | SortMeRNA is expensive |
 | `--with_umi` | only if the kit has UMIs | needs `--umitools_extract_method` / `--umitools_bc_pattern` too |
 | `--skip_bigwig` | when nobody will open a browser track | saves real disk |
@@ -209,11 +186,11 @@ matched to UCSC hg38.
 <outdir>/multiqc/star_salmon/multiqc_report.html                   the QC verdict lives here
 ```
 
-**QC verdict checklist** (report these; do not interpret the biology): % uniquely mapped (expect
->70% for good human poly-A), % rRNA, % duplication and whether dupRadar shows it is
-expression-dependent, 5'/3' bias from RSeQC, strandedness agreement between declared and inferred,
-library size spread, and the PCA in the MultiQC report showing whether samples group by condition
-or by batch.
+**QC verdict checklist** (report these; do not interpret the biology): % uniquely mapped, % rRNA,
+% duplication and whether dupRadar shows it is expression-dependent, 5'/3' bias from RSeQC,
+strandedness agreement between declared and inferred, library size spread, and the PCA in the
+MultiQC report showing whether samples group by condition or by batch. Bands:
+`references/qc-interpretation.md` §3.1.
 
 ### 4.2 `nf-core/differentialabundance`
 
@@ -221,7 +198,7 @@ or by batch.
 definition, and producing DESeq2 (or limma) results tables, normalised matrices, QC/exploratory
 plots, a self-contained HTML report, and optionally a ShinyNGS app bundle.
 
-**Not for:** producing counts. Not for anything with fewer than two replicates per group (§5.5).
+**Not for:** producing counts. Not for anything with fewer than two replicates per group (§7).
 Not for single-cell differential expression — the model is wrong for that data. Not for GSEA
 beyond the GSEA module it wraps; pathway interpretation is the user's job.
 
@@ -266,7 +243,7 @@ $BIOINFO_REFS/genomes/GRCh38/gtf/genes.gtf.gz    annotation only; no FASTA, no i
 
 **Key outputs:** `tables/differential/*.deseq2.results.tsv` (one per contrast),
 `tables/processed/` normalised matrices, `plots/` (PCA, MA, volcano, clustering), and the report
-HTML. <!-- UNVERIFIED: exact output subdirectory names shifted between 1.2 and 1.4; confirm with
+HTML. <!-- UNVERIFIED: exact output subdirectory names shifted between 1.2 and 1.5; confirm with
 `ls` after the stub run rather than promising paths in advance. -->
 
 **QC verdict checklist:** does the PCA separate by the contrast variable or by a nuisance variable;
@@ -326,23 +303,8 @@ germline genotyping.
 path). Not for repeat expansions or STR genotyping — **see §6, this matters for this user.** Not
 for de novo assembly. Not for long reads. Not for methylation.
 
-**Minimum input** — the samplesheet schema is **per-`--step`**. This is the single most common
-source of sarek failures.
-
-`--step mapping` (from FASTQ):
-
-| column | notes |
-|---|---|
-| `patient` | subject id; groups samples for tumour–normal and joint calling |
-| `sample` | sample id, unique within patient |
-| `lane` | required when a sample spans lanes; forms the read group |
-| `fastq_1`, `fastq_2` | reads |
-| `sex` | `XX` \| `XY` \| `NA` — affects ploidy and ASCAT |
-| `status` | `0` = normal, `1` = tumour |
-
-`--step variant_calling` (from CRAM): `patient,sample,status,sex,cram,crai`.
-`--step recalibrate`: adds a `table` column.
-`--step annotate`: `patient,sample,vcf`.
+**Minimum input** — the samplesheet schema is **per-`--step`**, which is the single most common
+source of sarek failures. Columns for every step: `references/samplesheets.md`.
 
 **You rarely need to write these by hand.** Sarek writes ready-made restart samplesheets into
 `<outdir>/csv/` — `mapped.csv`, `markduplicates.csv`, `markduplicates_no_table.csv`,
@@ -354,7 +316,7 @@ source of sarek failures.
 
 | param | value | why |
 |---|---|---|
-| `--step` | as above | restart point; see §5.3 |
+| `--step` | `mapping` \| `markduplicates` \| `recalibrate` \| `variant_calling` \| `annotate` | restart point; see §5.3 |
 | `--tools` | `haplotypecaller` germline; `mutect2,strelka,manta` somatic; add `ascat`/`cnvkit` for CNV; `snpeff` or `vep` to annotate | **empty `--tools` = preprocessing only**, which is exactly what you want before an STR caller |
 | `--wes` + `--intervals <capture.bed>` | for exomes | without the capture BED, WES coverage QC and calling are both wrong |
 | `--joint_germline` | cohorts | GenomicsDBImport + joint genotyping; much heavier than per-sample |
@@ -396,8 +358,9 @@ germline leakage. If the user asks for tumour-only, say so and ask whether a PoN
 ```
 
 **QC verdict checklist:** mean and fold-80 coverage from mosdepth, % duplicates, % properly paired,
-insert-size distribution, contamination if estimated, Ti/Tv of the germline call set (~2.0–2.1 WGS,
-~2.8–3.0 WES), het/hom ratio, and whether the declared `sex` matches chrX/chrY coverage.
+insert-size distribution, contamination if estimated, Ti/Tv of the germline call set, het/hom ratio,
+and whether the declared `sex` matches chrX/chrY coverage. Bands:
+`references/qc-interpretation.md` §3.2.
 
 ### 4.5 `nf-core/methylseq`
 
@@ -409,15 +372,13 @@ differential methylation testing; it produces per-cytosine calls, and DMR/DMC ca
 work. Not for long-read 5mC (that comes off the basecaller, not from an aligner). Not for
 hydroxymethylation deconvolution without oxBS/ACE-seq pairs, which the pipeline does not model.
 
-**Minimum input:** `--input samplesheet.csv` with `sample,fastq_1,fastq_2`.
-<!-- UNVERIFIED: methylseq 3.0 is a template rewrite and may have added columns (e.g. a per-sample
-     genome column). Re-derive from assets/schema_input.json for any 3.x revision. -->
+**Minimum input:** `--input samplesheet.csv` — columns in `references/samplesheets.md`.
 
 **Parameters that matter here:**
 
 | param | value | why |
 |---|---|---|
-| `--aligner` | `bwameth` for human WGS-scale; `bismark` for small/RRBS | bismark on 30× human WGBS is punishing on a single 24-core node. bwameth + MethylDackel is materially faster |
+| `--aligner` | `bwameth` for human WGS-scale; `bismark` for small/RRBS | bismark on 30× human WGBS is punishing on a single node. bwameth + MethylDackel is materially faster |
 | `--rrbs` | RRBS libraries | enables MspI-aware trimming and disables deduplication (which is invalid for RRBS) |
 | `--em_seq` | NEBNext EM-seq | sets the end-clipping the protocol requires <!-- UNVERIFIED: exact clip values (believed 8 bp at both ends of both reads); confirm via --help --show_hidden --> |
 | `--clip_r1/--clip_r2/--three_prime_clip_r1/--three_prime_clip_r2` | protocol-dependent | if the kit is not one of the presets, set these manually — M-bias plots will tell you what is needed |
@@ -431,15 +392,15 @@ $BIOINFO_REFS/genomes/GRCh38/fasta/genome.fa
 $BIOINFO_REFS/genomes/GRCh38/index/bismark/     build mode — absent, first run pays for it
 ```
 
-bwameth needs its own index. There is no manifest row for it — see §8.
+bwameth needs its own index. There is no manifest row for it — see §9.
 
 **Key outputs:** per-sample `*.bismark.cov.gz` (or MethylDackel `*.bedGraph`), splitting reports,
 deduplicated BAMs, M-bias plots, MultiQC.
 
 **QC verdict checklist:** bisulfite conversion efficiency (from lambda/pUC19 spike-in if present,
-otherwise from non-CpG methylation — expect >99%), duplication rate, M-bias plots flat across the
-read (if not, clipping is wrong and the run should be redone), mean CpG coverage, and number of
-CpGs at ≥5× and ≥10×.
+otherwise from non-CpG methylation), duplication rate, M-bias plots flat across the read (if not,
+clipping is wrong and the run should be redone), mean CpG coverage, and CpGs covered at depth.
+Bands: `references/qc-interpretation.md` §3.3.
 
 ### 4.6 `nf-core/atacseq`
 
@@ -452,9 +413,7 @@ fraction) via ataqv.
 analysis — it runs a DESeq2 *QC* step (PCA and sample clustering), not a contrast-driven DA
 analysis. Not for single-cell ATAC.
 
-**Minimum input:** `--input samplesheet.csv` with `sample,fastq_1,fastq_2,replicate`.
-<!-- UNVERIFIED: confirm the replicate column against assets/schema_input.json for the revision you
-     run; the 1.x → 2.x transition changed how replicates are encoded in this family of pipelines. -->
+**Minimum input:** `--input samplesheet.csv` — columns in `references/samplesheets.md`.
 
 **Parameters that matter here:**
 
@@ -463,7 +422,7 @@ analysis. Not for single-cell ATAC.
 | `--aligner` | `bowtie2` | the ATAC convention; `chromap` is much faster if you accept its filtering behaviour |
 | `--read_length` | actual read length | selects the matching index/mappability settings |
 | `--macs_gsize` | `2.7e9` for human | wrong gsize silently distorts every peak call |
-| `--blacklist` | ENCODE hg38 blacklist | the pipeline ships blacklists under `assets/blacklists/`; not having one leaves a ring of artefact peaks <!-- UNVERIFIED: confirm the bundled filename in $NXF_ASSETS/.repos/nf-core/atacseq/clones/*/assets/blacklists/ --> |
+| `--blacklist` | ENCODE hg38 blacklist | the pipeline ships blacklists under `assets/blacklists/`; not having one leaves a ring of artefact peaks <!-- UNVERIFIED: confirm the bundled filename with `find "$NXF_ASSETS" -path '*nf-core/atacseq*' -path '*assets/blacklists*' -name '*hg38*'` --> |
 | `--mito_name` | `chrM` | must match the FASTA. UCSC hg38 uses `chrM`. Getting this wrong means mito reads are never removed and the library looks far better than it is |
 | `--min_reps_consensus` | 1 or 2 | how many replicates a peak must appear in to enter the consensus set. **This is a bounded choice — state it in the handoff** |
 
@@ -472,34 +431,29 @@ analysis. Not for single-cell ATAC.
 ```
 $BIOINFO_REFS/genomes/GRCh38/fasta/genome.fa
 $BIOINFO_REFS/genomes/GRCh38/gtf/genes.gtf.gz
-$BIOINFO_REFS/genomes/GRCh38/index/bowtie2/      no manifest row yet — see §8
-$BIOINFO_REFS/genomes/GRCh38/bed/blacklist.bed   no manifest row yet — see §8
+$BIOINFO_REFS/genomes/GRCh38/index/bowtie2/      no manifest row yet — see §9
+$BIOINFO_REFS/genomes/GRCh38/bed/blacklist.bed   no manifest row yet — see §9
 ```
 
 **Key outputs:** `<aligner>/merged_library/macs2/narrow_peak/` per-sample peaks, the consensus peak
 BED and SAF, the featureCounts consensus count matrix (**this is the matrix that feeds
 differentialabundance**), bigWigs, deepTools plots, ataqv HTML, MultiQC.
 
-**QC verdict checklist:** TSS enrichment score (>5 acceptable, >10 good for human), fraction of
-reads in peaks, mitochondrial read fraction (<20% desirable; Omni-ATAC much lower), nucleosomal
-laddering in the fragment-size histogram, library complexity, and peak counts consistent across
-replicates.
+**QC verdict checklist:** TSS enrichment score, fraction of reads in peaks, mitochondrial read
+fraction, nucleosomal laddering in the fragment-size histogram, library complexity, and peak counts
+consistent across replicates. Bands: `references/qc-interpretation.md` §3.4.
 
 ### 4.7 `nf-core/chipseq`
 
 **For:** ChIP-seq with input/IgG controls → peaks (narrow or broad), consensus peak set and count
 matrix, bigWigs, and ChIP QC (cross-correlation, FRiP, fingerprint plots).
 
-**Not for:** CUT&RUN or CUT&Tag if you want spike-in normalisation or SEACR — use cutandrun (§5.6).
+**Not for:** CUT&RUN or CUT&Tag if you want spike-in normalisation or SEACR — use cutandrun (§4.8).
 Not for ChIP without any control unless you accept substantially worse peak calls. Not for
 differential binding as a finished product (same limitation as atacseq).
 
-**Minimum input:** `--input samplesheet.csv`. Columns in 2.x are
-`sample,fastq_1,fastq_2,antibody,control` — with an additional `control_replicate` in some 2.x
-revisions, and control rows themselves leaving `antibody`/`control` empty.
-<!-- UNVERIFIED: the exact 2.x column set (whether `replicate` and `control_replicate` are present)
-     is the single thing to check before writing this samplesheet. Read
-     $NXF_ASSETS/.repos/nf-core/chipseq/clones/*/assets/schema_input.json. Do not guess. -->
+**Minimum input:** `--input samplesheet.csv` — columns in `references/samplesheets.md`. Control rows
+are samples too and need their own rows; that is what makes a 6-ChIP + 2-input design cost eight.
 
 **Parameters that matter here:** `--narrow_peak` vs broad (default is broad in some revisions —
 check; TFs want narrow, H3K27me3/H3K36me3 want broad), `--macs_gsize 2.7e9`, `--blacklist`,
@@ -511,7 +465,8 @@ check; TFs want narrow, H3K27me3/H3K36me3 want broad), `--macs_gsize 2.7e9`, `--
 MultiQC with phantompeakqualtools metrics.
 
 **QC verdict checklist:** NSC/RSC from cross-correlation, FRiP, fingerprint plot separation between
-ChIP and input, peak count and its consistency across replicates, duplication rate.
+ChIP and input, peak count and its consistency across replicates, duplication rate. Bands:
+`references/qc-interpretation.md` §3.5.
 
 ### 4.8 `nf-core/cutandrun`
 
@@ -521,10 +476,8 @@ tracks, consensus peaks, an IGV session, and a reporting deck of QC plots.
 **Not for:** conventional ChIP-seq (use chipseq — the normalisation model differs). Not for ATAC.
 Not for experiments with no IgG control if you intend to use SEACR's control mode.
 
-**Minimum input:** `--input samplesheet.csv` with `group,replicate,fastq_1,fastq_2,control` —
-note this family uses `group`/`replicate`, **not** `sample`, which is a frequent copy-paste error
-when moving from an atacseq samplesheet.
-<!-- UNVERIFIED: confirm against assets/schema_input.json for the revision you run. -->
+**Minimum input:** `--input samplesheet.csv` — columns in `references/samplesheets.md`. This family
+uses `group`/`replicate`, **not** `sample`; copying an atacseq samplesheet across is the usual error.
 
 **Parameters that matter here:**
 
@@ -542,9 +495,9 @@ when moving from an atacseq samplesheet.
 ```
 $BIOINFO_REFS/genomes/GRCh38/fasta/genome.fa
 $BIOINFO_REFS/genomes/GRCh38/gtf/genes.gtf.gz
-$BIOINFO_REFS/genomes/GRCh38/index/bowtie2/        no manifest row yet — see §8
-$BIOINFO_REFS/genomes/ECOLI_K12/fasta/genome.fa    no manifest row yet — see §8
-$BIOINFO_REFS/genomes/ECOLI_K12/index/bowtie2/     no manifest row yet — see §8
+$BIOINFO_REFS/genomes/GRCh38/index/bowtie2/        no manifest row yet — see §9
+$BIOINFO_REFS/genomes/ECOLI_K12/fasta/genome.fa    no manifest row yet — see §9
+$BIOINFO_REFS/genomes/ECOLI_K12/index/bowtie2/     no manifest row yet — see §9
 ```
 
 By default the pipeline will fetch the spike-in genome itself. On this host, prefer adding it to
@@ -555,7 +508,7 @@ the store so the run is offline-reproducible.
 
 **QC verdict checklist:** spike-in read fraction and the resulting scale factors (wildly divergent
 factors across samples means the spike-in was not added consistently), FRiP, peak counts per group,
-IgG background level, duplication.
+IgG background level, duplication. Bands: `references/qc-interpretation.md` §3.5.
 
 ### 4.9 `nf-core/scrnaseq`
 
@@ -567,9 +520,9 @@ That is the user's scanpy/Seurat work and it starts where this pipeline stops. N
 for single-cell ATAC or multiome (different pipelines). Not for Smart-seq2 plate data without
 thought — that data is bulk-like per well and `nf-core/rnaseq` is often the better fit.
 
-**Minimum input:** `--input samplesheet.csv` with `sample,fastq_1,fastq_2`, optionally
-`expected_cells`. The barcode read is `fastq_1` and the cDNA read is `fastq_2` for 10x — get this
-backwards and you will get near-zero cells with no obvious error.
+**Minimum input:** `--input samplesheet.csv` — columns in `references/samplesheets.md`. For 10x the
+barcode read is `fastq_1` and the cDNA read is `fastq_2`; get this backwards and you get near-zero
+cells with no obvious error.
 
 **Parameters that matter here:**
 
@@ -577,7 +530,7 @@ backwards and you will get near-zero cells with no obvious error.
 |---|---|---|
 | `--aligner` | `star` (STARsolo) or `simpleaf`/`alevin` | avoids the Cell Ranger licensing/container problem <!-- UNVERIFIED: whether the current revision ships a usable cellranger container or requires the user to build one under the 10x EULA. Check the pipeline's usage docs before promising cellranger. --> |
 | `--protocol` | `10XV3` / `10XV2` / `auto` | wrong chemistry = wrong barcode whitelist = no cells |
-| `--star_feature` | `GeneFull` for **single-nucleus** | nuclei are intron-dominated; counting exons only discards most of the signal. This is the snRNA adjustment (§5.7) |
+| `--star_feature` | `GeneFull` for **single-nucleus** | nuclei are intron-dominated; counting exons only discards most of the signal. This is the snRNA adjustment (§7) |
 | `--expected_cells` | per sample | affects the emptyDrops/knee cutoff |
 | `--skip_emptydrops` | when you want the raw matrix and will filter yourself | |
 
@@ -596,7 +549,8 @@ QC, MultiQC.
 
 **QC verdict checklist:** estimated cells vs expected, median genes and UMIs per cell, fraction of
 reads in cells, sequencing saturation, mitochondrial fraction distribution, ambient RNA signal.
-Report these; do not decide which cells are "real" for the user.
+Bands: `references/qc-interpretation.md` §3.6. Report these; do not decide which cells are "real"
+for the user.
 
 ---
 
@@ -619,7 +573,7 @@ nextflow run nf-core/fetchngs -r 1.12.0 ... \
 column -s, -t "$OUT/fetch/samplesheet/samplesheet.csv" | less -S
 
 # 3. run
-nextflow run nf-core/rnaseq -r 3.14.0 ... \
+nextflow run nf-core/rnaseq -r 3.18.0 ... \
   --input "$OUT/fetch/samplesheet/samplesheet.csv" \
   --outdir "$OUT/rnaseq"
 ```
@@ -630,7 +584,7 @@ you get a generic samplesheet and have to reshape it by hand.
 ### 5.2 rnaseq → differentialabundance
 
 ```bash
-nextflow run nf-core/differentialabundance -r 1.4.0 \
+nextflow run nf-core/differentialabundance -r 1.5.0 \
   -profile docker,rnaseq \
   -c "$BIOINFO_HOME/config/local.config" \
   --input  samples_with_metadata.csv \
@@ -656,18 +610,18 @@ the next step with a **new `--outdir`**.
 
 ```bash
 # preprocessing only — no callers. This is the STR-prep path (§6).
-nextflow run nf-core/sarek -r 3.4.0 ... \
+nextflow run nf-core/sarek -r 3.5.1 ... \
   --step mapping --skip_tools baserecalibrator \
   --input samplesheet.csv --outdir "$OUT/sarek_map"
 
 # later: call germline variants from the CRAMs already produced
-nextflow run nf-core/sarek -r 3.4.0 ... \
+nextflow run nf-core/sarek -r 3.5.1 ... \
   --step variant_calling --tools haplotypecaller \
   --input "$OUT/sarek_map/csv/markduplicates_no_table.csv" \
   --outdir "$OUT/sarek_hc"
 
 # later still: annotate an existing VCF without recalling anything
-nextflow run nf-core/sarek -r 3.4.0 ... \
+nextflow run nf-core/sarek -r 3.5.1 ... \
   --step annotate --tools vep \
   --input "$OUT/sarek_hc/csv/variantcalled.csv" \
   --outdir "$OUT/sarek_annot"
@@ -720,7 +674,7 @@ Two stages. Stage one is nf-core; stage two is not.
 **Stage 1 — get analysis-ready alignments out of sarek, calling nothing:**
 
 ```bash
-nextflow run nf-core/sarek -r 3.4.0 \
+nextflow run nf-core/sarek -r 3.5.1 \
   -profile docker -c "$BIOINFO_HOME/config/local.config" \
   --step mapping \
   --skip_tools baserecalibrator \
@@ -839,7 +793,7 @@ The mis-selections that actually happen, and what to do instead.
 | **cutandrun with `--normalisation_mode Spikein` and no spike-in** | Scale factors computed from a handful of stray E. coli reads. Silently wrong, not an error | `CPM`, and say the data has no spike-in |
 | **differentialabundance without replicates** | DESeq2 cannot estimate dispersion from n=1 per group. Minimum is 2; 3 is the working minimum for anything you would write up | Refuse to produce p-values. Report fold changes only, labelled as descriptive, and tell the user the design does not support inference |
 | **differentialabundance on TPM** | The model expects counts. TPM violates its assumptions | `salmon.merged.gene_counts.tsv` |
-| **methylseq with `bismark` on 30× human WGBS** | Not wrong, but it will run for days on 22 cores | `--aligner bwameth` |
+| **methylseq with `bismark` on 30× human WGBS** | Not wrong, but it will run for days on this box | `--aligner bwameth` |
 | **RRBS without `--rrbs`** | Deduplication is applied, and RRBS fragments are duplicates by construction. Most of the library is discarded | `--rrbs` |
 | **sarek `--genome GATK.GRCh38`** | Bypasses the reference store, triggers a large iGenomes download, and hardcodes a name that is not the store's | `--genome null` plus explicit store paths |
 | **Any pipeline with `--work-dir` on /mnt/d** | 5–10× slower, and Windows filesystem semantics break some staging | ext4, always |

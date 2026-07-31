@@ -23,13 +23,18 @@ pipeline_info/
 .nextflow.history
 
 # ---------------------------------------------------------------------- run outputs
-# runs/ holds one directory per analysis. The plan and the handoff note are worth
-# keeping; nothing else in there is. The `!runs/*/` line is load-bearing: git will not
-# descend into an excluded directory, so the re-includes below it never fire without it.
+# runs/ holds one directory per analysis. The five files below are the record of how a
+# run was produced — text, kilobytes. Nothing else in there is worth keeping. The
+# `!runs/*/` line is load-bearing: git will not descend into an excluded directory, so
+# the re-includes below it never fire without it. Re-includes must name the file
+# exactly; a pattern that does not match anything fails silently.
 runs/**
 !runs/*/
 !runs/.gitkeep
-!runs/**/*.plan.md
+!runs/**/plan.md
+!runs/**/cmd.sh
+!runs/**/params.yaml
+!runs/**/samplesheet.csv
 !runs/**/handoff.md
 results/
 **/results/
@@ -121,6 +126,9 @@ slurm-*.out
 .env.*
 !.env.example
 config/local.secrets.config
+# `.env` above matches only a path component named exactly `.env`, not host.env.
+config/host.env
+host.env
 *.pem
 *.key
 credentials*

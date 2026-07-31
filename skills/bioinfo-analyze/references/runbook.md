@@ -11,7 +11,7 @@ Docker **engine** inside the distro, distro ext4 on `D:\wsl\ubuntu-24.04\ext4.vh
 ## Sequence at a glance
 
 1. Pick pipeline + revision. Pin the revision.
-2. Write the run plan to `$RUNDIR/run-plan.md`. Get approval if the estimate exceeds 24 h.
+2. Write the run plan to `$RUNDIR/plan.md`. Get approval if the estimate exceeds 24 h.
 3. Write `samplesheet.csv`, `params.yaml`, `cmd.sh` into `$RUNDIR`.
 4. Preflight. Any FAIL is a hard stop.
 5. `-preview`, then `-stub-run`. Both must be clean.
@@ -30,7 +30,7 @@ Two directories per run, one on each filesystem, sharing a run ID.
 RUNID = <YYYYMMDD>-<pipeline>-<slug>          e.g. 20260728-rnaseq-koges-pilot
 
 /mnt/d/bioinfo-agent/runs/$RUNID/            NTFS via drvfs — human-visible, small text + deliverables
-  ├── run-plan.md                        written BEFORE launch, never edited after
+  ├── plan.md                            written BEFORE launch, never edited after
   ├── samplesheet.csv
   ├── params.yaml
   ├── cmd.sh                             the literal command that was run
@@ -98,7 +98,7 @@ export BIOINFO_HOME=/mnt/d/bioinfo-agent
 export BIOINFO_REFS=/refs
 export NXF_WORKROOT=/work/nxf
 export NXF_ASSETS="$BIOINFO_REFS/cache/nf-assets"    # pipeline clones live on ext4
-export NXF_OPTS='-Xms1g -Xmx4g'                       # cap the launcher JVM
+export NXF_OPTS='-Xms1g -Xmx8g'                       # cap the launcher JVM (03-nextflow.sh sets this)
 export NXF_ANSI_LOG=false                             # backgrounded logs must not be redraw spam
 ```
 
@@ -108,17 +108,10 @@ distro's `PATH` (reach them at `/mnt/c/Windows/System32/…` if you must).
 
 - **WSL memory ceiling.** WSL2 defaults to roughly half of host RAM, i.e. ~31 GB here. That is below
   what a human STAR index build wants (~40 GB) and well below comfortable for sarek. Check inside
-  the distro with `free -g`; if `total` is ~31, create or edit `%USERPROFILE%\.wslconfig`:
-
-  ```ini
-  [wsl2]
-  memory=52GB
-  processors=24
-  swap=16GB
-  ```
-
-  then `wsl --shutdown` from PowerShell and restart the distro. Leaving ~11 GB to Windows is not
-  optional; starving the host makes the whole machine unusable and does not speed up the run.
+  the distro with `free -g`; if `total` is ~31, copy `config/wslconfig.example` to
+  `%USERPROFILE%\.wslconfig` — it is the tested source for the VM budget — then `wsl --shutdown`
+  from PowerShell and restart the distro. Leaving the balance to Windows is not optional; starving
+  the host makes the whole machine unusable and does not speed up the run.
 - **Sleep and updates.** A 30-hour sarek run does not survive S3 sleep or a Windows Update reboot.
   `powercfg /change standby-timeout-ac 0` and set Active Hours before launching anything long.
 
@@ -126,7 +119,7 @@ distro's `PATH` (reach them at `/mnt/c/Windows/System32/…` if you must).
 
 ## 2. The run plan
 
-Written to `$RUNDIR/run-plan.md` **before** anything is launched, and not edited afterwards — if
+Written to `$RUNDIR/plan.md` **before** anything is launched, and not edited afterwards — if
 the plan changes, the run gets a new RUNID. It is the artifact the user approves.
 
 Required fields:
@@ -134,7 +127,7 @@ Required fields:
 | Field | Content |
 |---|---|
 | `pipeline` | `nf-core/<name>` |
-| `revision` | exact tag, e.g. `3.14.0`. Never `dev`, never blank |
+| `revision` | exact tag from `config/pipelines.tsv`. Never `dev`, never blank |
 | `question` | one sentence: what the user wants out of this |
 | `samples` | count, layout (SE/PE), read length, per-sample input size, total GB |
 | `reference` | build name from the manifest (`GRCh38`, `GRCh38gatk`, `KOREF1`) and the standard paths used |
@@ -147,22 +140,7 @@ Required fields:
 
 ### Estimation anchors
 
-Order-of-magnitude only. **Replace these with measured numbers after the first real run on this
-host** — `du -sh work` and the `duration` column of the trace give you the truth.
-
-| Pipeline | Scale | Work dir | Published | Wall clock, 24 cores |
-|---|---|---|---|---|
-| rnaseq (STAR+salmon) | human, 30M PE100/sample | ~15–25 GB/sample | ~3–5 GB/sample | ~40–70 min/sample |
-| rnaseq, first ever run | + STAR index build | +~35 GB | index saved to `/refs` | +1–1.5 h, ~40 GB RAM peak |
-| sarek germline | human 30× WGS, 1 sample | ~300–500 GB | ~40–60 GB (CRAM+VCF) | **~24–40 h** |
-| sarek germline | human WES, 1 sample | ~30–60 GB | ~3–6 GB | ~2–4 h |
-| methylseq (bismark) | human WGBS, 1 sample | ~200–400 GB | ~10–20 GB | ~20–40 h |
-| atacseq / chipseq / cutandrun | human, 30–50M PE | ~20–40 GB/sample | ~3–8 GB/sample | ~1–2 h/sample |
-| scrnaseq (alevin/star) | 10x, 1 library | ~40–80 GB | ~2–5 GB | ~2–5 h |
-| differentialabundance | counts matrix in | < 5 GB | < 1 GB | minutes |
-| fetchngs | network-bound | = download size | = download size | depends on SRA, not on us |
-
-Rule of thumb for disk when nothing above fits: `work_GB ≈ 15–25 × total_gzipped_input_GB`.
+Every time and disk figure comes from `references/estimates.md`. Do not restate numbers here.
 
 A single 30× WGS through sarek trips the 24-hour rule on its own. Say so in the plan and get an
 explicit yes before launching; do not discover it at hour 25.
@@ -180,11 +158,11 @@ nf-core samplesheet columns and parameter names drift between revisions. Before 
 samplesheet for a pipeline/revision combination you have not used before:
 
 ```bash
-REV=3.14.0; PIPE=rnaseq
+PIPE=rnaseq; REV=3.18.0                        # revision from config/pipelines.tsv
 nextflow pull nf-core/$PIPE -r $REV
 nextflow run nf-core/$PIPE -r $REV --help
-cat "$NXF_ASSETS/.repos/nf-core/$PIPE/clones/*/assets/schema_input.json"
-head -3 "$NXF_ASSETS/.repos/nf-core/$PIPE/clones/*/assets/samplesheet.csv"     # shipped example, if present
+cat "$(find "$NXF_ASSETS" -path "*nf-core/$PIPE*" -name schema_input.json | head -1)"
+head -3 "$(find "$NXF_ASSETS" -path "*nf-core/$PIPE*" -name samplesheet.csv | head -1)"   # shipped example, if present
 ```
 
 `schema_input.json` is authoritative: it lists required columns, allowed values (e.g. `strandedness`
@@ -195,139 +173,15 @@ against.
 
 ## 3. Preflight
 
-Install once (the heredoc is quoted, so the file is written with LF regardless of what the NTFS
-checkout looks like):
-
-```bash
-mkdir -p "$BIOINFO_HOME/bin"
-cat > "$BIOINFO_HOME/bin/preflight.sh" <<'PREFLIGHT'
-#!/usr/bin/env bash
-# preflight.sh — read-only gate before any nf-core launch on this host. Safe to re-run.
-# usage: bash preflight.sh <windows-visible-run-dir> <estimated_work_GB>
-set -euo pipefail
-
-RUNDIR="${1:?usage: preflight.sh <rundir> <est_work_gb>}"
-EST_GB="${2:?usage: preflight.sh <rundir> <est_work_gb>}"
-RUNID="$(basename "$RUNDIR")"
-WORKROOT="${NXF_WORKROOT:-/work/nxf}"
-WORKDIR="$WORKROOT/$RUNID/work"
-REFS="${BIOINFO_REFS:-/refs}"
-
-fail=0; warn=0
-ok()   { printf '  OK    %s\n' "$*"; }
-bad()  { printf '  FAIL  %s\n' "$*"; fail=$((fail+1)); }
-note() { printf '  WARN  %s\n' "$*"; warn=$((warn+1)); }
-
-echo "== host =="
-cores="$(nproc)"
-memgb="$(awk '/MemTotal/{printf "%d", $2/1048576}' /proc/meminfo)"
-ok "cores visible to WSL = $cores"
-if [ "$memgb" -ge 40 ]; then
-  ok "RAM visible to WSL = ${memgb} GB"
-else
-  note "RAM visible to WSL = ${memgb} GB. WSL2 defaults to ~half of host RAM; set memory= in %USERPROFILE%\\.wslconfig and 'wsl --shutdown'."
-fi
-
-echo "== docker =="
-if docker info >/dev/null 2>&1; then
-  ok "docker responsive ($(docker version --format '{{.Server.Version}}'))"
-  droot="$(docker info --format '{{.DockerRootDir}}')"
-  case "$droot" in
-    /mnt/*) bad "docker data-root is on drvfs: $droot" ;;
-    *)      ok "docker data-root = $droot" ;;
-  esac
-else
-  bad "docker not responding (pid1=$(ps -p 1 -o comm=)). Try: sudo systemctl start docker"
-fi
-
-echo "== filesystems =="
-case "$WORKDIR" in
-  /mnt/*) bad "work dir is on drvfs: $WORKDIR — must be ext4, refusing" ;;
-  *)      ok "work dir on ext4: $WORKDIR" ;;
-esac
-mkdir -p "$WORKDIR"
-avail_gb="$(df -BG --output=avail "$WORKDIR" | tail -1 | tr -dc '0-9')"
-need_gb=$(( (EST_GB * 3 + 1) / 2 ))
-if [ "$avail_gb" -ge "$need_gb" ]; then
-  ok "ext4 free ${avail_gb} GB >= 1.5x estimate (${need_gb} GB)"
-else
-  bad "ext4 free ${avail_gb} GB < 1.5x estimate (${need_gb} GB). DO NOT LAUNCH."
-fi
-d_gb="$(df -BG --output=avail /mnt/d | tail -1 | tr -dc '0-9')"
-ok "/mnt/d free ${d_gb} GB (rsync target for results)"
-
-echo "== nextflow =="
-if command -v nextflow >/dev/null 2>&1; then
-  ok "nextflow $(nextflow -v 2>&1 | head -1)"
-else
-  bad "nextflow not on PATH"
-fi
-if [ -f "$RUNDIR/cmd.sh" ]; then
-  if grep -qE '(^| )-r +[0-9A-Za-z._-]+' "$RUNDIR/cmd.sh"; then
-    ok "revision pinned in cmd.sh: $(grep -oE '(^| )-r +[0-9A-Za-z._-]+' "$RUNDIR/cmd.sh" | tr -s ' ' | head -1)"
-  else
-    bad "cmd.sh has no -r revision pin"
-  fi
-  grep -q -- '-work-dir' "$RUNDIR/cmd.sh" || bad "cmd.sh does not set -work-dir"
-  grep -q -- '-profile docker' "$RUNDIR/cmd.sh" || note "cmd.sh does not use -profile docker"
-else
-  bad "missing $RUNDIR/cmd.sh"
-fi
-[ -f "$RUNDIR/run-plan.md" ] || bad "missing $RUNDIR/run-plan.md — write the plan before launching"
-
-echo "== samplesheet =="
-SS="$RUNDIR/samplesheet.csv"
-if [ -f "$SS" ]; then
-  ok "found $SS"
-  if LC_ALL=C grep -q $'\r' "$SS"; then
-    bad "samplesheet has CRLF line endings (edited on Windows). Fix: sed -i 's/\r\$//' \"$SS\""
-  else
-    ok "LF line endings"
-  fi
-  hdr="$(head -1 "$SS")"
-  ok "header: $hdr"
-  nrow="$(tail -n +2 "$SS" | grep -c '[^[:space:]]' || true)"
-  [ "$nrow" -gt 0 ] && ok "$nrow data rows" || bad "no data rows"
-  dups="$(tail -n +2 "$SS" | cut -d, -f1 | sort | uniq -d | tr '\n' ' ')"
-  [ -z "$dups" ] || note "repeated first-column IDs: $dups (legitimate for merged tech reps; confirm it is intended)"
-  # heuristic: any field containing a slash is treated as a path
-  while read -r p; do
-    [ -n "$p" ] || continue
-    if [ -e "$p" ]; then ok "input exists: $p"; else bad "input MISSING: $p"; fi
-  done < <(tail -n +2 "$SS" | tr ',' '\n' | tr -d '"' | grep '/' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | sort -u)
-else
-  bad "missing $SS"
-fi
-
-echo "== references =="
-if [ -d "$REFS" ]; then ok "refs root $REFS"; else bad "refs root $REFS absent — run bootstrap/04-refs.sh"; fi
-PF="$RUNDIR/params.yaml"
-if [ -f "$PF" ]; then
-  while read -r p; do
-    if [ -e "$p" ]; then ok "ref resolves: $p"
-    else bad "ref MISSING: $p — add a manifest row and re-run bootstrap/04-refs.sh"; fi
-  done < <(grep -oE "${REFS}[^\"' ]*" "$PF" | sed 's/[,:]$//' | sort -u)
-else
-  note "no params.yaml; reference paths not checked"
-fi
-
-echo "== concurrency =="
-running="$(pgrep -fc 'nextflow.*run ' || true)"
-if [ "${running:-0}" -eq 0 ]; then ok "no other nextflow run active"
-else note "$running nextflow process(es) already running — one heavy pipeline at a time"; fi
-
-printf '\npreflight: %d failure(s), %d warning(s)\n' "$fail" "$warn"
-[ "$fail" -eq 0 ] || exit 1
-PREFLIGHT
-```
-
-Run it:
+`bin/preflight.sh` ships with the repo. Invoke it; never restate it and never overwrite it.
 
 ```bash
 RUNID=20260728-rnaseq-koges-pilot
 RUNDIR=$BIOINFO_HOME/runs/$RUNID
 bash "$BIOINFO_HOME/bin/preflight.sh" "$RUNDIR" 180      # 180 = estimated work-dir GB
 ```
+
+Exit 0 = clean, exit 1 = at least one FAIL.
 
 Any FAIL is a hard stop. The disk check is the 1.5× gate: with an estimate of 180 GB, preflight
 demands 270 GB free on ext4 and refuses otherwise. Do not talk yourself past it — an out-of-disk
@@ -344,7 +198,7 @@ violations, missing required params, and unresolvable reference paths in seconds
 
 ```bash
 cd /work/nxf/$RUNID
-nextflow run nf-core/rnaseq -r 3.14.0 -profile docker \
+nextflow run nf-core/rnaseq -r 3.18.0 -profile docker \
   -params-file $RUNDIR/params.yaml \
   -c $BIOINFO_HOME/config/local.config \
   -preview
@@ -356,7 +210,7 @@ parsing, and the full topology end to end — in minutes, on kilobytes.
 
 ```bash
 cd /work/nxf/$RUNID
-nextflow run nf-core/rnaseq -r 3.14.0 -profile docker \
+nextflow run nf-core/rnaseq -r 3.18.0 -profile docker \
   -params-file $RUNDIR/params.yaml \
   -c $BIOINFO_HOME/config/local.config \
   -work-dir /work/nxf/$RUNID/stub-work \
@@ -399,7 +253,7 @@ set -euo pipefail
 
 RUNID=20260728-rnaseq-koges-pilot
 PIPE=nf-core/rnaseq
-REV=3.14.0                                  # example only — pin what `nextflow info` reports
+REV=3.18.0                                  # from config/pipelines.tsv
 RUNDIR=/mnt/d/bioinfo-agent/runs/$RUNID
 NXFDIR=/work/nxf/$RUNID
 TS=$(date +%Y%m%d-%H%M%S)
@@ -649,6 +503,9 @@ Reclaiming the work dir is safe only when **all** of these hold:
 3. The handoff is written and the user has seen it.
 4. At least 7 days have passed, or the user has explicitly said they are done with the run.
 
+Never on a run that can still be resumed, and never as a mid-run fix for a full disk — free space
+somewhere else instead (§7, Disk full).
+
 The sync-out and the verification:
 
 ```bash
@@ -697,10 +554,10 @@ it exceeds ~100 GB, and understand it forces a re-pull of everything on the next
 with extra failure modes.
 
 - Two Nextflow processes do not know about each other. Each sizes its local executor pool from its
-  own config, so each will schedule up to the full core budget. On 24 cores that means ~48
-  CPU-slots' worth of tasks fighting over 24 cores plus context-switch overhead.
-- RAM is the hard wall, not CPU. The WSL VM has a fixed ceiling (~52 GB if `.wslconfig` is set as
-  recommended). Two STAR alignments at ~35 GB each do not fit, and the resulting OOM kill lands on
+  own config, so each schedules up to the full pool in `config/local.config` — two runs put twice
+  that many CPU-slots' worth of tasks on the VM, plus context-switch overhead.
+- RAM is the hard wall, not CPU. The WSL VM has a fixed ceiling (`config/wslconfig.example`).
+  Two STAR alignments at ~35 GB each do not fit, and the resulting OOM kill lands on
   whichever process the kernel picks — quite possibly the run you cared about.
 - Both runs write to the same 1 TB VHDX. Disk-full kills both, and the disk estimate you approved
   was computed for one.
@@ -708,9 +565,8 @@ with extra failure modes.
   both lose the benefit.
 - Attribution. When the machine wedges, you cannot tell which run did it, and you have to kill both.
 
-Budget: reserve ~4 cores and ~8 GB for Windows and the OS. Pipeline ceilings (`max_cpus`,
-`max_memory` or their current equivalents) live in `config/local.config` — set them there, once, and
-do not override per-run without saying why in the run plan.
+Budget: the Nextflow pool is set once in `config/local.config` and already sits below the WSL VM
+ceiling. Do not override it per-run without saying why in the run plan.
 <!-- UNVERIFIED: nf-core moved from `--max_cpus/--max_memory` to the `resourceLimits` directive
      around nf-core/tools 3.x; confirm which the pinned revision uses via
      `nextflow run nf-core/<pipe> -r <REV> --help | grep -iE 'max_cpus|resourceLimits'` -->

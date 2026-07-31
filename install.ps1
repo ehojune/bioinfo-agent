@@ -21,6 +21,10 @@
     would have made is reported and skipped. -Force replaces a junction that points at the
     wrong place; it will still not delete a real directory.
 
+    This script and `claude plugin marketplace add` are ALTERNATIVES, not steps. The repo
+    also ships .claude-plugin/plugin.json; install by both routes and every agent registers
+    twice, because agents are not de-duplicated. See -AgentsEverywhere. Pick one route.
+
 .PARAMETER ExtraConfigDirs
     Additional config directories to link. Use when one machine has several Windows
     profiles that should share one canonical copy of the repo, e.g.
@@ -216,6 +220,9 @@ function Install-AgentFile {
                 Add-Result $Scope $Name 'DRY-RUN' 'would overwrite differing file'
                 return
             }
+            # Clear the way, or New-Item -ItemType SymbolicLink below fails on the existing
+            # file and the catch misreports a hand-edited copy as "symlink unavailable".
+            Remove-Item -LiteralPath $Target -Force
         }
     }
 
@@ -306,6 +313,8 @@ function Install-IntoConfigDir {
 
 Write-Host "bioinfo installer" -ForegroundColor Green
 Write-Host "repo: $RepoRoot"
+Write-Host "note: this is an ALTERNATIVE to 'claude plugin marketplace add'. Using both" -ForegroundColor Yellow
+Write-Host "      registers every agent twice - agents are not de-duplicated." -ForegroundColor Yellow
 
 $targets = New-Object System.Collections.ArrayList
 

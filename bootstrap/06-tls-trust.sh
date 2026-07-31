@@ -23,28 +23,46 @@
 # SAFETY
 # Trusting an interception CA means that proxy can read this machine's TLS traffic. That is a
 # real decision, so this script REPORTS by default and only installs when you pass --accept.
-# Read the issuer it prints and make sure it is your organisation's appliance.
+#
+# IDENTIFY IT BY FINGERPRINT, NEVER BY NAME. The certificate offered here comes out of the
+# very handshake that just failed verification — it is supplied by whoever is intercepting.
+# Subject and issuer are free text that party chose, so "it says SOOSAN INT" proves nothing.
+# The SHA256 fingerprint is the only field that identifies a certificate. Get the expected
+# one from your organisation (or from the Windows machine store, where PowerShell's
+# Thumbprint is the SHA1) and pass it as --expect-fp; this then aborts on any mismatch.
 #
 # Usage:
 #   bash 06-tls-trust.sh                 # probe and report only
-#   bash 06-tls-trust.sh --accept        # probe, then install the CA it found
-#   bash 06-tls-trust.sh --accept --ca /path/to/corp-ca.crt   # install a CA you supply
+#   bash 06-tls-trust.sh --accept --expect-fp <SHA256>        # install, verified
+#   bash 06-tls-trust.sh --accept        # install after an interactive confirmation
+#   bash 06-tls-trust.sh --accept --expect-fp <SHA256> --ca /path/to/corp-ca.crt
 set -uo pipefail
 
 ACCEPT=0
 CA_FILE=""
+EXPECT_FP=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --accept) ACCEPT=1 ;;
     --ca) CA_FILE="${2:-}"; shift ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    --expect-fp) EXPECT_FP="${2:-}"; shift ;;
+    -h|--help) sed -n '2,38p' "$0"; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
   shift
 done
+# Accept a fingerprint pasted in any of the forms the tools print it.
+EXPECT_FP="$(printf '%s' "$EXPECT_FP" | tr -d ': \t' | tr 'a-f' 'A-F')"
+
+# config/host.env — per-machine overrides, sourced before the default so the docker/pipeline
+# user here is a genuine fallback. `|| true`: an unquoted value there must not stop the run.
+HOST_ENV="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}/config/host.env"
+. "$(dirname "$0")/lib/host-env.sh"      # parses; never executes host.env
+load_host_env "$HOST_ENV"
 
 USER_NAME="${BIOINFO_USER:-ehojune}"
-USER_HOME="/home/$USER_NAME"
+USER_HOME="$(getent passwd "$USER_NAME" 2>/dev/null | cut -d: -f6)"
+[ -n "$USER_HOME" ] || USER_HOME="/home/$USER_NAME"
 WORKDIR=$(mktemp -d)
 trap 'rm -rf "$WORKDIR"' EXIT
 
@@ -90,30 +108,96 @@ if [ -z "$CA_FILE" ]; then
     exit 1
   fi
   CA_FILE="$LAST"
-  echo
-  echo "=== CA that would be trusted ==="
-  openssl x509 -in "$CA_FILE" -noout -issuer -subject -dates | sed 's/^/  /'
+fi
+
+# ---------------------------------------------------------------- identity of the CA
+fp() { openssl x509 -in "$CA_FILE" -noout -fingerprint "-$1" 2>/dev/null | sed 's/.*=//; s/://g' | tr 'a-f' 'A-F'; }
+FP_SHA256="$(fp sha256)"
+FP_SHA1="$(fp sha1)"
+[ -n "$FP_SHA256" ] || { echo "[06-tls] $CA_FILE is not a readable certificate" >&2; exit 1; }
+
+echo
+echo "=== CA that would be trusted ==="
+openssl x509 -in "$CA_FILE" -noout -issuer -subject -dates | sed 's/^/  /'
+echo "  subject and issuer above are free text chosen by the signer. The lines below are not:"
+echo "  SHA256 = $FP_SHA256"
+echo "  SHA1   = $FP_SHA1   (this is what PowerShell calls Thumbprint)"
+
+if [ -n "$EXPECT_FP" ]; then
+  if [ "$EXPECT_FP" != "$FP_SHA256" ]; then
+    echo
+    echo "[06-tls] ABORT — fingerprint mismatch. Do not trust this certificate." >&2
+    echo "  --expect-fp  $EXPECT_FP" >&2
+    echo "  presented    $FP_SHA256" >&2
+    exit 1
+  fi
+  echo "  MATCHES --expect-fp"
 fi
 
 if [ "$ACCEPT" -ne 1 ]; then
-  cat <<'MSG'
+  cat <<MSG
 
 [06-tls] REPORT ONLY. Nothing was installed.
 
-Check the issuer above against what your organisation says it runs. On Windows you can confirm
-it is already trusted there:
+Confirm the SHA256 above against what your organisation publishes. If you only have access to
+the Windows machine store, its Thumbprint property is the SHA1:
 
-  Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -match '<issuer CN>' }
+  Get-ChildItem Cert:\LocalMachine\Root | Where-Object { \$_.Thumbprint -eq '$FP_SHA1' }
 
-If it matches, re-run with --accept.
+Matching on \$_.Subject instead would prove nothing — an interceptor picks its own subject.
+
+If it checks out, re-run pinned to the fingerprint you just verified:
+
+  bash 06-tls-trust.sh --accept --expect-fp $FP_SHA256
 MSG
   exit 0
+fi
+
+# Checked here rather than at the first install step, so nobody types a confirmation only
+# to be told to start again under sudo.
+if [ "$(id -u)" -ne 0 ]; then
+  echo
+  echo "[06-tls] --accept writes to /usr/local/share/ca-certificates and the JVM cacerts; re-run with sudo." >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------- unverified --accept
+if [ -z "$EXPECT_FP" ]; then
+  cat <<MSG
+
+############################################################################
+  NOTHING HAS BEEN CRYPTOGRAPHICALLY VERIFIED.
+
+  This certificate came out of the handshake that failed verification, so it
+  was supplied by whoever is intercepting. Nothing so far has checked that it
+  is your organisation's appliance rather than an attacker's.
+
+    SHA256  $FP_SHA256
+
+  Installing it makes that party able to read this machine's TLS traffic,
+  system-wide and JVM-wide, silently, for every tool on the box.
+
+  Verify the fingerprint out of band, then re-run with
+  --expect-fp $FP_SHA256
+############################################################################
+
+MSG
+  if [ ! -t 0 ]; then
+    echo "[06-tls] refusing to install unverified with no terminal to confirm at. Pass --expect-fp." >&2
+    exit 1
+  fi
+  printf 'Type the last 8 characters of that SHA256 to install it anyway: '
+  read -r ANSWER
+  ANSWER="$(printf '%s' "$ANSWER" | tr -d ': \t' | tr 'a-f' 'A-F')"
+  if [ "$ANSWER" != "${FP_SHA256: -8}" ]; then
+    echo "[06-tls] no match — nothing installed." >&2
+    exit 1
+  fi
 fi
 
 # ---------------------------------------------------------------- install into three stores
 echo
 echo "=== 1/3 system trust store ==="
-if [ "$(id -u)" -ne 0 ]; then echo "  needs root; re-run with sudo" >&2; exit 1; fi
 install -m 644 "$CA_FILE" /usr/local/share/ca-certificates/corp-tls-inspection.crt
 update-ca-certificates 2>&1 | sed 's/^/  /' | tail -2
 
@@ -127,24 +211,93 @@ else
 fi
 
 echo "=== 3/3 python (certifi ships its own bundle) ==="
-ENVFILE="$USER_HOME/.bioinfo.env"
-if [ -f "$ENVFILE" ]; then
-  grep -q 'REQUESTS_CA_BUNDLE' "$ENVFILE" || cat >> "$ENVFILE" <<'ENVEOF'
+# NOT ~/.config/bioinfo/env.sh: 03-nextflow.sh rewrites that file wholesale on every run,
+# so anything appended there is gone at the next 03. env.local.sh is the sibling env.sh
+# sources at its end precisely so machine-local additions survive.
+ENVDIR="$USER_HOME/.config/bioinfo"
+ENVLOCAL="$ENVDIR/env.local.sh"
+mkdir -p "$ENVDIR"
+if ! grep -q 'REQUESTS_CA_BUNDLE' "$ENVLOCAL" 2>/dev/null; then
+  cat >> "$ENVLOCAL" <<'ENVEOF'
+# written by bootstrap/06-tls-trust.sh — certifi and requests ignore the system store
 export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 ENVEOF
-  echo "  REQUESTS_CA_BUNDLE / SSL_CERT_FILE set in $ENVFILE"
+fi
+chown -R "$USER_NAME":"$USER_NAME" "$ENVDIR" 2>/dev/null || true
+chmod 0644 "$ENVLOCAL"
+
+# PERSISTENCE IS PART OF THE VERDICT, not a footnote.
+# The probe below runs with REQUESTS_CA_BUNDLE exported into this script's own environment,
+# so it proves the CA bundle *works* — it cannot prove a future login shell will see it.
+# That only holds if the file was written AND env.sh sources it. Both are checked here, and
+# both count toward FAIL, because "OK" while nf-core still breaks tomorrow is the failure
+# this script was written to stop.
+PERSIST=0
+if ! grep -q 'REQUESTS_CA_BUNDLE' "$ENVLOCAL" 2>/dev/null; then
+  echo "  FAIL: could not write REQUESTS_CA_BUNDLE to $ENVLOCAL" >&2
+  PERSIST=1
+elif [ ! -f "$ENVDIR/env.sh" ]; then
+  echo "  FAIL: $ENVDIR/env.sh does not exist, so nothing sources $ENVLOCAL." >&2
+  echo "        Run bootstrap/03-nextflow.sh, then re-run this script." >&2
+  PERSIST=1
+elif ! grep -q 'env.local.sh' "$ENVDIR/env.sh"; then
+  echo "  FAIL: $ENVDIR/env.sh predates the env.local.sh hook, so nothing sources $ENVLOCAL." >&2
+  echo "        Re-run bootstrap/03-nextflow.sh, then re-run this script." >&2
+  PERSIST=1
 else
-  echo "  $ENVFILE missing — run bootstrap/03-nextflow.sh first" >&2
+  echo "  REQUESTS_CA_BUNDLE / SSL_CERT_FILE written to $ENVLOCAL, sourced via env.sh"
 fi
 
 echo
-echo "=== re-probing ==="
-FAIL=0
+echo "=== re-probing all three stores ==="
+# The old version re-probed with curl only, so it printed OK while Python was untouched.
+FAIL=$PERSIST
+export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+
 for url in $PROBES; do
   code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$url" 2>/dev/null)
-  if [ "$code" = "000" ]; then echo "  STILL FAILING  ${url#https://}"; FAIL=1
-  else echo "  ok             ${url#https://} -> $code"; fi
+  if [ "$code" = "000" ]; then echo "  curl    STILL FAILING  ${url#https://}"; FAIL=1
+  else echo "  curl    ok             ${url#https://} -> $code"; fi
 done
 
-[ "$FAIL" -eq 0 ] && echo "[06-tls] OK" || { echo "[06-tls] some hosts still failing"; exit 1; }
+# One host is enough for the other two stores: they either trust the CA or they do not.
+TARGET=$(echo "$BROKEN" | awk '{print $1}')
+[ -n "$TARGET" ] || TARGET="get.nextflow.io"
+
+if command -v python3 >/dev/null 2>&1; then
+  if python3 - "$TARGET" <<'PY' 2>/dev/null
+import sys
+url = "https://" + sys.argv[1]
+try:
+    import requests                      # what nf-core actually uses; honours certifi
+    requests.get(url, timeout=20)
+except ImportError:
+    import urllib.request
+    urllib.request.urlopen(url, timeout=20).read(1)
+PY
+  then echo "  python  ok             $TARGET  (with the CA bundle exported; persistence checked above)"
+  else echo "  python  STILL FAILING  $TARGET  — certifi/requests trust is not fixed"; FAIL=1; fi
+else
+  echo "  python  SKIPPED        python3 not installed (bootstrap/01-wsl-base.sh installs it)"
+fi
+
+# The JVM store has no probe here on purpose. A headless JRE ships no jshell, and the
+# obvious substitutes exit 0 on a failed handshake — a false OK is worse than no check.
+# keytool -list proves the import landed; the handshake is proven by the first real
+# `nextflow pull`, which is the next thing you will run anyway.
+if command -v keytool >/dev/null 2>&1 && \
+   keytool -list -alias corp-tls-inspection -cacerts -storepass changeit >/dev/null 2>&1; then
+  echo "  java    PRESENT        alias corp-tls-inspection is in the JVM cacerts (handshake unproven)"
+else
+  echo "  java    MISSING        alias corp-tls-inspection is NOT in the JVM cacerts — Nextflow will still fail"; FAIL=1
+fi
+
+if [ "$FAIL" -eq 0 ]; then
+  echo "[06-tls] OK — every store probed above reached $TARGET. Lines marked SKIPPED or"
+  echo "         'handshake unproven' are exactly that; confirm with a real nextflow pull."
+else
+  echo "[06-tls] some stores still failing"
+  exit 1
+fi

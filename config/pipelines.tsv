@@ -1,0 +1,30 @@
+# pipelines.tsv — the stocked pipeline set and the revision each is pinned to.
+#
+# SINGLE SOURCE OF TRUTH for revisions. Nothing else in this repo states a pin.
+# Reference docs, READMEs and run plans cite this file; they do not restate it.
+# bin/preflight.sh reads it and refuses a cmd.sh whose -r disagrees.
+#
+# A pipeline that is not listed here is not stocked. Adding a row is a
+# procurement decision — see skills/bioinfo-analyze/references/new-pipeline.md.
+#
+# columns: pipeline <TAB> revision <TAB> schema_checked <TAB> note
+#   revision        what -r must be. Always an exact tag, never dev/master/main.
+#   schema_checked  date assets/schema_input.json was last read at this revision,
+#                   or "no" if the columns are carried from knowledge rather than
+#                   verified against the clone on this box.
+#   note            anything that changes how the pin is chosen.
+#
+# Re-derive before the first run at any revision not used on this machine before:
+#   nextflow info nf-core/<pipeline>
+#   find "$NXF_ASSETS" -path '*nf-core/<pipeline>*' -name schema_input.json | head -1
+#
+pipeline	revision	schema_checked	note
+rnaseq	3.18.0	no	columns unchanged across 3.14-3.19
+sarek	3.5.1	no	per-step schemas stable across 3.x
+fetchngs	1.12.0	no	input semantics changed in 1.11/1.12
+differentialabundance	1.5.0	no	params moved between 1.2 and 1.4
+methylseq	3.0.0	no	3.0 is a template rewrite from 2.x - re-derive columns
+atacseq	2.1.2	no	stable
+chipseq	2.1.0	no	samplesheet changed 1.x to 2.x; confirm replicate/control_replicate
+cutandrun	3.2.2	no	stable
+scrnaseq	2.7.1	no	aligner-specific params churn

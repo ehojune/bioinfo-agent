@@ -20,7 +20,7 @@ are what you quote, not what you eyeball off a plot.
 | rnaseq | `multiqc/<aligner>/multiqc_report.html` (e.g. `multiqc/star_salmon/`) | `star_salmon/deseq2_qc/`, `star_salmon/qualimap/`, `star_salmon/rseqc/`, `*/salmon.merged.gene_counts.tsv` |
 | sarek | `multiqc/multiqc_report.html` | `reports/mosdepth/`, `reports/samtools/`, `reports/bcftools/`, `reports/vcftools/` |
 | methylseq | `multiqc/<aligner>/multiqc_report.html` (`bismark` or `bwameth`) <!-- UNVERIFIED: confirm subdir with `ls <outdir>/multiqc` after the first run --> | `bismark/reports/`, `bismark/deduplicated/*M-bias*`, `methyldackel/` |
-| atacseq | `multiqc/<peak_type>/multiqc_report.html` (`narrow_peak` \| `broad_peak`) | `bwa/merged_library/macs2/<peak_type>/qc/`, `.../deeptools/`, `.../picard_metrics/` |
+| atacseq | `multiqc/<peak_type>/multiqc_report.html` (`narrow_peak` \| `broad_peak`) | `<aligner>/merged_library/macs2/<peak_type>/qc/`, `.../deeptools/`, `.../picard_metrics/` — `<aligner>` is the `--aligner` value (`bwa` \| `bowtie2` \| `chromap` \| `star`), not always `bwa/` |
 | chipseq | `multiqc/<peak_type>/multiqc_report.html` | same shape as atacseq, plus `phantompeakqualtools/` |
 | cutandrun | `multiqc/multiqc_report.html` <!-- UNVERIFIED: cutandrun also emits its own `04_reporting/` summary; confirm layout --> | `04_reporting/qc/`, spike-in scale factors |
 | scrnaseq | `multiqc/multiqc_report.html` | aligner-native summary: `cellranger/*/outs/web_summary.html`, `starsolo/*/Summary.csv`, or alevin/`*_meta_info.json` |
@@ -40,8 +40,8 @@ The general-stats table is the fastest per-sample overview:
 column -t -s$'\t' "$OUTDIR"/multiqc/*/multiqc_data/multiqc_general_stats.txt | less -S
 ```
 
-Table written against nf-core/rnaseq 3.14–3.18, sarek 3.4–3.5, atacseq/chipseq 2.x,
-methylseq 2.6–3.x, scrnaseq 2.x, cutandrun 3.x. Paths drift. Check before quoting.
+Paths drift across revisions. The pinned revision for each pipeline is in `config/pipelines.tsv`;
+check the layout on disk before quoting it.
 
 ---
 
@@ -80,7 +80,7 @@ report the observed number alongside the band, never the band alone.
 | Salmon mapping rate | salmon `meta_info.json` | ≥70% | 50–70% | <50% | Transcriptome/annotation mismatch, or high intronic content (pre-mRNA / nuclear RNA) |
 | Assigned to features % | featureCounts | ≥60% | 45–60% | <45% | Annotation mismatch, wrong strandedness, or heavy intronic signal |
 | Duplication % | picard MarkDuplicates | <50% | 50–75% | >75% | RNA-seq is *expected* to duplicate — high expression duplicates legitimately. Judge it jointly with detected-gene count; 70% duplication with 15k genes detected is fine, 70% with 8k genes is a complexity failure |
-| rRNA fraction | biotype plot / sortmerna / qualimap | <2% polyA, <10% riboZero | 10–25% | >25% | Pure depth loss. Recompute usable depth as `total × (1 − rRNA)` and re-check the yield row |
+| rRNA fraction | biotype plot / sortmerna / qualimap | <2% polyA, <10% riboZero | polyA 2–10%, riboZero 10–25% | >25% | Pure depth loss. Recompute usable depth as `total × (1 − rRNA)` and re-check the yield row |
 | Median 5′→3′ bias | picard `RnaSeqMetrics` / RSeQC geneBody_coverage | 0.7–1.4 | 0.5–0.7 or 1.4–2.0 | <0.5 or >2.0 | 3′ skew = degraded RNA (low RIN). Affects gene-length-dependent quantification; degraded and intact samples in the same comparison is a real confound |
 | Detected genes (≥1 CPM) | count matrix | 12–17 k | 9–12 k | <9 k | Tissue-dependent — set the expectation from the *cohort median*, not from this table |
 | Strandedness inferred vs declared | rnaseq strandedness check | agree | — | disagree | **Stop-the-line.** A reversed strand setting silently destroys assignment. Fix the samplesheet and re-run; do not proceed |
@@ -89,7 +89,8 @@ report the observed number alongside the band, never the band alone.
 
 Note: nf-core/rnaseq's strandedness column accepts `auto`; when it does, the pipeline infers and
 reports, and the disagreement check becomes an inference-confidence check instead.
-<!-- UNVERIFIED: confirm `auto` support for your revision via `cat $NXF_ASSETS/.repos/nf-core/rnaseq/clones/*/assets/schema_input.json` -->
+<!-- UNVERIFIED: confirm `auto` support for your revision via
+     `find "$NXF_ASSETS" -path '*nf-core/rnaseq*' -name schema_input.json | head -1` -->
 
 ### 3.2 WGS / WES (germline)
 
@@ -194,7 +195,7 @@ Models:
 > Conversion is clean. I clipped 9 bp from the 5′ end of R1 and 2 bp from R2 — a bounded choice I
 > made to remove the bias; say if you want it re-run unclipped.
 
-> **ATAC rep2 of the treated group**: TSS enrichment 4.1 (band ≥7 pass / <5 fail), FRiP 0.07,
+> **ATAC rep2 of the treated group**: TSS enrichment 4.1 (§3.4 band ≥7 pass, <5 fail; ENCODE hg38), FRiP 0.07,
 > mitochondrial fraction 58% so usable reads are 21 M of 51 M sequenced — signal-to-background is
 > below the ENCODE floor and the mito fraction explains most of it. Options are re-sequence, re-prep
 > with Omni-ATAC buffers, or proceed with n=2 in that group. I'd flag that proceeding with n=2
@@ -235,7 +236,7 @@ Left column: never say this. Right column: the same observation, said correctly.
 | "This sample is from a different tissue than labelled." | "The expression profile of S9 correlates at r=0.62 with its own group and r=0.91 with the other group. That is a metadata or handling discrepancy worth checking; I'm not asserting what the sample is." |
 | "Coverage is adequate for clinical reporting." | "Mean coverage 32×, 94% of the genome at ≥20×. Whether that meets your reporting requirement is your determination — I don't apply clinical criteria." |
 | "The differential peaks show that the treatment opens chromatin at enhancers." | "1,842 consensus peaks reach FDR<0.05 with abs(log2FC)>1; the annotation breakdown is in `<path>`. What that means is yours." |
-| "Sample 4 failed, I removed it and re-ran." | "Sample 4 fails on TSS enrichment (4.1 vs band ≥5). I have not removed it and have not re-run. Recommend excluding; confirm and I'll re-run with `-resume`." |
+| "Sample 4 failed, I removed it and re-ran." | "Sample 4 fails on TSS enrichment (4.1; §3.4 band ≥7 pass, <5 fail). I have not removed it and have not re-run. Recommend excluding; confirm and I'll re-run with `-resume`." |
 | "You should increase your sample size." | (Say nothing about study design. If asked, decline: experimental design is outside what a technician role should be advising on.) |
 
 The pattern behind all of them: the technician may describe **what the data is**, **how it was

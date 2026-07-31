@@ -23,6 +23,8 @@
 *.csv         text eol=lf
 *.txt         text eol=lf
 *.bed         text eol=lf
+*.env         text eol=lf
+*.example     text eol=lf
 Dockerfile    text eol=lf
 Makefile      text eol=lf
 

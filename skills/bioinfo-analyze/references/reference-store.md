@@ -43,7 +43,7 @@ materialises the tree. Four modes:
 | mode | what happens | when to use |
 |---|---|---|
 | `link` | ext4 symlink → source under `/mnt/d` | sequential reads: FASTA, GTF, BED, JSON |
-| `copy` | real copy into ext4 | random-access-heavy: BWA/STAR index files |
+| `copy` | real copy into ext4 | random-access-heavy: the BWA index (`.bwt` 2.9 G, `.sa` 1.4 G) |
 | `build` | nothing; a tool must generate it | STAR/salmon/bismark indexes, `.dict` |
 | `fetch` | nothing; must be downloaded | GATK bundle, VEP cache |
 
@@ -54,22 +54,23 @@ still a symlink and promote it to `copy`.
 
 ## Rules
 
-1. **Never write into `genomes/*/fasta/` or anything with mode `link`.** Those are symlinks into the
-   user's own directories. Writing through them mutates their originals.
+1. **Never write through a mode-`link` path.** Those are symlinks into the user's own directories;
+   writing through one mutates their original. Creating a *new* file beside them is fine — that is
+   how `genome.dict` (mode `build`) lands in `genomes/<BUILD>/fasta/`.
 2. Generated indexes go under `index/` with mode `build`, and are real files on ext4.
 3. When a pipeline can save what it built, let it: `--save_reference` on rnaseq/methylseq writes the
-   index where the next run can reuse it. Building a human STAR index costs about an hour and ~40 GB
-   RAM. Do it once.
+   index where the next run can reuse it. Pay that cost once.
 4. New reference file arrives → add a manifest row, re-run `04-refs.sh`. Do not hand-place files in
    `/refs`; anything not in the manifest is invisible to the next machine.
-5. `04-refs.sh` is idempotent and reports every row as OK / MISSING / STALE. Run it whenever a run
-   fails with a missing-reference error, before doing anything else.
+5. `04-refs.sh` is idempotent and reports every row as OK / MISSING / STALE (`--dry-run` reports
+   without touching anything). Run it whenever a run fails with a missing-reference error, before
+   doing anything else.
 
 ## Reading the manifest at run time
 
 ```bash
-refpath() { awk -F'\t' -v k="$1" '$1==k{print ENVIRON["BIOINFO_REFS"] "/" $1}' \
-            "$BIOINFO_HOME/config/refs.manifest.tsv"; }
+refpath() { awk -F'\t' -v k="$1" -v r="${BIOINFO_REFS:-/refs}" '$1==k{print r "/" $1}' \
+            "${BIOINFO_HOME:-/mnt/d/bioinfo-agent}/config/refs.manifest.tsv"; }
 ```
 
 In Nextflow configs, reference `params.refs` (wired in `config/genomes.config`) rather than
@@ -77,10 +78,17 @@ composing paths inline.
 
 ## What is genuinely missing right now
 
-`GRCh38gatk` has no sequence dictionary and no GATK resource bundle. Sarek's BQSR and
-HaplotypeCaller steps need both. The dictionary is a two-minute `gatk CreateSequenceDictionary`;
-the bundle is a real download (dbsnp + known_indels ≈ several GB, gnomAD af-only more). Flag this in
-the run plan before promising a variant-calling run — do not discover it twelve hours in.
+Every `build` and `fetch` row in the manifest is a cost paid before the run, not during it:
 
-No STAR or salmon index exists, so the first RNA-seq run pays the index-build cost. Say so in the
-estimate.
+- `genome.dict` is `build` for **both** `GRCh38` and `GRCh38gatk`; neither exists. Two minutes each
+  (`gatk CreateSequenceDictionary`), but sarek will not start without one.
+- The GATK bundle is `fetch`: dbsnp + known_indels ≈ several GB, gnomAD af-only more. Sarek's BQSR
+  and HaplotypeCaller need it.
+- No STAR, salmon or bismark index exists, so the first rnaseq/methylseq run pays the build (~1 h
+  each; the STAR build wants ~40 GB RAM, which is the entire Nextflow pool).
+- `KOREF1` is FASTA only — no `.fai`, no `.dict`, no BWA index, and no manifest rows for them.
+- `config/genomes.config` names a `bowtie2` index path for atacseq/chipseq/cutandrun that the
+  manifest does not carry. Add the row before promising one of those runs.
+
+Flag whichever of these a request touches in the run plan and in the estimate, before the run — do
+not discover it twelve hours in.

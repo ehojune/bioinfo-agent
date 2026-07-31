@@ -1,7 +1,8 @@
 # Procuring a pipeline that is not stocked
 
-The stocked set is rnaseq, differentialabundance, fetchngs, sarek, methylseq, atacseq, chipseq,
-cutandrun, scrnaseq. Anything else goes through this procedure before it touches real data. The
+The stocked set is the row set of `config/pipelines.tsv`: rnaseq, differentialabundance, fetchngs,
+sarek, methylseq, atacseq, chipseq, cutandrun, scrnaseq. Anything else goes through this procedure
+before it touches real data. The
 procedure exists because the expensive failure is not "no pipeline exists" — it is committing to an
 unmaintained pipeline, discovering at hour six that it needs a reference nobody has, and having no
 record of which revision produced the results.
@@ -40,7 +41,7 @@ Output columns:
 `nf-core pipelines list` needs network. Offline, the local cache is all you have:
 
 ```bash
-ls "${BIOINFO_REFS:-/refs}/cache/nf-assets/nf-core/"
+ls "${BIOINFO_REFS:-/refs}/cache/nf-assets/.repos/nf-core/"
 nextflow info nf-core/<name>      # prints the remote URL and every available revision
 ```
 
@@ -89,6 +90,12 @@ passes cleanly and you record in the run plan that it is unmaintained.
 
 ### 2.4 Does it run on this host?
 
+**Trust gate — before any command in this section.** Pin an exact release tag; never `dev`,
+`master` or `main`. Confirm the repo is under the `nf-core` org, or that the user has explicitly
+approved this one. `nextflow config` evaluates the repository's Groovy and `nextflow run` executes
+its code: from here on, third-party code runs on this box. Neither nf-core nor approved → stop
+and ask.
+
 This is the only question with an actual answer rather than a judgement. Three escalating tests:
 
 ```bash
@@ -96,18 +103,19 @@ export NXF_ASSETS="${BIOINFO_REFS:-/refs}/cache/nf-assets"
 P=nf-core/<name>; R=<tag>
 nextflow pull "$P" -r "$R"
 
-# (a) resolve config and parameters -- no execution, no containers
+# (a) resolve config and parameters -- no pipeline tasks and no containers,
+#     but the repo's Groovy is evaluated. Not a read-only step.
 nextflow config "$P" -r "$R" -profile docker
 nextflow run    "$P" -r "$R" --help
 
 # (b) DAG + stub. Catches broken channel logic and missing required params in seconds.
 nextflow run "$P" -r "$R" -profile test,docker -stub-run \
-  --outdir /home/ehojune/scratch/stub-"${P##*/}"
+  --outdir "${BIOINFO_WORK:-/work}/scratch/stub-${P##*/}"
 
 # (c) full test profile on the bundled miniature dataset. This is the gate.
 nextflow run "$P" -r "$R" -profile test,docker \
-  --outdir /home/ehojune/scratch/test-"${P##*/}" \
-  -work-dir /home/ehojune/work/test-"${P##*/}"
+  --outdir "${BIOINFO_WORK:-/work}/scratch/test-${P##*/}" \
+  -work-dir "${BIOINFO_WORK:-/work}/nxf/test-${P##*/}/work"
 ```
 
 All three run on **ext4 inside the distro**. Never point `-work-dir` at `/mnt/d`, `/mnt/c` or
@@ -132,7 +140,7 @@ We run `-profile docker` against the engine inside the distro (not Docker Deskto
 ```bash
 # what images the pipeline will want
 grep -rhoE "(quay\.io|docker\.io|community\.wave\.seqera\.io|ghcr\.io)/[A-Za-z0-9._/:@-]+" \
-     "$NXF_ASSETS/.repos/nf-core/<name>/clones/*/modules" | sort -u
+     "$(find "$NXF_ASSETS" -path '*nf-core/<name>*' -name modules -type d | head -1)" | sort -u
 ```
 
 Two things go wrong. Older pipelines pin biocontainer tags that have since been retagged or
@@ -144,12 +152,13 @@ actually running the test profile, which is why 2.4 is the gate.
 ### 2.6 Resources
 
 Read `conf/base.config` in the cloned asset directory and map the process labels
-(`process_low` / `process_medium` / `process_high` / `process_high_memory`) against 24 cores and
-63.5 GB. Anything asking for more memory than the box has will queue forever or get OOM-killed;
-override it in `config/local.config` rather than editing the pipeline.
+(`process_low` / `process_medium` / `process_high` / `process_high_memory`) against the Nextflow
+pool — **18 cores, 40 GB** (`process.resourceLimits` in `config/local.config` §2), not the 24-core
+63.5 GB host. Anything asking for more than the pool will be clamped, and a process that genuinely
+needs more will OOM; override it in `config/local.config` rather than editing the pipeline.
 
 ```bash
-sed -n '/withLabel/,$p' "$NXF_ASSETS/.repos/nf-core/<name>/clones/*/conf/base.config"
+sed -n '/withLabel/,$p' "$(find "$NXF_ASSETS" -path '*nf-core/<name>*' -name base.config | head -1)"
 ```
 
 ### 2.7 References
@@ -164,7 +173,7 @@ exists to prevent.
 jq -r '.["$defs"] // .definitions | to_entries[]
        | select(.key | test("reference|genome"; "i"))
        | .value.properties | keys[]' \
-  "$NXF_ASSETS/.repos/nf-core/<name>/clones/*/nextflow_schema.json"
+  "$(find "$NXF_ASSETS" -path '*nf-core/<name>*' -name nextflow_schema.json | head -1)"
 ```
 
 <!-- UNVERIFIED: nextflow_schema.json switched from "definitions" to "$defs" across nf-core/tools
@@ -187,7 +196,7 @@ Never go from test profile straight to a 40-sample cohort on a pipeline this mac
 ## 3. Pin the revision
 
 ```bash
-nextflow run nf-core/<name> -r 3.18.0 ...
+nextflow run nf-core/rnaseq -r 3.18.0 ...     # the pin comes from config/pipelines.tsv
 ```
 
 `-r` takes a release tag, a branch name, or a commit SHA. Use a release tag. Reasons this is
@@ -202,7 +211,7 @@ non-negotiable, in order of how badly they bite:
   meaningless.** `dev` in a methods section is not a version.
 - **A branch can be force-pushed.** A tag is (by convention) immutable. A SHA actually is.
 
-Record the pin in three places, every time:
+The pin itself lives in `config/pipelines.tsv`. Every run then records it in three places:
 
 1. the run plan handed to the user,
 2. the launch command itself, kept in a run script next to the samplesheet,
@@ -223,7 +232,14 @@ a conversation with the user about accepting an unreleased pipeline, not a decis
 ## 4. Stock it
 
 A pipeline is stocked when the next person — or the next machine — can run it without redoing
-sections 1–3. Four files, all in this repo.
+sections 1–3. Six files, all in this repo.
+
+### `config/pipelines.tsv`
+
+**Stocking a pipeline means adding a row here.** One row: pipeline slug, the exact release tag,
+the `schema_checked` date, and a note. This file is the canonical home of the pin — no other file
+in the repo states a revision, and `bin/preflight.sh` refuses a `cmd.sh` whose `-r` disagrees with
+it. A pipeline without a row is not stocked.
 
 ### `references/pipeline-selection.md`
 
@@ -231,10 +247,9 @@ Add a row keyed on the **analysis intent**, not the pipeline name, because that 
 arrives. Include:
 
 - intent phrasing the user would actually use,
-- pipeline + **pinned revision** (this file is the canonical home of the pin),
+- the pipeline slug — the revision is cited from `config/pipelines.tsv`, never restated here,
 - what it does *not* cover, and the nearest alternative,
-- required references, flagged if not yet in the manifest,
-- the date and host the pin was validated on.
+- required references, flagged if not yet in the manifest.
 
 ### `references/samplesheets.md`
 
@@ -243,20 +258,23 @@ Add a section following the existing shape:
 - column table **derived from `assets/schema_input.json` at the pinned revision** using the
   `schema_cols` helper at the top of that file — not transcribed from documentation, and not from
   memory,
-- the revision string in the provenance table,
+- the `schema_checked` date written back to `config/pipelines.tsv`,
 - a 2–3 row worked example using realistic human filenames,
 - the pipeline's own ID-uniqueness rule (they differ: rnaseq merges duplicate sample IDs, sarek
   treats duplicate patient/sample/lane as an error, differentialabundance forbids duplicates
   outright),
 - any pipeline-specific silent failure worth a paragraph.
 
-Then extend the checker's enum and identifier sections if the pipeline introduces new constrained
-columns.
+### `scripts/check-samplesheet.sh`
+
+Add the pipeline to the required-column `case` in section 2b. Without a row there,
+`--deep --pipeline <name>` fails as "not stocked" even once `config/pipelines.tsv` has the pin.
+Extend the enum and identifier sections too if the pipeline introduces new constrained columns.
 
 ### `references/estimates.md`
 
-**Measured, not guessed.** From the single-sample run in 2.8, on this host (24 cores, 63.5 GB,
-ext4 on the D: VHDX):
+**Measured, not guessed.** From the single-sample run in 2.8, under the Nextflow pool this box
+actually gives a run (18 cores, 40 GB; ext4 on the D: VHDX):
 
 - wall clock per sample at a stated input size and coverage/depth,
 - peak work-directory size per sample — separately from published output size, because the work

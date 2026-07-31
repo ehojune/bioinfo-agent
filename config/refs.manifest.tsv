@@ -3,7 +3,7 @@
 # Every pipeline config refers to STANDARD paths only (never raw source filenames).
 # Moving to a new machine: edit the SOURCE column, re-run bootstrap/04-refs.sh, done.
 #
-# columns: standard_path <TAB> mode <TAB> source <TAB> note
+# columns: standard_path <TAB> mode <TAB> source <TAB> note <TAB> sha256
 #
 # mode:
 #   link   symlink into SOURCE. Zero copy. Use for sequential-read files (FASTA, GTF, BED, JSON).
@@ -11,39 +11,53 @@
 #   build  generated locally by a tool. SOURCE is the command hint. Never symlinked.
 #   fetch  must be downloaded. SOURCE is the URL or nf-core param that pulls it.
 #
+# sha256: optional, read by bootstrap/04-refs.sh --verify. Blank means nobody has
+#   hashed that file yet, which is not an error. Fill it with 04-refs.sh --hash,
+#   never by hand. Directories (trailing /) and unfetched entries stay blank.
+#
 # standard_path is relative to $BIOINFO_REFS (default /refs).
 # SOURCE uses WSL paths. Windows D:\ is /mnt/d.
 
 # ---------------------------------------------------------------- GRCh38 / hg38
 genomes/GRCh38/fasta/genome.fa	link	/mnt/d/Research/references/hg38.fa	UCSC-style hg38, chr-prefixed
 genomes/GRCh38/fasta/genome.fa.fai	link	/mnt/d/Research/references/hg38.fa.fai
-genomes/GRCh38/fasta/genome.dict	build	gatk CreateSequenceDictionary -R genome.fa	sarek needs this; absent on D:
+genomes/GRCh38/fasta/genome.dict	build	gatk CreateSequenceDictionary -R genome.fa	absent on D:; any GATK tool on this build needs it. sarek does not - it uses GRCh38gatk
 genomes/GRCh38/gtf/genes.gtf.gz	link	/mnt/d/gencode.v50.annotation.gtf.gz	GENCODE v50
 genomes/GRCh38/bed/genes.bed	link	/mnt/d/gencode.v50.genes.bed	GENCODE v50 gene intervals
 
 # GATK-flavoured analysis set, already BWA-indexed. Preferred for sarek.
 genomes/GRCh38gatk/fasta/genome.fa	link	/mnt/d/Research/references/Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta	no ALT/HLA/decoy
 genomes/GRCh38gatk/fasta/genome.fa.fai	link	/mnt/d/Research/references/Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta.fai
-genomes/GRCh38gatk/fasta/genome.dict	build	gatk CreateSequenceDictionary -R genome.fa
+genomes/GRCh38gatk/fasta/genome.dict	build	gatk CreateSequenceDictionary -R genome.fa	sarek needs this; absent on D:
 genomes/GRCh38gatk/index/bwa/genome.fa.amb	copy	/mnt/d/Research/references/Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta.amb
 genomes/GRCh38gatk/index/bwa/genome.fa.ann	copy	/mnt/d/Research/references/Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta.ann
 genomes/GRCh38gatk/index/bwa/genome.fa.bwt	copy	/mnt/d/Research/references/Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta.bwt	2.9G random access - copy, do not link
 genomes/GRCh38gatk/index/bwa/genome.fa.pac	copy	/mnt/d/Research/references/Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta.pac
 genomes/GRCh38gatk/index/bwa/genome.fa.sa	copy	/mnt/d/Research/references/Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta.sa	1.4G random access - copy
 
-# Indexes we must build ourselves. ~1h each, STAR needs ~40G RAM.
+# Indexes we must build ourselves. ~1h each, STAR needs ~38G RAM.
 genomes/GRCh38/index/star/	build	nf-core/rnaseq --save_reference (or STAR --runMode genomeGenerate)	first rnaseq run builds and saves here
 genomes/GRCh38/index/salmon/	build	nf-core/rnaseq --save_reference
 genomes/GRCh38/index/bismark/	build	nf-core/methylseq --save_reference	methylation only
+genomes/GRCh38/index/bowtie2/	build	nf-core/atacseq --save_reference (or bowtie2-build)	atacseq / chipseq / cutandrun
+genomes/GRCh38gatk/index/bwamem2/	build	bwa-mem2 index genome.fa	not interchangeable with the bwa index above
+genomes/GRCh38gatk/index/dragmap/	build	dragen-os --build-hash-table	sarek --aligner dragmap only
 
 # GATK resource bundle - not present locally, sarek germline/BQSR needs it.
+# Each .tbi ships beside its VCF; fetch both or the index is silently rebuilt.
 genomes/GRCh38gatk/gatkbundle/dbsnp.vcf.gz	fetch	sarek --igenomes_base / GATK resource bundle	required for BQSR + haplotypecaller
+genomes/GRCh38gatk/gatkbundle/dbsnp.vcf.gz.tbi	fetch	GATK resource bundle
 genomes/GRCh38gatk/gatkbundle/known_indels.vcf.gz	fetch	GATK resource bundle
+genomes/GRCh38gatk/gatkbundle/known_indels.vcf.gz.tbi	fetch	GATK resource bundle
 genomes/GRCh38gatk/gatkbundle/germline_resource.vcf.gz	fetch	gnomAD af-only	mutect2 somatic only
+genomes/GRCh38gatk/gatkbundle/germline_resource.vcf.gz.tbi	fetch	gnomAD af-only	mutect2 somatic only
 
 # ---------------------------------------------------------------- Korean reference
 genomes/KOREF1/fasta/genome.fa	link	/mnt/d/Research/references/KOREF1-Gp-TTAGGA.fa	Korean reference assembly
 genomes/KOREF1/fasta/chrY.fa	link	/mnt/d/Research/references/KOREF1-Gp-TTAGGA.chrY.fa
+genomes/KOREF1/fasta/genome.fa.fai	build	samtools faidx genome.fa
+genomes/KOREF1/fasta/genome.dict	build	gatk CreateSequenceDictionary -R genome.fa
+genomes/KOREF1/index/bwa/	build	bwa index genome.fa	~1.5 h; nothing runs end to end on this build until fai + dict + this exist
 
 # ---------------------------------------------------------------- STR / repeat catalogs
 catalogs/str/hipstr.GRCh38.bed	link	/mnt/d/hg38.hipstr_reference.bed	HipSTR reference panel

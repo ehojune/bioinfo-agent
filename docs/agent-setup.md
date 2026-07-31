@@ -57,20 +57,20 @@ On B and C you do not have root. Do not attempt `02-docker.sh`. Do not `sudo apt
 On C, `executor = 'local'` on a login node is a policy violation at most sites. Set the executor to
 the scheduler before the first run, not after someone complains.
 
-### Step 1 — clone and set the four variables
+### Step 1 — clone and write `config/host.env`
 
 ```bash
 git clone https://github.com/ehojune/bioinfo-agent.git ~/bioinfo-agent
 cd ~/bioinfo-agent
+cp config/host.env.example config/host.env
 ```
 
-Read `config/host.env.example`, then set these to real paths on this host:
+Read the copy top to bottom and set every value to something real on this host — the five roots
+(`BIOINFO_HOME`, `BIOINFO_REFS`, `BIOINFO_WORK`, `BIOINFO_RUNS`, `BIOINFO_RUNLOG`), the identity
+block, and the ceilings. Bootstrap sources this file when it exists.
 
 ```bash
-export BIOINFO_HOME=~/bioinfo-agent
-export BIOINFO_REFS=<large disk>      # reference store, tens to hundreds of GB
-export BIOINFO_WORK=<fast disk>       # work dirs. NEVER $HOME — quota kills mid-run
-export BIOINFO_USER=$USER
+set -a; . config/host.env; set +a
 ```
 
 `BIOINFO_WORK` on a quota'd home directory is the single most common way a multi-hour run dies at
@@ -92,9 +92,15 @@ Note `06` runs **before** `04`. Reference fetching needs working TLS.
 
 All are idempotent. Re-running a finished step re-verifies and changes nothing.
 
-`03-nextflow.sh` **refuses to run as root** by design — as root it would install Nextflow into
-`/root/.local/bin` and write the environment contract into root's shell files, where the pipeline
-user never sees it.
+**Say this to the user before running 01 and 02.** `01` installs a `NOPASSWD:ALL` sudoers drop-in
+for the pipeline user and `02` puts that user in the `docker` group, which is root-equivalent
+because the daemon runs as root. Both are scoped to that distro. On a machine with other users,
+skip both and ask the administrator.
+
+`03-nextflow.sh` writes the environment contract to `~/.config/bioinfo/env.sh`; every later shell
+and script reads it from there. It **refuses to run as root** by design — as root it would install
+Nextflow into `/root/.local/bin` and write that contract into root's home, where the pipeline user
+never sees it.
 
 ### Step 3 — TLS, if `06` reports interception
 
@@ -178,9 +184,10 @@ Before committing to one, check: release maturity, date of last release, whether
 whether containers exist, and whether `-profile test` passes **on this host**. Then pin the
 revision with `-r` and never run unpinned.
 
-If it becomes part of the regular workload, add it to `pipeline-selection.md`, `samplesheets.md`,
-`estimates.md`, and any needed rows in `refs.manifest.tsv` so the next machine inherits it. Full
-procedure: [`new-pipeline.md`](../skills/bioinfo-analyze/references/new-pipeline.md).
+If it becomes part of the regular workload, add a row to `config/pipelines.tsv` — the only place in
+this repo that states a revision — plus `pipeline-selection.md`, `samplesheets.md`, `estimates.md`,
+and any needed rows in `refs.manifest.tsv` so the next machine inherits it. Full procedure:
+[`new-pipeline.md`](../skills/bioinfo-analyze/references/new-pipeline.md).
 
 **When nf-core genuinely has no pipeline** — STR callers like ExpansionHunter, TRGT, HipSTR, and
 most long-read work — run the tool directly. Pin it to a container, record the exact invocation in
@@ -192,9 +199,9 @@ samtools when sarek exists*.
 
 ## Schema drift
 
-nf-core samplesheet columns and parameter names change between revisions. Any table in this repo
-names the revision it was written against. Re-derive before the first run at an unfamiliar
-revision:
+nf-core samplesheet columns and parameter names change between revisions. `config/pipelines.tsv`
+holds the pinned revision for every stocked pipeline and the date its schema was last checked.
+Re-derive before the first run at an unfamiliar revision:
 
 ```bash
 nextflow info nf-core/<pipeline>
@@ -214,7 +221,7 @@ directory means **hardcoded asset paths break**. Use `find`, or a glob that abso
 | run dies at hour 11, disk full | `BIOINFO_WORK` or container cache under `$HOME` on a quota |
 | `curl: (60)` | TLS interception. `06-tls-trust.sh` |
 | curl fine, Nextflow can't pull | JVM cacerts not done. All three stores, not one |
-| `exit 137`, often at STAR index | memory ceiling. Human STAR index needs ~40 GB. On WSL check `.wslconfig` first |
+| `exit 137`, often at STAR index | memory ceiling. Human STAR index needs ~38 GB. On WSL check `.wslconfig` first |
 | `.command.sh: Permission denied` | work dir on a `noexec` mount |
 | `-resume` re-runs everything | work dir moved or deleted. **Never delete a work directory** |
 | skill registered twice | plugin and symlink both used |

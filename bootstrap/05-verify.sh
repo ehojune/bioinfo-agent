@@ -2,10 +2,15 @@
 # 05-verify.sh — end-to-end substrate health check. Read-only, safe to run anytime.
 #
 #   bash /mnt/d/bioinfo-agent/bootstrap/05-verify.sh
+#   bash /mnt/d/bioinfo-agent/bootstrap/05-verify.sh --facts
 #
 # Prints one line per check and a final verdict: READY, or a numbered list of what is
 # broken. Exits non-zero unless READY. Warnings never fail the run — a missing VEP cache
 # is a fact about the reference store, not a broken substrate.
+#
+# --facts prints nothing but key=value lines and exits 0. It is the ONE runtime source
+# for host facts — cores, memory, the Nextflow ceiling, free space, tool versions. Docs
+# and run plans read it instead of hardcoding numbers that go stale.
 #
 # Run this before every session, and again after any `wsl --shutdown`. Most "the
 # pipeline hung" reports are a distro that came back with systemd not PID 1 and docker
@@ -16,6 +21,24 @@ if [ -z "${BIOINFO_CRLF_REEXEC:-}" ] && grep -q $'\r' "$0" 2>/dev/null; then exp
 set -uo pipefail
 # NOTE: deliberately NOT -e. This script's job is to survive every failure it finds and
 # still print a complete report; -e would abort at the first broken check.
+
+FACTS=0
+case "${1:-}" in
+  --facts)   FACTS=1 ;;
+  -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+  '')        : ;;
+  *) echo "unknown flag: $1" >&2; exit 2 ;;
+esac
+
+# NXF_OFFLINE, captured before anything is sourced — see the check in section 6.
+NXF_OFFLINE_AMBIENT="${NXF_OFFLINE:-}"
+
+# config/host.env first, the generated contract second, so ~/.config/bioinfo/env.sh
+# always wins: that file is what a pipeline run actually gets, and it is what this
+# script exists to check. Parsed, not sourced — see bootstrap/lib/host-env.sh.
+HOST_ENV="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}/config/host.env"
+. "$(dirname "$0")/lib/host-env.sh"      # parses; never executes host.env
+load_host_env "$HOST_ENV"
 
 ENVFILE="$HOME/.config/bioinfo/env.sh"
 if [ -f "$ENVFILE" ]; then
@@ -28,6 +51,7 @@ fi
 
 BIOINFO_HOME_V="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}"
 REFS="${BIOINFO_REFS:-/refs}"
+WORK="${BIOINFO_WORK:-/work}"
 EXPECT_DISTRO="${BIOINFO_DISTRO:-Ubuntu-24.04}"
 
 # Thresholds. FAIL is "you cannot usefully start work"; WARN is "plan your disk".
@@ -56,6 +80,24 @@ fstype_of() {
     stat -f -c %T "$d" 2>/dev/null || echo unknown
   fi
 }
+
+# ============================================================ --facts
+# Machine-readable, one key=value per line, nothing else on stdout. Blank value means
+# "could not determine" — callers must handle that rather than assume a default.
+if [ "$FACTS" -eq 1 ]; then
+  printf 'cores=%s\n'        "$(nproc 2>/dev/null)"
+  printf 'mem_gb=%s\n'       "$(awk '/^MemTotal:/{printf "%.0f", $2/1048576}' /proc/meminfo 2>/dev/null)"
+  printf 'nxf_max_cpus=%s\n' "${BIOINFO_MAX_CPUS:-}"
+  printf 'nxf_max_mem=%s\n'  "${BIOINFO_MAX_MEMORY:-}"
+  printf 'work_root=%s\n'    "$WORK"
+  printf 'work_free_gb=%s\n' "$([ -d "$WORK" ] && gib "$(availk "$WORK")")"
+  printf 'refs_root=%s\n'    "$REFS"
+  printf 'refs_free_gb=%s\n' "$([ -d "$REFS" ] && gib "$(availk "$REFS")")"
+  printf 'distro=%s\n'       "${WSL_DISTRO_NAME:-$EXPECT_DISTRO}"
+  printf 'nextflow_ver=%s\n' "$(nextflow -v 2>/dev/null | sed -n 's/.*version \([0-9][^ ]*\).*/\1/p' | head -1)"
+  printf 'nfcore_ver=%s\n'   "$(nf-core --version 2>&1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | tail -1)"
+  exit 0
+fi
 
 printf '\nbioinfo substrate verification  —  %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')"
 
@@ -140,7 +182,10 @@ fi
 
 # ============================================================ 5. nextflow / nf-core
 head_ 'Nextflow toolchain'
-[ "$ENV_SOURCED" -eq 1 ] && ok "env contract sourced from $ENVFILE" || warn "$ENVFILE absent — run bootstrap/03-nextflow.sh"
+# A fail, not a warn. Without the contract the NXF_* checks below would happily validate
+# whatever config/host.env happens to export and report READY on a box where no run can
+# work — which is the failure this script exists to prevent.
+[ "$ENV_SOURCED" -eq 1 ] && ok "env contract sourced from $ENVFILE" || fail "$ENVFILE absent — the environment contract was never generated. Run bootstrap/03-nextflow.sh as the pipeline user."
 
 if ! command -v nextflow >/dev/null 2>&1; then
   fail 'nextflow not on PATH — run bootstrap/03-nextflow.sh as the pipeline user'
@@ -194,10 +239,17 @@ for v in NXF_HOME NXF_ASSETS NXF_WORK NXF_TEMP NXF_SINGULARITY_CACHEDIR; do
   fi
 done
 
-if [ -n "${NXF_OFFLINE:-}" ]; then
-  fail "NXF_OFFLINE is set to '$NXF_OFFLINE'. It must be unset — nf-core runs resolve revisions and pull containers on first use."
+# This script sources env.sh, and env.sh ends with `unset NXF_OFFLINE` — so testing
+# $NXF_OFFLINE here could never fail, whatever the machine looked like. Ask a fresh login
+# shell instead. That is exactly the environment a `wsl -d <distro> -- bash -lc 'nextflow
+# run ...'` gets, which is how every run is actually launched.
+OFFLINE_IN_LOGIN="$(bash -lc 'printf %s "${NXF_OFFLINE:-}"' 2>/dev/null)"
+if [ -n "$OFFLINE_IN_LOGIN" ]; then
+  fail "a fresh login shell has NXF_OFFLINE='$OFFLINE_IN_LOGIN'. It must be unset — nf-core runs resolve revisions and pull containers on first use. Find the export in ~/.bashrc, ~/.profile or /etc/environment."
+elif [ -n "$NXF_OFFLINE_AMBIENT" ]; then
+  warn "the shell that launched this script had NXF_OFFLINE='$NXF_OFFLINE_AMBIENT'. A login shell clears it, so runs are safe, but that export is still somewhere."
 else
-  ok 'NXF_OFFLINE unset'
+  ok 'NXF_OFFLINE unset in a fresh login shell'
 fi
 
 # ============================================================ 7. disk
