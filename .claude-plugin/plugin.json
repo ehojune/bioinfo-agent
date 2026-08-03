@@ -6,7 +6,6 @@
     "name": "ehojune"
   },
   "license": "MIT",
-  "hooks": "./hooks/hooks.json",
   "keywords": [
     "bioinformatics",
     "nf-core",
