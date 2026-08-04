@@ -333,8 +333,18 @@ Notes on the shape:
   (`sudo apt-get install -y tmux`) inside a session that stays open, so you can re-attach.
   A run launched fire-and-forget from Windows is a run you have silently lost.
 
-**Stopping cleanly:** Ctrl-C in the foreground session, or `pkill -TERM -f "nextflow.*$RUNID"`
-(under `tmux`, `tmux send-keys -t "$RUNID" C-c`). Nextflow traps SIGTERM, kills running tasks,
+**Stopping cleanly:** Ctrl-C in the foreground session, or — under `tmux` — kill the pid the
+launch recorded:
+
+```bash
+kill -TERM "$(cat "/work/nxf/$RUNID/nextflow.pid")"
+```
+
+Use the recorded pid, **not** `pkill -f "nextflow.*$RUNID"`. `-f` matches the whole command
+line as a substring, so a run id that is a prefix of another (`20260804-rnaseq-study` and
+`20260804-rnaseq-study-rerun`) matches both and kills someone else's experiment. If you have
+no pid file, delimit the id with the path separators that surround it in the command line:
+`pkill -TERM -f "nextflow.*/$RUNID/"`. Nextflow traps SIGTERM, kills running tasks,
 and flushes the cache — the run stays resumable. `kill -9` leaves orphaned containers holding
 CPU and disk; if you must, follow with `docker ps` and `docker kill <ids>`.
 

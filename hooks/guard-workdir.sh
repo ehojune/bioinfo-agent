@@ -152,7 +152,13 @@ while IFS= read -r t; do
       deny "run $runid is still running (pid $pid). Deleting its work directory now loses the run."
     fi
   fi
-  if command -v pgrep >/dev/null 2>&1 && pgrep -f "nextflow.*${runid}" >/dev/null 2>&1; then
+  # Delimited with the path separators that surround the run id on a real command line
+  # (-work-dir /work/nxf/<runid>/work). A bare "nextflow.*$runid" also matches a DIFFERENT
+  # run whose id merely starts with this one — 20260804-study vs 20260804-study-rerun — which
+  # here would block a legitimate reclaim, and in the runbook's stop recipe killed the wrong
+  # run outright. runid comes from a path component, so it needs escaping for the regex.
+  esc_runid="$(printf '%s' "$runid" | sed 's/[][\.*^$+?()|{}]/\&/g')"
+  if command -v pgrep >/dev/null 2>&1 && pgrep -f "nextflow.*/${esc_runid}/" >/dev/null 2>&1; then
     deny "a nextflow process for run $runid is still running. Deleting its work directory now
       loses the run. If that process is stale, stop it first."
   fi

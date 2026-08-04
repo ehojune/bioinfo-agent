@@ -228,7 +228,7 @@ do_link() {
 }
 
 do_copy() {
-  local std="$1" src="$2" dest="$REFS/$1"
+  local std="$1" src="$2" dest="$REFS/$1" rmdir_first=0
   # Once, at the top — see do_link(). rm -f on a stale symlink, rm -rf on a directory, and
   # `mv -f "$tmp" "$dest"` at the end all land at $dest; the last one writes even where
   # nothing is deleted, so a per-branch guard misses it entirely.
@@ -266,7 +266,11 @@ do_copy() {
     if [ "$FORCE" -eq 1 ]; then
       row STALE copy "$std" "--force: replacing a real directory with the copy"
       n_stale=$((n_stale+1))
-      [ "$DRY" -eq 1 ] || rm -rf "$dest"
+      # DEFERRED, not done here. Removing it now would happen before the free-space check
+      # and before cp has staged anything, so an unreadable source or a full volume would
+      # leave the directory permanently deleted and no copy in its place. The rm runs
+      # immediately before the mv, once the replacement is on disk.
+      rmdir_first=1
     else
       row STALE copy "$std" "a real directory is here, a file is expected — inspect, then re-run with --force"
       n_stale=$((n_stale+1)); return 0
@@ -290,7 +294,15 @@ do_copy() {
 
   # temp + mv so an interrupted copy never leaves a plausible-looking partial file
   local tmp="$dest.part.$$"
-  cp -p "$src" "$tmp"
+  if ! cp -p "$src" "$tmp"; then
+    rm -f "$tmp"
+    row MISSING copy "$std" "copy failed — destination left untouched"
+    n_hard=$((n_hard+1)); HARD_MISSING+=("$std  (copy failed)")
+    return 0
+  fi
+  # Only now, with the replacement staged and verified on disk, is it safe to remove what
+  # --force said to replace.
+  [ "$rmdir_first" -eq 1 ] && rm -rf "$dest"
   mv -f "$tmp" "$dest"
   row COPIED copy "$std" "$(human "$ssize")"
   n_copy=$((n_copy+1)); copied_bytes=$((copied_bytes+ssize))
