@@ -33,7 +33,30 @@ $BIOINFO_REFS/
 ```
 
 Builds currently defined: `GRCh38` (UCSC hg38 + GENCODE v50), `GRCh38gatk` (GATK analysis set,
-no ALT/HLA/decoy, BWA-indexed — use this for sarek), `KOREF1` (Korean reference assembly).
+no ALT/HLA/decoy, BWA-indexed — use this for sarek), `KOREF1` (Korean reference assembly),
+`R64-1-1` (S. cerevisiae, Ensembl release-116 genebuild).
+
+## The rnaseq alias
+
+`genome.fa` / `genes.gtf.gz` is exactly the basename nf-core/rnaseq's own `main.nf` treats as
+proof a reference came from AWS iGenomes — it sets `is_aws_igenome=true` by basename alone, no
+parameter involved, and that flag routes the run onto a STAR-2.6.1d-only legacy path (2.6.1d
+segfaults outright on at least one host this repo runs on). Since every build here is
+normalised to exactly that basename, every fresh rnaseq run trips it — through *either*
+invocation form: the explicit `--fasta`/`--gtf` form, and the compact `--genome <key>` form,
+since the pipeline resolves `--genome <key>` to `params.genomes.<key>.fasta`/`.gtf` internally,
+same two attributes.
+
+`04-refs.sh` therefore also maintains, next to the canonical file, a second symlink named after
+the build itself: `genomes/<BUILD>/fasta/<BUILD>.fa` and `genomes/<BUILD>/gtf/<BUILD>.gtf.gz`,
+both pointing at the canonical file (same collision guard as every other `link` row — a real
+file already at that path is left alone and reported, not overwritten, unless `--force`).
+`genomes.config`'s `genomes.<BUILD>.fasta`/`.gtf` values point at this alias directly rather
+than at a separate `fasta_alias`/`.gtf_alias` param, precisely so both invocation forms resolve
+to the safe name without either one being able to fall through to the canonical path by
+accident. No other pipeline or param is affected; the canonical `genome.fa` file itself is
+untouched and stays what every manifest row, BWA index prefix and every non-rnaseq pipeline
+actually reads — only the *value of the `fasta`/`gtf` param* changed, not the file on disk.
 
 ## The manifest
 

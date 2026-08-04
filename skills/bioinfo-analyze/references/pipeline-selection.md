@@ -165,8 +165,8 @@ mapping: `references/samplesheets.md`.
 **Reference-store paths:**
 
 ```
-$BIOINFO_REFS/genomes/GRCh38/fasta/genome.fa
-$BIOINFO_REFS/genomes/GRCh38/gtf/genes.gtf.gz
+$BIOINFO_REFS/genomes/GRCh38/fasta/GRCh38.fa        alias of fasta/genome.fa — NOT the canonical name, see below
+$BIOINFO_REFS/genomes/GRCh38/gtf/GRCh38.gtf.gz       alias of gtf/genes.gtf.gz — ditto
 $BIOINFO_REFS/genomes/GRCh38/index/star/        (build mode — absent until first --save_reference run)
 $BIOINFO_REFS/genomes/GRCh38/index/salmon/      (build mode — same)
 $BIOINFO_REFS/genomes/GRCh38/bed/genes.bed      (optional, --gene_bed; RSeQC otherwise derives it)
@@ -174,6 +174,15 @@ $BIOINFO_REFS/genomes/GRCh38/bed/genes.bed      (optional, --gene_bed; RSeQC oth
 
 Use `GRCh38`, not `GRCh38gatk`. The GATK analysis set is for variant calling; the GENCODE GTF is
 matched to UCSC hg38.
+
+**Pass the alias, not `fasta/genome.fa`/`gtf/genes.gtf.gz` directly.** rnaseq's own
+`workflows/rnaseq/main.nf` sets `is_aws_igenome=true` whenever `--fasta`/`--gtf`'s basename is
+literally `genome.fa`/`genes.gtf` — which the canonical path always is, by this store's design —
+and that routes a fresh-index run onto a STAR-2.6.1d-only legacy path that segfaults outright on
+at least one host this repo runs on. `genomes.config`'s `genomes.GRCh38.fasta`/`.gtf` already
+point at the alias (`bootstrap/04-refs.sh` maintains it automatically), so `--genome GRCh38` is
+safe as documented in `genomes.config` section 2; if you write `--fasta`/`--gtf` out explicitly
+instead, use the alias paths above, not the ones this table used to list.
 
 **Key outputs:**
 
