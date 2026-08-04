@@ -297,9 +297,14 @@ Notes on the shape:
   already exists.
 - Set `trace.raw = true` in `local.config`. The default trace writes durations as `1h 2m` and memory
   as `3.4 GB`, which is unsortable; raw writes milliseconds and bytes.
-- `nohup … &` survives the terminal closing. It does **not** survive `wsl --shutdown`, Windows
-  sleep, or a forced reboot. If `tmux` is available (`sudo apt-get install -y tmux`) prefer running
-  under it so you can re-attach and see live output.
+- **`nohup … &` does not detach a run from a Windows-driven `wsl.exe` invocation.** Inside a
+  terminal you keep open it behaves as expected, but when the launching
+  `wsl -d <distro> -- bash …` returns, WSL tears down the distro and the job dies with it —
+  measured here: both `nohup … &` and `setsid nohup … &` were gone within seconds, with no
+  log written and no process left. It also does not survive `wsl --shutdown`, Windows sleep,
+  or a reboot. Either keep the launching session alive for the whole run, or run under `tmux`
+  (`sudo apt-get install -y tmux`) inside a session that stays open, so you can re-attach.
+  A run launched fire-and-forget from Windows is a run you have silently lost.
 
 **Stopping cleanly:** `kill -TERM "$(cat $NXFDIR/nextflow.pid)"`. Nextflow traps SIGTERM, kills
 running tasks, and flushes the cache — the run stays resumable. `kill -9` leaves orphaned containers
