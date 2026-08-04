@@ -188,6 +188,13 @@ inside_refs() {   # $1 = path the operation will create/replace; need not exist
 
 do_link() {
   local std="$1" src="$2" dest="$REFS/$1"
+  # Once, at the top: EVERY branch below writes or deletes at $dest — the repoint branch
+  # rm -f's a symlink, the force branch rm -rf's a real file, and the create branch mkdir -p's
+  # the parent. Guarding only one of them, as this first did, leaves the other two escaping.
+  if ! inside_refs "$dest"; then
+    row STALE link "$std" "resolves outside $REFS — refusing to touch it"
+    n_stale=$((n_stale+1)); return 0
+  fi
   if [ ! -e "$src" ]; then
     row MISSING link "$std" "source absent: $src"
     n_hard=$((n_hard+1)); HARD_MISSING+=("$std  <- $src")
@@ -205,10 +212,6 @@ do_link() {
   fi
   if [ -e "$dest" ]; then
     # A real file sits where the manifest wants a symlink. Do not silently delete data.
-    if ! inside_refs "$dest"; then
-      row STALE link "$std" "resolves outside $REFS — refusing to replace it"
-      n_stale=$((n_stale+1)); return 0
-    fi
     if [ "$FORCE" -eq 1 ]; then
       row LINKED link "$std" "--force: replaced a real file with the symlink"
       [ "$DRY" -eq 1 ] || { rm -rf "$dest"; ln -s "$src" "$dest"; }
@@ -226,6 +229,13 @@ do_link() {
 
 do_copy() {
   local std="$1" src="$2" dest="$REFS/$1"
+  # Once, at the top — see do_link(). rm -f on a stale symlink, rm -rf on a directory, and
+  # `mv -f "$tmp" "$dest"` at the end all land at $dest; the last one writes even where
+  # nothing is deleted, so a per-branch guard misses it entirely.
+  if ! inside_refs "$dest"; then
+    row STALE copy "$std" "resolves outside $REFS — refusing to touch it"
+    n_stale=$((n_stale+1)); return 0
+  fi
   if [ ! -e "$src" ]; then
     row MISSING copy "$std" "source absent: $src"
     n_hard=$((n_hard+1)); HARD_MISSING+=("$std  <- $src")
@@ -253,10 +263,6 @@ do_copy() {
     # and the one path that never got it. Without this branch a real directory here falls
     # straight through to `mv -f "$tmp" "$dest"`, which deposits the temp file INSIDE the
     # directory as <name>.part.<pid> and still reports COPIED with the right byte count.
-    if ! inside_refs "$dest"; then
-      row STALE copy "$std" "resolves outside $REFS — refusing to replace it"
-      n_stale=$((n_stale+1)); return 0
-    fi
     if [ "$FORCE" -eq 1 ]; then
       row STALE copy "$std" "--force: replacing a real directory with the copy"
       n_stale=$((n_stale+1))

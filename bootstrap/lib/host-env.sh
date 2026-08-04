@@ -63,6 +63,13 @@ load_host_env() {
             *'$('*|*'`'*|*';'*|*'|'*|*'&'*|*'>'*|*'<'*|*$'\n'*) continue ;;
         esac
 
+        # An empty value is a typo, not a setting. Skipping it lets the script's own
+        # `${VAR:-default}` win, which is what the author meant. Exporting the empty string
+        # instead is safe only for as long as every default uses `:-` rather than `-`, and
+        # that is not a property worth depending on: BIOINFO_USER reaches usermod, chown and
+        # a sudoers line, and BIOINFO_REFS reaches rm.
+        [ -n "$_he_val" ] || continue
+
         export "$_he_key=$_he_val"
     done < "$_he_file"
 
