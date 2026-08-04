@@ -256,10 +256,21 @@ do_build() {
   local std="$1" hint="$2" dest="$REFS/$1"
   case "$std" in
     */)
+      # Deliberately does NOT mkdir -p "$dest" when absent/empty. A directory-mode build row
+      # (a STAR/salmon index) is a Path that pipelines test with plain existence checks --
+      # `params.genomes.<build>.star` being a Path that .exists() is often read as "prebuilt,
+      # reuse me," with no non-empty check. Pre-creating the directory here would make that
+      # check pass on nothing, so a fresh reference silently "reuses" an empty index instead
+      # of building one. Confirmed reproducible: this exact dest existed empty (created by an
+      # earlier version of this branch) for genomes/GRCh38/index/{star,salmon,bismark,bowtie2}
+      # since the store's initial setup, and for genomes/R64-1-1/index/{star,salmon} the first
+      # time this script ran after that build was added. Report NOT BUILT and leave the
+      # filesystem exactly as it was; the tool that builds the index (or a manual `mv` per
+      # genomes.config section 2) creates the directory as a side effect of actually writing
+      # something into it.
       if [ -d "$dest" ] && [ -n "$(ls -A "$dest" 2>/dev/null)" ]; then
         row OK build "$std" "$(ls -A "$dest" | wc -l) entries"; n_ok=$((n_ok+1)); return 0
       fi
-      [ "$DRY" -eq 1 ] || mkdir -p "$dest"
       ;;
     *)
       if [ -e "$dest" ]; then row OK build "$std"; n_ok=$((n_ok+1)); return 0; fi
