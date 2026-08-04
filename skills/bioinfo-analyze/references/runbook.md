@@ -287,7 +287,14 @@ alive, which keeps the distro up, and lets you re-attach to see live output:
 
 ```bash
 sudo apt-get install -y tmux                       # once
-tmux new-session -d -s "$RUNID" "bash $RUNDIR/cmd.sh"
+
+# Self-contained on purpose: RUNID and RUNDIR are assigned INSIDE cmd.sh, so a fresh shell
+# (which is what the one-shot `wsl -d <distro> -- bash …` workflow always gives you) has
+# neither. Left unset they expand to an empty session name and `bash /cmd.sh`.
+RUNID=20260728-rnaseq-koges-pilot                  # the same id cmd.sh sets
+RUNDIR=/mnt/d/bioinfo-agent/runs/$RUNID
+
+tmux new-session -d -s "$RUNID" "bash '$RUNDIR/cmd.sh'"
 tmux ls                                            # confirm it is there
 tmux attach -t "$RUNID"                            # watch;  Ctrl-b d to leave it running
 ```
