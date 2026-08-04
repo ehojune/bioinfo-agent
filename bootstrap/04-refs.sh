@@ -382,7 +382,10 @@ do_alias() {   # $1=alias_path $2=target_basename $3=label (for row output)
   if [ -L "$alias" ]; then
     [ "$(readlink "$alias")" = "$target" ] && return 0   # already correct, no row needed
     row LINKED alias "$label" "repointed from $(readlink "$alias")"
-    [ "$DRY" -eq 1 ] || ln -sf "$target" "$alias"
+    # rm then ln -s, not ln -sf: if the existing symlink resolves to a directory, `ln -sf`
+    # follows it and creates $target *inside* that directory instead of replacing the alias
+    # -- same footgun do_link() above already avoids the same way.
+    [ "$DRY" -eq 1 ] || { rm -f "$alias"; ln -s "$target" "$alias"; }
     n_alias=$((n_alias+1)); return 0
   fi
   if [ -e "$alias" ]; then
