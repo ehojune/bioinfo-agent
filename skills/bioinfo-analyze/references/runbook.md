@@ -295,6 +295,15 @@ RUNID=20260728-rnaseq-koges-pilot                  # the same id cmd.sh sets
 RUNDIR=/mnt/d/bioinfo-agent/runs/$RUNID
 
 tmux new-session -d -s "$RUNID" "bash '$RUNDIR/cmd.sh'"
+
+# Record the live pid. NOT optional: hooks/guard-workdir.sh reads this file to refuse
+# deleting the work directory of a running run. Without it the guard falls through to the
+# 7-day hold check, which an older run id passes — so a live run's work dir becomes
+# deletable. `nextflow` is the JVM child, not the tmux shell, so match on the run id.
+sleep 5                                            # let the JVM start
+pgrep -f "nextflow.*$RUNID" > "/work/nxf/$RUNID/nextflow.pid" || \
+  echo "WARNING: could not record a pid — the work-dir guard will not see this run as live" >&2
+
 tmux ls                                            # confirm it is there
 tmux attach -t "$RUNID"                            # watch;  Ctrl-b d to leave it running
 ```
@@ -329,10 +338,10 @@ Notes on the shape:
 and flushes the cache — the run stays resumable. `kill -9` leaves orphaned containers holding
 CPU and disk; if you must, follow with `docker ps` and `docker kill <ids>`.
 
-Write the pid if you want one — `pgrep -f "nextflow.*$RUNID" > "$NXFDIR/nextflow.pid"` after
-launching under `tmux`. The work-dir guard hook reads it to refuse deleting a live run's work
-directory, so it is worth having; it is just no longer produced by `$!` from a backgrounded
-launch that does not survive.
+The pid file is written by the tmux recipe above and is not optional: `hooks/guard-workdir.sh`
+reads it to refuse deleting a live run's work directory. A foreground launch has no `$!` to
+record, so the guard also scans for a running `nextflow` process carrying the run id — either
+signal is enough to block the deletion, and neither alone is reliable.
 
 ---
 

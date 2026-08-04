@@ -140,11 +140,21 @@ while IFS= read -r t; do
   rundir="$(printf '%s' "$t" | sed -nE "s#^((${esc_root}|/work)/nxf/[^/]+).*#\1#p")"
 
   # Condition 1 — the run must not be live.
+  # TWO independent checks, because either alone has a hole. The pid file is only written if
+  # the launcher happened to write one — a foreground or tmux launch has no `$!` to record —
+  # and a missing file silently means "not live", which would let this fall through to the
+  # hold check and delete a running run's work directory. The process scan covers that, and
+  # the pid file covers the case where the scan cannot see the process (a different mount
+  # namespace, or a `nextflow` invocation whose command line does not carry the run id).
   if [ -f "$rundir/nextflow.pid" ]; then
     pid="$(cat "$rundir/nextflow.pid" 2>/dev/null || true)"
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
       deny "run $runid is still running (pid $pid). Deleting its work directory now loses the run."
     fi
+  fi
+  if command -v pgrep >/dev/null 2>&1 && pgrep -f "nextflow.*${runid}" >/dev/null 2>&1; then
+    deny "a nextflow process for run $runid is still running. Deleting its work directory now
+      loses the run. If that process is stale, stop it first."
   fi
 
   # Conditions 2-4 — handed off, and past the hold. The handoff note is the record that the run
