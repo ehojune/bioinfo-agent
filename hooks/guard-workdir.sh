@@ -157,7 +157,11 @@ while IFS= read -r t; do
   # run whose id merely starts with this one — 20260804-study vs 20260804-study-rerun — which
   # here would block a legitimate reclaim, and in the runbook's stop recipe killed the wrong
   # run outright. runid comes from a path component, so it needs escaping for the regex.
-  esc_runid="$(printf '%s' "$runid" | sed 's/[][\.*^$+?()|{}]/\&/g')"
+  # `\\&`, not `\&`. In a sed replacement `&` is the whole match and `\&` escapes it into a
+  # LITERAL ampersand — so the old form turned study.v2 into study&v2, a pattern that matches
+  # nothing, and the guard then saw a live run as finished. `\\` emits one backslash, `&` the
+  # matched character: study.v2 -> study\.v2.
+  esc_runid="$(printf '%s' "$runid" | sed 's/[][\.*^$+?()|{}]/\\&/g')"
   if command -v pgrep >/dev/null 2>&1 && pgrep -f "nextflow.*/${esc_runid}/" >/dev/null 2>&1; then
     deny "a nextflow process for run $runid is still running. Deleting its work directory now
       loses the run. If that process is stale, stop it first."

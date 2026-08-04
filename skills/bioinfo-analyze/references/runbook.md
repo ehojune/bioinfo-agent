@@ -298,11 +298,24 @@ tmux new-session -d -s "$RUNID" "bash '$RUNDIR/cmd.sh'"
 
 # Record the live pid. NOT optional: hooks/guard-workdir.sh reads this file to refuse
 # deleting the work directory of a running run. Without it the guard falls through to the
-# 7-day hold check, which an older run id passes — so a live run's work dir becomes
-# deletable. `nextflow` is the JVM child, not the tmux shell, so match on the run id.
-sleep 5                                            # let the JVM start
-pgrep -f "nextflow.*$RUNID" > "/work/nxf/$RUNID/nextflow.pid" || \
-  echo "WARNING: could not record a pid — the work-dir guard will not see this run as live" >&2
+# 7-day hold check, which an older run id passes — so a live run's work dir becomes deletable.
+#
+# The pattern is delimited with the surrounding path separators, and exactly one match is
+# required. A bare "nextflow.*$RUNID" matches a SIBLING whose id merely extends this one
+# (…-study vs …-study-rerun): if this run's JVM has not appeared yet, the file would hold the
+# sibling's pid and the stop command below would kill the wrong experiment; if both appear,
+# the file holds two lines and `kill "$(cat …)"` fails on a multi-line operand.
+for _ in $(seq 30); do                             # up to ~30 s for the JVM to appear
+  mapfile -t _pids < <(pgrep -f "nextflow.*/$RUNID/")
+  [ "${#_pids[@]}" -ge 1 ] && break
+  sleep 1
+done
+if [ "${#_pids[@]}" -eq 1 ]; then
+  printf '%s\n' "${_pids[0]}" > "/work/nxf/$RUNID/nextflow.pid"
+else
+  echo "WARNING: expected exactly one nextflow process for $RUNID, found ${#_pids[@]}." >&2
+  echo "         No pid recorded; the work-dir guard falls back to its process scan." >&2
+fi
 
 tmux ls                                            # confirm it is there
 tmux attach -t "$RUNID"                            # watch;  Ctrl-b d to leave it running
