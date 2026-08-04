@@ -261,7 +261,11 @@ TS=$(date +%Y%m%d-%H%M%S)
 mkdir -p "$NXFDIR/work" "$NXFDIR/results" "$NXFDIR/reports"
 cd "$NXFDIR"                                # launch dir MUST be ext4: .nextflow/cache lives here
 
-nohup nextflow -log "$NXFDIR/.nextflow.log" \
+# FOREGROUND, and the `wsl.exe` session that started it stays open for the whole run.
+# Backgrounding this with `nohup … &` from a one-shot `wsl -d <distro> -- bash …` loses the
+# run: WSL tears the distro down when the last session exits, and the job dies with it —
+# no log, no process, no error. See "Notes on the shape" below.
+nextflow -log "$NXFDIR/.nextflow.log" \
   run "$PIPE" \
     -r "$REV" \
     -profile docker \
@@ -275,10 +279,17 @@ nohup nextflow -log "$NXFDIR/.nextflow.log" \
     -with-dag      "$NXFDIR/reports/dag.$TS.html" \
     -ansi-log false \
     -resume \
-  > "$NXFDIR/nextflow.stdout.log" 2>&1 &
+  2>&1 | tee "$NXFDIR/nextflow.stdout.log"
+```
 
-echo $! > "$NXFDIR/nextflow.pid"
-echo "launched $RUNID pid $(cat "$NXFDIR/nextflow.pid"); log: $NXFDIR/nextflow.stdout.log"
+**To detach it instead, use `tmux` — not `nohup`.** `tmux` keeps its own server process
+alive, which keeps the distro up, and lets you re-attach to see live output:
+
+```bash
+sudo apt-get install -y tmux                       # once
+tmux new-session -d -s "$RUNID" "bash $RUNDIR/cmd.sh"
+tmux ls                                            # confirm it is there
+tmux attach -t "$RUNID"                            # watch;  Ctrl-b d to leave it running
 ```
 
 Notes on the shape:
@@ -306,9 +317,15 @@ Notes on the shape:
   (`sudo apt-get install -y tmux`) inside a session that stays open, so you can re-attach.
   A run launched fire-and-forget from Windows is a run you have silently lost.
 
-**Stopping cleanly:** `kill -TERM "$(cat $NXFDIR/nextflow.pid)"`. Nextflow traps SIGTERM, kills
-running tasks, and flushes the cache — the run stays resumable. `kill -9` leaves orphaned containers
-holding CPU and disk; if you must, follow with `docker ps` and `docker kill <ids>`.
+**Stopping cleanly:** Ctrl-C in the foreground session, or `pkill -TERM -f "nextflow.*$RUNID"`
+(under `tmux`, `tmux send-keys -t "$RUNID" C-c`). Nextflow traps SIGTERM, kills running tasks,
+and flushes the cache — the run stays resumable. `kill -9` leaves orphaned containers holding
+CPU and disk; if you must, follow with `docker ps` and `docker kill <ids>`.
+
+Write the pid if you want one — `pgrep -f "nextflow.*$RUNID" > "$NXFDIR/nextflow.pid"` after
+launching under `tmux`. The work-dir guard hook reads it to refuse deleting a live run's work
+directory, so it is worth having; it is just no longer produced by `$!` from a backgrounded
+launch that does not survive.
 
 ---
 

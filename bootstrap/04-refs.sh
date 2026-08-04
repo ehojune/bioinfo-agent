@@ -433,10 +433,15 @@ do_alias() {   # $1=alias_path $2=target_basename $3=label (for row output)
   # user's own source tree on /mnt/d. Validating the $std string (as the main loop does) does
   # not cover that, because the escape happens at resolution, not in the string. Refuse to
   # create or replace anything that is not genuinely under $REFS.
+  # `realpath -m`, not `-e`: on the --dry-run that precedes a fresh install the parent does not
+  # exist yet, and requiring existence reported every valid new alias as a collision. -m still
+  # resolves the components that DO exist — which is the whole point, since the escape this
+  # guards against is a directory-valued link row, i.e. an existing symlink — and normalises
+  # the rest instead of failing.
   local aliasdir realdir realrefs
   aliasdir="$(dirname "$alias")"
-  realdir="$(realpath -q "$aliasdir" 2>/dev/null || true)"
-  realrefs="$(realpath -q "$REFS" 2>/dev/null || printf '%s' "$REFS")"
+  realdir="$(realpath -m "$aliasdir" 2>/dev/null || true)"
+  realrefs="$(realpath -m "$REFS" 2>/dev/null || printf '%s' "$REFS")"
   case "${realdir:-}/" in
     "$realrefs"/*) ;;
     *) row STALE alias "$label" "resolves outside $REFS (${realdir:-unresolvable}) — refusing to touch it"
@@ -493,11 +498,14 @@ if [ "$RUNMODE" = copy ]; then
     # The canonical file is not there and will not be by the end of this run (fetch/build rows
     # are only reported, never materialised). genomes.config points its fasta/gtf params at the
     # ALIAS, so staying silent here leaves the pipeline to fail on a path nothing explains.
+    # PENDING, and no counter: an unmaterialised fetch/build row is the EXPECTED state of a
+    # fresh store, and n_hard means "link/copy source missing or manifest malformed", which
+    # exits 1. Routing this there failed the bootstrap on exactly the machines it is meant to
+    # set up. The row is the signal; it is informational, not a failure.
     if [ "$eligible" -ne 1 ]; then
       case "$std" in
         genomes/*/fasta/genome.fa|genomes/*/gtf/genes.gtf.gz)
-          row MISSING alias "genomes/$build/…/$build.*" "canonical $std absent, so no alias — genomes.config's $build fasta/gtf will not resolve"
-          n_hard=$((n_hard+1)); HARD_MISSING+=("alias for $build  <- needs $std first") ;;
+          row PENDING alias "genomes/$build/…/$build.*" "waiting on $std — until it exists, genomes.config's $build fasta/gtf will not resolve" ;;
       esac
       continue
     fi
