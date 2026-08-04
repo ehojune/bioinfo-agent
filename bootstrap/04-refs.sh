@@ -140,6 +140,7 @@ declare -a HARD_MISSING=()
 # malformed row can never be composed into a path a second time under looser rules.
 declare -A ALIAS_ROW_MODE=()
 declare -A ALIAS_ROW_SRC=()
+declare -A MANIFEST_STD=()
 
 row() {
   # STATUS  MODE  STANDARD_PATH  DETAIL
@@ -215,6 +216,19 @@ do_copy() {
     row STALE copy "$std" "symlink found where a real copy is required — replacing"
     n_stale=$((n_stale+1))
     [ "$DRY" -eq 1 ] || rm -f "$dest"
+  elif [ -d "$dest" ]; then
+    # The same directory-collision footgun do_link() and do_alias() are both guarded against,
+    # and the one path that never got it. Without this branch a real directory here falls
+    # straight through to `mv -f "$tmp" "$dest"`, which deposits the temp file INSIDE the
+    # directory as <name>.part.<pid> and still reports COPIED with the right byte count.
+    if [ "$FORCE" -eq 1 ]; then
+      row STALE copy "$std" "--force: replacing a real directory with the copy"
+      n_stale=$((n_stale+1))
+      [ "$DRY" -eq 1 ] || rm -rf "$dest"
+    else
+      row STALE copy "$std" "a real directory is here, a file is expected — inspect, then re-run with --force"
+      n_stale=$((n_stale+1)); return 0
+    fi
   fi
 
   if [ "$DRY" -eq 1 ]; then
@@ -357,6 +371,11 @@ while IFS= read -r raw || [ -n "$raw" ]; do
       ALIAS_ROW_MODE["$std"]="$mode"; ALIAS_ROW_SRC["$std"]="$src" ;;
   esac
 
+  # Every validated standard_path, so the alias step can refuse to touch a path the manifest
+  # already owns. Without this the derived alias silently outranks an explicit declaration and
+  # the two stages repoint the same symlink against each other on every run, forever.
+  MANIFEST_STD["$std"]=1
+
   # --verify hashes what is already in $REFS and never looks at a source, so the mount
   # warning and the mode dispatch below are both irrelevant to it.
   if [ "$RUNMODE" = verify ]; then
@@ -405,10 +424,30 @@ done < "$MANIFEST"
 # path is someone's data, not ours to delete, so it is reported STALE and left alone unless
 # --force is given -- ln -sf must never be used here unguarded.
 n_alias=0
+n_aliasok=0
 do_alias() {   # $1=alias_path $2=target_basename $3=label (for row output)
   local alias="$1" target="$2" label="$3"
+
+  # CONTAINMENT. $alias is composed from $(dirname "$dest"), which resolves through the live
+  # filesystem — a directory-valued `link` row for a build's fasta dir lands it inside the
+  # user's own source tree on /mnt/d. Validating the $std string (as the main loop does) does
+  # not cover that, because the escape happens at resolution, not in the string. Refuse to
+  # create or replace anything that is not genuinely under $REFS.
+  local aliasdir realdir realrefs
+  aliasdir="$(dirname "$alias")"
+  realdir="$(realpath -q "$aliasdir" 2>/dev/null || true)"
+  realrefs="$(realpath -q "$REFS" 2>/dev/null || printf '%s' "$REFS")"
+  case "${realdir:-}/" in
+    "$realrefs"/*) ;;
+    *) row STALE alias "$label" "resolves outside $REFS (${realdir:-unresolvable}) — refusing to touch it"
+       n_stale=$((n_stale+1)); return 0 ;;
+  esac
+
   if [ -L "$alias" ]; then
-    [ "$(readlink "$alias")" = "$target" ] && return 0   # already correct, no row needed
+    if [ "$(readlink "$alias")" = "$target" ]; then
+      row OK alias "$label" "-> $target"     # say it exists; a silent no-op is unverifiable
+      n_aliasok=$((n_aliasok+1)); return 0
+    fi
     row LINKED alias "$label" "repointed from $(readlink "$alias")"
     # rm then ln -s, not ln -sf: if the existing symlink resolves to a directory, `ln -sf`
     # follows it and creates $target *inside* that directory instead of replacing the alias
@@ -417,17 +456,16 @@ do_alias() {   # $1=alias_path $2=target_basename $3=label (for row output)
     n_alias=$((n_alias+1)); return 0
   fi
   if [ -e "$alias" ]; then
-    if [ "$FORCE" -eq 1 ]; then
-      row LINKED alias "$label" "--force: replaced a real file with the alias symlink"
-      # rm -rf, not rm -f: rm -f cannot remove a directory (fails under set -e, after the row
-      # above already claimed success) -- do_link()'s force branch already uses -rf for the
-      # same reason.
-      [ "$DRY" -eq 1 ] || { rm -rf "$alias"; ln -s "$target" "$alias"; }
-      n_alias=$((n_alias+1))
-    else
-      row STALE alias "$label" "a real file is here, alias symlink expected — inspect, then re-run with --force"
-      n_stale=$((n_stale+1))
-    fi
+    # DELIBERATELY NO --force BRANCH, unlike do_link()/do_copy().
+    # An alias is derived convenience: it is reconstructible from the canonical file in a
+    # millisecond, so nothing here is ever worth deleting real data for. do_link()'s force
+    # branch is defensible because the manifest declares that path; nothing declares this one.
+    # It also closes a containment hole: $alias is composed from $(dirname "$dest"), which is
+    # resolved through the live filesystem, so a directory-valued `link` row for a build's
+    # fasta dir puts this path inside the user's own source tree — where an rm -rf would
+    # destroy an original the reference store does not back up.
+    row STALE alias "$label" "a real file is here, alias symlink expected — inspect and remove it by hand"
+    n_stale=$((n_stale+1))
     return 0
   fi
   row LINKED alias "$label" "-> $target"
@@ -452,13 +490,42 @@ if [ "$RUNMODE" = copy ]; then
     elif [ "$DRY" -eq 1 ] && { [ "$mode" = link ] || [ "$mode" = copy ]; } && [ -e "$src" ]; then
       eligible=1
     fi
-    [ "$eligible" -eq 1 ] || continue
+    # The canonical file is not there and will not be by the end of this run (fetch/build rows
+    # are only reported, never materialised). genomes.config points its fasta/gtf params at the
+    # ALIAS, so staying silent here leaves the pipeline to fail on a path nothing explains.
+    if [ "$eligible" -ne 1 ]; then
+      case "$std" in
+        genomes/*/fasta/genome.fa|genomes/*/gtf/genes.gtf.gz)
+          row MISSING alias "genomes/$build/…/$build.*" "canonical $std absent, so no alias — genomes.config's $build fasta/gtf will not resolve"
+          n_hard=$((n_hard+1)); HARD_MISSING+=("alias for $build  <- needs $std first") ;;
+      esac
+      continue
+    fi
+    aliasstd=""; aliastarget=""
     case "$std" in
-      genomes/*/fasta/genome.fa)
-        do_alias "$(dirname "$dest")/$build.fa" genome.fa "genomes/$build/fasta/$build.fa" ;;
-      genomes/*/gtf/genes.gtf.gz)
-        do_alias "$(dirname "$dest")/$build.gtf.gz" genes.gtf.gz "genomes/$build/gtf/$build.gtf.gz" ;;
+      genomes/*/fasta/genome.fa)    aliasstd="genomes/$build/fasta/$build.fa";     aliastarget=genome.fa ;;
+      genomes/*/gtf/genes.gtf.gz)   aliasstd="genomes/$build/gtf/$build.gtf.gz";   aliastarget=genes.gtf.gz ;;
+      *) continue ;;
     esac
+
+    # A build directory named literally `genome` (or `genes`) makes the alias collapse onto the
+    # canonical path. Left unguarded that produces `genome.fa -> genome.fa`: ELOOP, unreadable,
+    # and it never converges because do_link and do_alias then repoint it against each other.
+    if [ "$aliasstd" = "$std" ]; then
+      row STALE alias "$aliasstd" "would collide with the canonical file itself — build directory is named '$build'"
+      n_stale=$((n_stale+1)); continue
+    fi
+
+    # The manifest outranks a derived alias. If a row already declares this exact path, the
+    # alias step must not touch it: otherwise the two stages repoint the same symlink on every
+    # run and the store never reaches a steady state — and a row naming a DIFFERENT source
+    # would be silently redirected at the canonical file, feeding pipelines the wrong FASTA.
+    if [ -n "${MANIFEST_STD[$aliasstd]:-}" ]; then
+      row OK alias "$aliasstd" "declared by the manifest — leaving it to that row"
+      n_aliasok=$((n_aliasok+1)); continue
+    fi
+
+    do_alias "$(dirname "$dest")/$(basename "$aliasstd")" "$aliastarget" "$aliasstd"
   done
 fi
 
@@ -486,8 +553,12 @@ fi
 total=$((n_ok+n_link+n_copy+n_stale+n_build+n_fetch+n_hard+n_parse))
 say ""
 say "[04-refs] $total rows: ok=$n_ok linked=$n_link copied=$n_copy stale=$n_stale not-built=$n_build fetch-missing=$n_fetch broken=$n_hard parse-errors=$n_parse"
-[ "$n_copy" -gt 0 ] && say "[04-refs] bytes copied: $(human "$copied_bytes")"
-[ "$n_alias" -gt 0 ] && say "[04-refs] rnaseq iGenomes-heuristic aliases (re)created: $n_alias"
+if [ "$n_copy" -gt 0 ]; then say "[04-refs] bytes copied: $(human "$copied_bytes")"; fi
+# Reported unconditionally when there are any: a healthy alias that prints nothing cannot be
+# distinguished from an alias that was never created, and genomes.config depends on it.
+if [ "$((n_alias+n_aliasok))" -gt 0 ]; then
+  say "[04-refs] rnaseq iGenomes-heuristic aliases: $n_aliasok already correct, $n_alias (re)created"
+fi
 
 if [ "$n_build" -gt 0 ] || [ "$n_fetch" -gt 0 ]; then
   say "[04-refs] NOT BUILT / fetch-MISSING rows are expected on a fresh machine. Genuinely absent today:"
