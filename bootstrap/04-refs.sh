@@ -391,7 +391,10 @@ do_alias() {   # $1=alias_path $2=target_basename $3=label (for row output)
   if [ -e "$alias" ]; then
     if [ "$FORCE" -eq 1 ]; then
       row LINKED alias "$label" "--force: replaced a real file with the alias symlink"
-      [ "$DRY" -eq 1 ] || { rm -f "$alias"; ln -s "$target" "$alias"; }
+      # rm -rf, not rm -f: rm -f cannot remove a directory (fails under set -e, after the row
+      # above already claimed success) -- do_link()'s force branch already uses -rf for the
+      # same reason.
+      [ "$DRY" -eq 1 ] || { rm -rf "$alias"; ln -s "$target" "$alias"; }
       n_alias=$((n_alias+1))
     else
       row STALE alias "$label" "a real file is here, alias symlink expected — inspect, then re-run with --force"
@@ -404,16 +407,29 @@ do_alias() {   # $1=alias_path $2=target_basename $3=label (for row output)
   n_alias=$((n_alias+1))
 }
 if [ "$RUNMODE" = copy ]; then
-  for fa in "$REFS"/genomes/*/fasta/genome.fa; do
-    [ -e "$fa" ] || continue
-    build="$(basename "$(dirname "$(dirname "$fa")")")"
-    do_alias "$(dirname "$fa")/$build.fa" genome.fa "genomes/$build/fasta/$build.fa"
-  done
-  for gtf in "$REFS"/genomes/*/gtf/genes.gtf.gz; do
-    [ -e "$gtf" ] || continue
-    build="$(basename "$(dirname "$(dirname "$gtf")")")"
-    do_alias "$(dirname "$gtf")/$build.gtf.gz" genes.gtf.gz "genomes/$build/gtf/$build.gtf.gz"
-  done
+  # Candidates come from the MANIFEST (source of truth, per the header), not a filesystem
+  # glob alone -- on a --dry-run against a fresh store, do_link/do_copy report what they WOULD
+  # create without creating it, so the canonical genome.fa does not exist yet to glob for. A
+  # dry-run whose alias step then silently omits every build would under-report what the same
+  # command without --dry-run is about to do. link/copy rows materialise the canonical file
+  # (now or on a real run); fetch/build rows never do -- 04-refs.sh does not fetch or build,
+  # it only reports -- so alias them only if something external already put the file there.
+  while IFS=$'\t' read -r m_std m_mode _ _ _; do
+    m_std="${m_std//$'\r'/}"; case "${m_std#"${m_std%%[![:space:]]*}"}" in ''|'#'*) continue ;; esac
+    m_mode="${m_mode#"${m_mode%%[![:space:]]*}"}"; m_mode="${m_mode%"${m_mode##*[![:space:]]}"}"
+    case "$m_std" in
+      genomes/*/fasta/genome.fa)
+        build="$(printf '%s' "$m_std" | cut -d/ -f2)"; dest="$REFS/$m_std"
+        if [ -e "$dest" ] || { [ "$DRY" -eq 1 ] && { [ "$m_mode" = link ] || [ "$m_mode" = copy ]; }; }; then
+          do_alias "$(dirname "$dest")/$build.fa" genome.fa "genomes/$build/fasta/$build.fa"
+        fi ;;
+      genomes/*/gtf/genes.gtf.gz)
+        build="$(printf '%s' "$m_std" | cut -d/ -f2)"; dest="$REFS/$m_std"
+        if [ -e "$dest" ] || { [ "$DRY" -eq 1 ] && { [ "$m_mode" = link ] || [ "$m_mode" = copy ]; }; }; then
+          do_alias "$(dirname "$dest")/$build.gtf.gz" genes.gtf.gz "genomes/$build/gtf/$build.gtf.gz"
+        fi ;;
+    esac
+  done < "$MANIFEST"
 fi
 
 # ------------------------------------------------------------------ summary
