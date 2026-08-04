@@ -52,6 +52,17 @@ genomes/GRCh38gatk/gatkbundle/known_indels.vcf.gz.tbi	fetch	GATK resource bundle
 genomes/GRCh38gatk/gatkbundle/germline_resource.vcf.gz	fetch	gnomAD af-only	mutect2 somatic only
 genomes/GRCh38gatk/gatkbundle/germline_resource.vcf.gz.tbi	fetch	gnomAD af-only	mutect2 somatic only
 
+# ---------------------------------------------------------------- S. cerevisiae R64-1-1
+# Added 2026-08-03 for a small unattended smoke test of nf-core/rnaseq (run
+# 20260803-rnaseq-scer-la-tolerant). Ensembl release-116 genebuild, fetched
+# directly (fetch mode materialised straight to the standard path - no source
+# copy sits on /mnt/d for this build, so there is nothing to `link` to).
+genomes/R64-1-1/fasta/genome.fa	fetch	https://ftp.ensembl.org/pub/release-116/fasta/saccharomyces_cerevisiae/dna/Saccharomyces_cerevisiae.R64-1-1.dna.toplevel.fa.gz	gunzip'd on arrival; Ensembl R64-1-1 toplevel	35cc97fccb91762c7a1f0f71b4adb1037b143d48b63fbd3b3f8bad45e5afa44c
+genomes/R64-1-1/fasta/genome.fa.fai	build	nf-core/rnaseq SAMTOOLS_FAIDX (in-run)	not pre-built; pipeline generates it
+genomes/R64-1-1/gtf/genes.gtf.gz	fetch	https://ftp.ensembl.org/pub/release-116/gtf/saccharomyces_cerevisiae/Saccharomyces_cerevisiae.R64-1-1.63.gtf.gz	Ensembl annotation build 63 (fungi versioning, not release-116)	253bd4013785b3c85a6a488bd541c12d8264aa4989046c3530d0d9ea2ecc931e
+genomes/R64-1-1/index/star/	build	nf-core/rnaseq --save_reference	first rnaseq run at this build; genome is tiny (~12 Mb), build is minutes not hours
+genomes/R64-1-1/index/salmon/	build	nf-core/rnaseq --save_reference
+
 # ---------------------------------------------------------------- Korean reference
 genomes/KOREF1/fasta/genome.fa	link	/mnt/d/Research/references/KOREF1-Gp-TTAGGA.fa	Korean reference assembly
 genomes/KOREF1/fasta/chrY.fa	link	/mnt/d/Research/references/KOREF1-Gp-TTAGGA.chrY.fa

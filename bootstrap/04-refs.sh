@@ -346,6 +346,62 @@ while IFS= read -r raw || [ -n "$raw" ]; do
   esac
 done < "$MANIFEST"
 
+# ------------------------------------------------------------------ rnaseq iGenomes-heuristic alias
+# nf-core/rnaseq's workflows/rnaseq/main.nf sets is_aws_igenome=true purely by comparing
+# basenames to the literal strings "genome.fa" / "genes.gtf" -- not by path, not by any
+# parameter. This store intentionally normalises every build to exactly those basenames (see
+# reference-store.md), so every build this script materialises trips that heuristic and gets
+# silently routed onto a STAR-2.6.1d-only legacy path. Confirmed segfaulting unconditionally
+# on this host's CPU (run 20260803-rnaseq-scer-la-tolerant, see that run's handoff.md).
+#
+# Fix: maintain a second symlink per build, alongside the canonical file, named after the
+# build itself. Purely additive -- the canonical genome.fa/genes.gtf.gz paths, and every other
+# pipeline reading them (sarek's BWA index prefix matching, etc.), are untouched.
+# genomes.config's fasta/gtf params are repointed at this alias directly (not a separate
+# fasta_alias/gtf_alias param) so BOTH invocation forms in that file's section 2 -- explicit
+# --fasta/--gtf, and the compact --genome <key> form that reads params.genomes.<key>.fasta/.gtf
+# through the pipeline's own getGenomeAttribute() -- resolve to the safe name automatically.
+#
+# Same collision policy as do_link() above: a real (non-symlink) file already at the alias
+# path is someone's data, not ours to delete, so it is reported STALE and left alone unless
+# --force is given -- ln -sf must never be used here unguarded.
+n_alias=0
+do_alias() {   # $1=alias_path $2=target_basename $3=label (for row output)
+  local alias="$1" target="$2" label="$3"
+  if [ -L "$alias" ]; then
+    [ "$(readlink "$alias")" = "$target" ] && return 0   # already correct, no row needed
+    row LINKED alias "$label" "repointed from $(readlink "$alias")"
+    [ "$DRY" -eq 1 ] || ln -sf "$target" "$alias"
+    n_alias=$((n_alias+1)); return 0
+  fi
+  if [ -e "$alias" ]; then
+    if [ "$FORCE" -eq 1 ]; then
+      row LINKED alias "$label" "--force: replaced a real file with the alias symlink"
+      [ "$DRY" -eq 1 ] || { rm -f "$alias"; ln -s "$target" "$alias"; }
+      n_alias=$((n_alias+1))
+    else
+      row STALE alias "$label" "a real file is here, alias symlink expected — inspect, then re-run with --force"
+      n_stale=$((n_stale+1))
+    fi
+    return 0
+  fi
+  row LINKED alias "$label" "-> $target"
+  [ "$DRY" -eq 1 ] || ln -s "$target" "$alias"
+  n_alias=$((n_alias+1))
+}
+if [ "$RUNMODE" = copy ]; then
+  for fa in "$REFS"/genomes/*/fasta/genome.fa; do
+    [ -e "$fa" ] || continue
+    build="$(basename "$(dirname "$(dirname "$fa")")")"
+    do_alias "$(dirname "$fa")/$build.fa" genome.fa "genomes/$build/fasta/$build.fa"
+  done
+  for gtf in "$REFS"/genomes/*/gtf/genes.gtf.gz; do
+    [ -e "$gtf" ] || continue
+    build="$(basename "$(dirname "$(dirname "$gtf")")")"
+    do_alias "$(dirname "$gtf")/$build.gtf.gz" genes.gtf.gz "genomes/$build/gtf/$build.gtf.gz"
+  done
+fi
+
 # ------------------------------------------------------------------ summary
 if [ "$RUNMODE" = verify ]; then
   say ""
@@ -371,6 +427,7 @@ total=$((n_ok+n_link+n_copy+n_stale+n_build+n_fetch+n_hard+n_parse))
 say ""
 say "[04-refs] $total rows: ok=$n_ok linked=$n_link copied=$n_copy stale=$n_stale not-built=$n_build fetch-missing=$n_fetch broken=$n_hard parse-errors=$n_parse"
 [ "$n_copy" -gt 0 ] && say "[04-refs] bytes copied: $(human "$copied_bytes")"
+[ "$n_alias" -gt 0 ] && say "[04-refs] rnaseq iGenomes-heuristic aliases (re)created: $n_alias"
 
 if [ "$n_build" -gt 0 ] || [ "$n_fetch" -gt 0 ]; then
   say "[04-refs] NOT BUILT / fetch-MISSING rows are expected on a fresh machine. Genuinely absent today:"
