@@ -158,6 +158,34 @@ row ------ ---- ------------- ------
 
 avail_bytes() { df -Pk "$1" | awk 'NR==2{print $4*1024}'; }
 
+# ------------------------------------------------------------------ containment
+# Nothing destructive may run on a path that resolves outside $REFS.
+#
+# `$REFS/$std` is a STRING. Validating $std — which the main loop does, rejecting absolute
+# paths and '..' — cannot make it safe, because the escape happens at RESOLUTION, not in the
+# string: if any parent component beneath $REFS is a symlink pointing elsewhere, `rm -rf` on
+# that path follows it and destroys data the reference store neither owns nor can rebuild.
+# Reproduced with `/refs/escape -> /user/data` and a copy row targeting `escape/victim`.
+#
+# realpath -m, not -e: the path legitimately may not exist yet (a --dry-run preview, or a
+# first materialisation). -m still resolves the components that DO exist, which is the whole
+# check, and normalises the rest instead of failing.
+# Checks the PARENT DIRECTORY, not the path itself, because that is where the create or the
+# delete actually lands. The final component being a symlink out of the store is the normal,
+# intended state of a `link` row: `rm -f` on it removes the link, never its target. Resolving
+# the full path instead would refuse every healthy alias, whose canonical target is a source
+# on /mnt/d by design.
+inside_refs() {   # $1 = path the operation will create/replace; need not exist
+  local rp rr
+  rp="$(realpath -m "$(dirname "$1")" 2>/dev/null || true)"
+  rr="$(realpath -m "$REFS" 2>/dev/null || printf '%s' "$REFS")"
+  [ -n "$rp" ] || return 1
+  case "$rp/" in
+    "$rr"/*) return 0 ;;
+    *)       return 1 ;;
+  esac
+}
+
 do_link() {
   local std="$1" src="$2" dest="$REFS/$1"
   if [ ! -e "$src" ]; then
@@ -177,6 +205,10 @@ do_link() {
   fi
   if [ -e "$dest" ]; then
     # A real file sits where the manifest wants a symlink. Do not silently delete data.
+    if ! inside_refs "$dest"; then
+      row STALE link "$std" "resolves outside $REFS — refusing to replace it"
+      n_stale=$((n_stale+1)); return 0
+    fi
     if [ "$FORCE" -eq 1 ]; then
       row LINKED link "$std" "--force: replaced a real file with the symlink"
       [ "$DRY" -eq 1 ] || { rm -rf "$dest"; ln -s "$src" "$dest"; }
@@ -221,6 +253,10 @@ do_copy() {
     # and the one path that never got it. Without this branch a real directory here falls
     # straight through to `mv -f "$tmp" "$dest"`, which deposits the temp file INSIDE the
     # directory as <name>.part.<pid> and still reports COPIED with the right byte count.
+    if ! inside_refs "$dest"; then
+      row STALE copy "$std" "resolves outside $REFS — refusing to replace it"
+      n_stale=$((n_stale+1)); return 0
+    fi
     if [ "$FORCE" -eq 1 ]; then
       row STALE copy "$std" "--force: replacing a real directory with the copy"
       n_stale=$((n_stale+1))
@@ -433,20 +469,10 @@ do_alias() {   # $1=alias_path $2=target_basename $3=label (for row output)
   # user's own source tree on /mnt/d. Validating the $std string (as the main loop does) does
   # not cover that, because the escape happens at resolution, not in the string. Refuse to
   # create or replace anything that is not genuinely under $REFS.
-  # `realpath -m`, not `-e`: on the --dry-run that precedes a fresh install the parent does not
-  # exist yet, and requiring existence reported every valid new alias as a collision. -m still
-  # resolves the components that DO exist — which is the whole point, since the escape this
-  # guards against is a directory-valued link row, i.e. an existing symlink — and normalises
-  # the rest instead of failing.
-  local aliasdir realdir realrefs
-  aliasdir="$(dirname "$alias")"
-  realdir="$(realpath -m "$aliasdir" 2>/dev/null || true)"
-  realrefs="$(realpath -m "$REFS" 2>/dev/null || printf '%s' "$REFS")"
-  case "${realdir:-}/" in
-    "$realrefs"/*) ;;
-    *) row STALE alias "$label" "resolves outside $REFS (${realdir:-unresolvable}) — refusing to touch it"
-       n_stale=$((n_stale+1)); return 0 ;;
-  esac
+  if ! inside_refs "$alias"; then
+    row STALE alias "$label" "parent resolves outside $REFS ($(realpath -m "$(dirname "$alias")" 2>/dev/null)) — refusing to touch it"
+    n_stale=$((n_stale+1)); return 0
+  fi
 
   if [ -L "$alias" ]; then
     if [ "$(readlink "$alias")" = "$target" ]; then
