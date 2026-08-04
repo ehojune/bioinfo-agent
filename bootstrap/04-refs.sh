@@ -134,6 +134,12 @@ n_ok=0; n_link=0; n_copy=0; n_stale=0; n_build=0; n_fetch=0; n_hard=0; n_parse=0
 n_vok=0; n_vbad=0; n_vskip=0
 copied_bytes=0
 declare -a HARD_MISSING=()
+# Populated during the main manifest loop below, only for std paths that already passed that
+# loop's own validation (rejecting absolute paths and '..' components) -- the rnaseq alias step
+# near the end of this script reuses these instead of re-parsing the manifest itself, so a
+# malformed row can never be composed into a path a second time under looser rules.
+declare -A ALIAS_ROW_MODE=()
+declare -A ALIAS_ROW_SRC=()
 
 row() {
   # STATUS  MODE  STANDARD_PATH  DETAIL
@@ -271,6 +277,19 @@ do_build() {
       if [ -d "$dest" ] && [ -n "$(ls -A "$dest" 2>/dev/null)" ]; then
         row OK build "$std" "$(ls -A "$dest" | wc -l) entries"; n_ok=$((n_ok+1)); return 0
       fi
+      if [ -d "$dest" ]; then
+        # Empty leftover, either from an earlier version of this branch (which used to
+        # mkdir -p the leaf itself -- exactly the six directories named above) or an aborted
+        # build. Remove it: an empty directory here defeats the same downstream .exists()
+        # check regardless of who created it. rmdir only ever succeeds on a genuinely empty
+        # directory, so this can never discard real content.
+        [ "$DRY" -eq 1 ] || rmdir "$dest" 2>/dev/null || true
+      fi
+      # Create the PARENT (e.g. genomes/<BUILD>/index/), never the leaf itself: the documented
+      # `mv <outdir>/genome/index/star $BIOINFO_REFS/genomes/<BUILD>/index/star` step (see
+      # genomes.config section 2) needs somewhere to land, but must never find an empty
+      # `star/` already sitting there when it does.
+      [ "$DRY" -eq 1 ] || mkdir -p "$(dirname "$dest")"
       ;;
     *)
       if [ -e "$dest" ]; then row OK build "$std"; n_ok=$((n_ok+1)); return 0; fi
@@ -327,6 +346,15 @@ while IFS= read -r raw || [ -n "$raw" ]; do
     /*|*..*) row PARSE "$mode" "line $lineno" "standard_path must be relative and free of '..': $std"
              n_parse=$((n_parse+1)); continue ;;
     '')      row PARSE "$mode" "line $lineno" "empty standard_path"; n_parse=$((n_parse+1)); continue ;;
+  esac
+
+  # Record fasta/gtf candidates for the rnaseq alias step at the end of this script, using
+  # this exact validated $std -- never re-derived from a second, independent manifest read,
+  # which is what let a malformed row with '..' in it (already rejected above) reach the
+  # alias step regardless and compose a path outside $REFS.
+  case "$std" in
+    genomes/*/fasta/genome.fa|genomes/*/gtf/genes.gtf.gz)
+      ALIAS_ROW_MODE["$std"]="$mode"; ALIAS_ROW_SRC["$std"]="$src" ;;
   esac
 
   # --verify hashes what is already in $REFS and never looks at a source, so the mount
@@ -407,29 +435,31 @@ do_alias() {   # $1=alias_path $2=target_basename $3=label (for row output)
   n_alias=$((n_alias+1))
 }
 if [ "$RUNMODE" = copy ]; then
-  # Candidates come from the MANIFEST (source of truth, per the header), not a filesystem
-  # glob alone -- on a --dry-run against a fresh store, do_link/do_copy report what they WOULD
-  # create without creating it, so the canonical genome.fa does not exist yet to glob for. A
-  # dry-run whose alias step then silently omits every build would under-report what the same
-  # command without --dry-run is about to do. link/copy rows materialise the canonical file
-  # (now or on a real run); fetch/build rows never do -- 04-refs.sh does not fetch or build,
-  # it only reports -- so alias them only if something external already put the file there.
-  while IFS=$'\t' read -r m_std m_mode _ _ _; do
-    m_std="${m_std//$'\r'/}"; case "${m_std#"${m_std%%[![:space:]]*}"}" in ''|'#'*) continue ;; esac
-    m_mode="${m_mode#"${m_mode%%[![:space:]]*}"}"; m_mode="${m_mode%"${m_mode##*[![:space:]]}"}"
-    case "$m_std" in
+  # Candidates come from ALIAS_ROW_MODE/ALIAS_ROW_SRC, populated during the main loop above
+  # from the exact $std that already passed that loop's own validation -- not a second,
+  # independent manifest read, which is what previously let a malformed row (e.g. containing
+  # '..', already rejected by the main loop) reach this step anyway and compose a path outside
+  # $REFS. Eligibility also requires the row to actually be able to materialise: link/copy
+  # rows only when their source resolves (matching what do_link/do_copy just did or would do);
+  # fetch/build rows never do -- 04-refs.sh does not fetch or build, it only reports -- so
+  # alias them only if something external already put the file at the canonical path.
+  for std in "${!ALIAS_ROW_MODE[@]}"; do
+    mode="${ALIAS_ROW_MODE[$std]}"; src="${ALIAS_ROW_SRC[$std]}"
+    dest="$REFS/$std"; build="$(printf '%s' "$std" | cut -d/ -f2)"
+    eligible=0
+    if [ -e "$dest" ]; then
+      eligible=1
+    elif [ "$DRY" -eq 1 ] && { [ "$mode" = link ] || [ "$mode" = copy ]; } && [ -e "$src" ]; then
+      eligible=1
+    fi
+    [ "$eligible" -eq 1 ] || continue
+    case "$std" in
       genomes/*/fasta/genome.fa)
-        build="$(printf '%s' "$m_std" | cut -d/ -f2)"; dest="$REFS/$m_std"
-        if [ -e "$dest" ] || { [ "$DRY" -eq 1 ] && { [ "$m_mode" = link ] || [ "$m_mode" = copy ]; }; }; then
-          do_alias "$(dirname "$dest")/$build.fa" genome.fa "genomes/$build/fasta/$build.fa"
-        fi ;;
+        do_alias "$(dirname "$dest")/$build.fa" genome.fa "genomes/$build/fasta/$build.fa" ;;
       genomes/*/gtf/genes.gtf.gz)
-        build="$(printf '%s' "$m_std" | cut -d/ -f2)"; dest="$REFS/$m_std"
-        if [ -e "$dest" ] || { [ "$DRY" -eq 1 ] && { [ "$m_mode" = link ] || [ "$m_mode" = copy ]; }; }; then
-          do_alias "$(dirname "$dest")/$build.gtf.gz" genes.gtf.gz "genomes/$build/gtf/$build.gtf.gz"
-        fi ;;
+        do_alias "$(dirname "$dest")/$build.gtf.gz" genes.gtf.gz "genomes/$build/gtf/$build.gtf.gz" ;;
     esac
-  done < "$MANIFEST"
+  done
 fi
 
 # ------------------------------------------------------------------ summary
