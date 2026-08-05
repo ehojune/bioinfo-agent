@@ -167,7 +167,8 @@ ln -sfn "$BIOINFO_HOME/agents/bioinfo-tech.md" ~/.claude/agents/bioinfo-tech.md
 **Pick one mechanism.** Plugin *and* symlink registers the same skill twice.
 
 On Windows use `install.ps1` — it uses junctions, which need no administrator rights, unlike
-symbolic links.
+symbolic links. It also registers the work-directory guard hook in the config dir's `settings.json`,
+which the symlink commands above do not; `-NoHook` skips that and `-UninstallHook` reverses it.
 
 ---
 
