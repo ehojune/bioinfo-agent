@@ -158,7 +158,15 @@ if [ -f "$PF" ]; then
   while read -r p; do
     if [ -e "$p" ]; then ok "ref resolves: $p"
     else bad "ref MISSING: $p — add a manifest row and re-run bootstrap/04-refs.sh"; fi
-  done < <(grep -oE "${REFS}[^\"' ]*" "$PF" | sed 's/[,:]$//' | sort -u)
+  # Anchored on a real path boundary: the char immediately before REFS must be
+  # start-of-line, whitespace, or a quote -- never a path/word character. Without
+  # this, prose like "config/refs.manifest.tsv" in a params.yaml comment (a very
+  # natural thing to write) is misread as the path /refs.manifest.tsv, because
+  # "config/refs.manifest.tsv" contains "/refs.manifest.tsv" as a raw substring.
+  # Found live on run 20260805-atacseq-gbr-lcl-smoke: a comment citing the
+  # manifest file by its repo-relative path failed preflight with
+  # "ref MISSING: /refs.manifest.tsv" -- a real file, just not the one meant.
+  done < <(grep -oE "(^|[^A-Za-z0-9_./-])${REFS}[^\"' ]*" "$PF" | sed -E 's#^[^/]*(/.*)#\1#' | sed 's/[,:]$//' | sort -u)
 else
   note "no params.yaml; reference paths not checked directly (checked via cmd.sh instead)"
 fi
