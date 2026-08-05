@@ -1,0 +1,31 @@
+# Informational record of the resolved parameters for this run -- cmd.sh passes these
+# on the CLI (matching the repo's rnaseq/atacseq/scrnaseq-run convention), this file is
+# not consumed via -params-file.
+aligner: bismark
+# Pipeline default for this revision (3.0.0), confirmed via --help. Also the documented
+# choice for small/RRBS data (pipeline-selection.md 4.5): bwameth is faster at WGS scale,
+# but bismark is fine -- and matches published-analysis convention -- for RRBS this small.
+# Passed explicitly for documentation even though it agrees with the default.
+rrbs: true
+# MspI-digested RRBS library. Enables MspI-aware adapter trimming in Trim Galore and,
+# critically, disables deduplication -- confirmed by reading
+# workflows/methylseq/main.nf:106,122: `params.skip_deduplication || params.rrbs`.
+# RRBS fragments start at fixed MspI cut sites, so apparent duplicates are real
+# molecules; deduplicating them would be a correctness bug, not a QC nicety.
+fasta: /refs/genomes/GRCh38/fasta/GRCh38.fa
+# Explicit --fasta, NOT the compact --genome GRCh38 form. Investigated this run (see
+# plan.md "Reference store" section): methylseq 3.0.0's own conf/igenomes.config
+# defines params.genomes.GRCh38.{bismark,bismark_hisat2,bwameth,fasta_index} as AWS S3
+# igenomes URLs, and this repo's genomes.config never defined those exact key names
+# (it has bismark_index/fasta_fai instead) -- so even with --igenomes_ignore wired
+# correctly on the nextflow run command line, a future promoted bismark index would
+# not be auto-discovered via the compact form until the key-name gap is fixed (see
+# the PR opened this run). Explicit --fasta sidesteps the whole question and matches
+# the proven-working pattern from the atacseq/scrnaseq runs on this host.
+save_reference: true
+# genomes/GRCh38/index/bismark/ does not exist yet (bootstrap/04-refs.sh --dry-run:
+# NOT BUILT). This run builds it (bismark_genome_preparation, one-off,
+# ~1.5-3 h / ~10-14 GB disk per estimates.md 109) and saves it to this run's own
+# results/ for promotion into the shared store afterward -- same convention as the
+# atacseq run's bowtie2 index and the rnaseq run's STAR index.
+input: runs/20260805-methylseq-sle-rrbs-smoke/samplesheet.csv
