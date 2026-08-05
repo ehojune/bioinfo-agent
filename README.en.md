@@ -111,8 +111,9 @@ nextflow run nf-core/rnaseq -r 3.18.0 -profile docker --input samplesheet.csv --
 ```
 
 That one line handles QC → trimming → alignment → quantification → report. **This agent assembles
-it, runs it, and reads the results.** Revision pins live in
-[`config/pipelines.tsv`](config/pipelines.tsv) and nowhere else.
+it, runs it, and reads the results.** [`config/pipelines.tsv`](config/pipelines.tsv) decides the
+revision pins. The one in the example above, like every pin in these docs, is a copy;
+`bin/preflight.sh` checks the command you actually launch against that table.
 
 ---
 
@@ -132,7 +133,7 @@ node is forbidden at most sites, so check before you start.
 ```bash
 git clone https://github.com/ehojune/bioinfo-agent.git ~/bioinfo-agent
 cd ~/bioinfo-agent
-cp config/host.env.example config/host.env   # set paths and resource caps for this machine
+cp config/host.env.example config/host.env   # set the distro name, paths and caps for this machine
 set -a; . config/host.env; set +a
 
 bash bootstrap/01-wsl-base.sh    # 00-windows-wsl.ps1 first, on Windows
@@ -181,6 +182,12 @@ I want to see the expression differences.
 Hand long runs to the agent — `Tell the bioinfo-tech agent to run sarek`. `nextflow run` emits tens
 of thousands of log lines; run inside a subagent, that traffic is digested there and only the
 conclusion comes back.
+
+> **A long run needs a session that stays open.** If you drive WSL from Windows one
+> `wsl -d <distro> -- bash …` call at a time, a job started with `nohup … &` dies within seconds:
+> WSL tears the distro down as the last session closes, and nothing is left behind — no log, no
+> process, no error. Keep the launching session open, or start the run under `tmux`, whose
+> long-lived server process holds the distro up (`01-wsl-base.sh` installs it).
 
 Useful to give it: the absolute data path, sample count and format, species and genome build, **the
 actual question** ("find rare variants" vs "expression differences" is what decides the pipeline),
@@ -231,6 +238,13 @@ the bytes.**
   yourself is rewriting sarek, and it costs you reproducibility, `-resume` and MultiQC
 - **Does not run binaries it found on disk** — tools come from containers
 
+Exactly one of those is enforced mechanically: the work directory.
+[`hooks/guard-workdir.sh`](hooks/guard-workdir.sh) installs as a PreToolUse hook and refuses
+`-with-cleanup`, `cleanup = true`, `nextflow clean` while a run is live, and any `rm -rf` on a work
+directory unless that run is finished, handed off, and past the hold (7 days by default). It sees
+every Bash call in a session with the plugin installed, not just the subagent's. The rest of the list
+is a sentence in a prompt.
+
 ---
 
 ## Supported pipelines
@@ -267,9 +281,10 @@ bash bootstrap/05-verify.sh
 It sweeps every layer and prints a verdict per item. Run-time failures are covered in
 [runbook.md](skills/bioinfo-analyze/references/runbook.md), install-time ones — including corporate
 TLS interception, which needs all three trust stores fixed and not just the system one — in
-[docs/agent-setup.md](docs/agent-setup.md). Two that catch everyone: a run that died partway wants
-`-resume` and **never** a deleted work directory, and a skill registered twice means the plugin and
-`install.ps1`/symlinks were both used.
+[docs/agent-setup.md](docs/agent-setup.md). Three that catch everyone: a run that died partway wants
+`-resume` and **never** a deleted work directory, a skill registered twice means the plugin and
+`install.ps1`/symlinks were both used, and a run that vanished without writing a single log line was
+started with `nohup`.
 
 ---
 

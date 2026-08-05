@@ -107,7 +107,8 @@ nextflow run nf-core/rnaseq -r 3.18.0 -profile docker --input samplesheet.csv --
 
 이 한 줄이 QC → 트리밍 → 정렬 → 정량 → 리포트를 전부 처리한다. **이 에이전트는 그 한 줄을 대신
 조립하고, 돌리고, 결과를 읽어준다.** 리비전 핀은 [`config/pipelines.tsv`](config/pipelines.tsv) 가
-유일한 출처다.
+정한다. 위 예시처럼 문서에 박힌 리비전은 복사본이고, 실제로 띄우는 명령은 `bin/preflight.sh` 가 이
+표와 맞춰본다.
 
 ---
 
@@ -125,7 +126,7 @@ Apptainer/Singularity, Java 17+, 그리고 `$HOME` 이 아닌 큰 디스크의 �
 ```bash
 git clone https://github.com/ehojune/bioinfo-agent.git ~/bioinfo-agent
 cd ~/bioinfo-agent
-cp config/host.env.example config/host.env   # 경로와 자원 상한을 이 머신 값으로
+cp config/host.env.example config/host.env   # 배포판 이름, 경로, 자원 상한을 이 머신 값으로
 set -a; . config/host.env; set +a
 
 bash bootstrap/01-wsl-base.sh    # Windows라면 00-windows-wsl.ps1 이 먼저
@@ -172,6 +173,12 @@ Claude Code의 스킬과 에이전트는 **로컬 파일**이라 Anthropic 계�
 긴 실행은 에이전트에 위임한다 — `bioinfo-tech 에이전트한테 sarek 돌리라고 해줘`. `nextflow run`
 은 로그를 수만 줄 뱉는데, 서브에이전트 안에서 돌면 그게 거기서 소화되고 결론만 돌아온다.
 
+> **긴 실행은 세션을 열어둔 채로 돌린다.** Windows에서 `wsl -d <distro> -- bash …` 로 한 번씩
+> 호출하는 방식이면 `nohup … &` 로 띄운 작업이 몇 초 안에 죽는다. 마지막 세션이 닫히는 순간 WSL이
+> 배포판을 내리기 때문이고, 로그도 프로세스도 에러도 남지 않는다. 실행한 세션을 그대로 두거나
+> `tmux` 로 띄운다 — tmux는 서버 프로세스가 살아 있어서 배포판을 붙잡아 둔다
+> (`01-wsl-base.sh` 가 설치한다).
+
 주면 좋은 것: 데이터 절대경로, 샘플 수·형식, 종·게놈 빌드, **실제 질문**("희귀변이 찾기" 인지
 "발현 차이" 인지에서 파이프라인이 갈린다), 설계, 시간 허용치, 기존 산출물. 경로만 줘도 시작한다 —
 직접 세어보고 나머지를 추정한다. **요청이 모호하면 되묻고 멈춘다.**
@@ -216,6 +223,12 @@ Claude Code의 스킬과 에이전트는 **로컬 파일**이라 Anthropic 계�
   sarek을 다시 짜는 것이고, 재현성도 `-resume` 도 MultiQC도 잃는다
 - **디스크에서 찾은 바이너리를 실행하지 않는다** — 도구는 컨테이너에서 온다
 
+위 항목 가운데 기계가 막는 건 work 디렉토리 하나다. [`hooks/guard-workdir.sh`](hooks/guard-workdir.sh)
+가 PreToolUse 훅으로 붙어 `-with-cleanup` 과 `cleanup = true`, 살아 있는 실행을 향한
+`nextflow clean`, 그리고 끝나서 인계되고 보류 기간(기본 7일)까지 지난 실행이 아니면 work 디렉토리
+삭제를 거부한다. 서브에이전트만이 아니라 플러그인이 깔린 세션의 Bash 호출 전부에 걸린다. 나머지
+항목은 프롬프트에 적힌 문장일 뿐이다.
+
 ---
 
 ## 지원 파이프라인
@@ -251,8 +264,9 @@ bash bootstrap/05-verify.sh
 전 계층을 훑고 항목별 판정을 찍는다. 실행 중 실패는
 [runbook.md](skills/bioinfo-analyze/references/runbook.md), 설치 중 실패는 — 신뢰 저장소 셋을 다
 고쳐야 하는 사내망 TLS 검사를 포함해 — [docs/agent-setup.md](docs/agent-setup.md) 에 있다. 누구나
-한 번은 밟는 둘: 중간에 죽었으면 `-resume` 이고 **work 디렉토리는 절대 지우지 않는다**. 스킬이 두
-번 등록됐으면 플러그인과 `install.ps1`/심링크를 같이 쓴 것이다.
+한 번은 밟는 셋: 중간에 죽었으면 `-resume` 이고 **work 디렉토리는 절대 지우지 않는다**. 스킬이 두
+번 등록됐으면 플러그인과 `install.ps1`/심링크를 같이 쓴 것이다. 실행이 로그 한 줄 없이 사라졌으면
+`nohup` 으로 띄운 것이다.
 
 ---
 
