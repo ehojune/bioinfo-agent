@@ -198,7 +198,8 @@ violations, missing required params, and unresolvable reference paths in seconds
 
 ```bash
 NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
-cd $NXFDIR
+mkdir -p "$NXFDIR"          # the launch dir only — NOT work/, the real launch creates that
+cd "$NXFDIR"
 nextflow run nf-core/rnaseq -r 3.18.0 -profile docker \
   -params-file $RUNDIR/params.yaml \
   -c $BIOINFO_HOME/config/local.config \
@@ -211,12 +212,13 @@ parsing, and the full topology end to end — in minutes, on kilobytes.
 
 ```bash
 NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
-cd $NXFDIR
+mkdir -p "$NXFDIR"          # the launch dir only — NOT work/, the real launch creates that
+cd "$NXFDIR"
 nextflow run nf-core/rnaseq -r 3.18.0 -profile docker \
   -params-file $RUNDIR/params.yaml \
   -c $BIOINFO_HOME/config/local.config \
-  -work-dir $NXFDIR/stub-work \
-  --outdir $NXFDIR/stub-results \
+  -work-dir "$NXFDIR/stub-work" \
+  --outdir "$NXFDIR/stub-results" \
   -stub-run -ansi-log false
 ```
 
@@ -402,7 +404,7 @@ columns by header name, not position — the field set is configurable and nf-co
 
 ```bash
 NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
-T=$(ls -t $NXFDIR/reports/trace.*.txt | head -1)
+T=$(ls -t "$NXFDIR"/reports/trace.*.txt | head -1)
 
 # status counts
 awk -F'\t' 'NR==1{for(i=1;i<=NF;i++)h[$i]=i;next}{c[$h["status"]]++}END{for(s in c)print s, c[s]}' "$T"
@@ -424,7 +426,7 @@ directory; that is where you go next.
 
 ```bash
 NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
-grep -nE 'ERROR|WARN|Caused by|Command exit status|Work dir' $NXFDIR/.nextflow.log | tail -40
+grep -nE 'ERROR|WARN|Caused by|Command exit status|Work dir' "$NXFDIR/.nextflow.log" | tail -40
 ```
 
 **The HTML execution report** is written at completion (success or failure), not incrementally.
@@ -598,12 +600,12 @@ The sync-out and the verification:
 
 ```bash
 NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
-rsync -a --info=progress2 $NXFDIR/results/  "$RUNDIR/results/"
-rsync -a                  $NXFDIR/reports/  "$RUNDIR/reports/"
-cp $NXFDIR/.nextflow.log "$RUNDIR/reports/nextflow.log"
-diff <(cd $NXFDIR/results && find . -type f | sort) \
+rsync -a --info=progress2 "$NXFDIR/results/"  "$RUNDIR/results/"
+rsync -a                  "$NXFDIR/reports/"  "$RUNDIR/reports/"
+cp "$NXFDIR/.nextflow.log" "$RUNDIR/reports/nextflow.log"
+diff <(cd "$NXFDIR/results" && find . -type f | sort) \
      <(cd "$RUNDIR/results"        && find . -type f | sort) && echo "results synced clean"
-du -sh $NXFDIR/work $NXFDIR/results
+du -sh "$NXFDIR/work" "$NXFDIR/results"
 ```
 
 Then, and only then:
