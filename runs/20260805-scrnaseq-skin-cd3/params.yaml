@@ -1,0 +1,10 @@
+# Informational record of the resolved parameters for this run — cmd.sh passes these
+# on the CLI (matching the repo's rnaseq-run convention), this file is not consumed via
+# -params-file. Kept here so the choices are legible without reading cmd.sh's quoting.
+aligner: star
+protocol: 10XV3
+genome: GRCh38
+igenomes_ignore: true
+star_feature: Gene
+save_reference: true
+input: runs/20260805-scrnaseq-skin-cd3/samplesheet.csv
