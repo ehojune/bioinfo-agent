@@ -106,8 +106,8 @@ nextflow run nf-core/rnaseq -r 3.18.0 -profile docker --input samplesheet.csv --
 ```
 
 이 한 줄이 QC → 트리밍 → 정렬 → 정량 → 리포트를 전부 처리한다. **이 에이전트는 그 한 줄을 대신
-조립하고, 돌리고, 결과를 읽어준다.** 리비전 핀은 [`config/pipelines.tsv`](config/pipelines.tsv) 가
-유일한 출처다.
+조립하고, 돌리고, 결과를 읽어준다.** 파이프라인 버전은 [`config/pipelines.tsv`](config/pipelines.tsv)
+가 정하고, 실행 전에 대조한다. 위 예시처럼 문서에 적힌 리비전은 복사본이다.
 
 ---
 
@@ -125,7 +125,7 @@ Apptainer/Singularity, Java 17+, 그리고 `$HOME` 이 아닌 큰 디스크의 �
 ```bash
 git clone https://github.com/ehojune/bioinfo-agent.git ~/bioinfo-agent
 cd ~/bioinfo-agent
-cp config/host.env.example config/host.env   # 경로와 자원 상한을 이 머신 값으로
+cp config/host.env.example config/host.env   # 배포판 이름, 경로, 자원 상한을 이 머신 값으로
 set -a; . config/host.env; set +a
 
 bash bootstrap/01-wsl-base.sh    # Windows라면 00-windows-wsl.ps1 이 먼저
@@ -172,6 +172,10 @@ Claude Code의 스킬과 에이전트는 **로컬 파일**이라 Anthropic 계�
 긴 실행은 에이전트에 위임한다 — `bioinfo-tech 에이전트한테 sarek 돌리라고 해줘`. `nextflow run`
 은 로그를 수만 줄 뱉는데, 서브에이전트 안에서 돌면 그게 거기서 소화되고 결론만 돌아온다.
 
+> **긴 실행은 창을 닫지 말고 켜둔다.** WSL은 마지막 세션이 닫히면 배포판을 내려버려서, 백그라운드로
+> (`nohup … &`) 띄운 작업이 로그 한 줄 없이 사라진다. 창을 그대로 두거나 `tmux` 로 띄운다. 자세한
+> 건 [runbook.md](skills/bioinfo-analyze/references/runbook.md) 5절.
+
 주면 좋은 것: 데이터 절대경로, 샘플 수·형식, 종·게놈 빌드, **실제 질문**("희귀변이 찾기" 인지
 "발현 차이" 인지에서 파이프라인이 갈린다), 설계, 시간 허용치, 기존 산출물. 경로만 줘도 시작한다 —
 직접 세어보고 나머지를 추정한다. **요청이 모호하면 되묻고 멈춘다.**
@@ -191,30 +195,9 @@ Claude Code의 스킬과 에이전트는 **로컬 파일**이라 Anthropic 계�
 판단 → 실행을 반복한다. 단 **1~3단계는 읽기 전용**이라 `ls`, `du`, `file`, FASTQ 헤더 몇 줄까지다.
 50GB BAM은 열지 않고 존재만 기록하며, 검증은 `plan.md` 항목이 된다.
 
-### 3층으로 나눈 이유
-
-- **기반** (`bootstrap/`, `config/`) — 머신마다 다르고 계속 바뀐다. 재실행으로 처음부터 다시 세운다.
-- **스킬** (`skills/bioinfo-analyze/`) — 그냥 마크다운이다. 고치고, diff 보고, 사람이 직접 읽는다.
-  에이전트 프롬프트에 갇힌 지식은 grep이 안 된다.
-- **에이전트** (`agents/`) — 실행 격리. 로그가 서브에이전트에 머물고 결론만 넘어온다.
-
-파이프라인이 죽으면 스킬의 실패 유형 문서로 진단하고, 알아낸 해법을 다시 스킬에 적는다.
-**에이전트는 소모품이고 스킬은 쌓인다.**
-
-레퍼런스도 같은 원리다. 파이프라인 명령에는 `hg38.fa` 같은 원본 파일명 대신 표준 경로
-`$BIOINFO_REFS/genomes/GRCh38/fasta/genome.fa` 만 등장한다. 둘을 잇는
-`config/refs.manifest.tsv` 에서 머신을 옮길 때 고치는 건 source 컬럼 하나뿐이다 — **이식되는 건
-매니페스트이지 바이트가 아니다.**
-
-### 가드레일
-
-- 추정 **24시간** 초과 작업은 승인 없이 시작하지 않는다
-- **stub-run** 을 건너뛰지 않고, **work 디렉토리를 지우지 않는다** (`-resume` 이 죽는다)
-- 여유 디스크가 추정치의 **1.5배** 미만이면 거부하고, **10GB** 넘는 다운로드는 먼저 알린다
-- 범위를 좁혔으면 소리 내어 말한다. QC 판정까지, 생물학적 해석은 하지 않는다
-- **기존 파이프라인을 손으로 재현하지 않는다** — `bwa` + `samtools` + `gatk` 를 직접 엮는 건
-  sarek을 다시 짜는 것이고, 재현성도 `-resume` 도 MultiQC도 잃는다
-- **디스크에서 찾은 바이너리를 실행하지 않는다** — 도구는 컨테이너에서 온다
+3층 구조(기반·스킬·에이전트)를 나눈 이유, 레퍼런스 매니페스트, 가드레일 전체 목록은
+**[docs/agent-architecture.md](docs/agent-architecture.md)** 에 있다. 처음 쓸 때 몰라도 되고,
+나중에 확인해도 늦지 않다.
 
 ---
 
@@ -251,8 +234,9 @@ bash bootstrap/05-verify.sh
 전 계층을 훑고 항목별 판정을 찍는다. 실행 중 실패는
 [runbook.md](skills/bioinfo-analyze/references/runbook.md), 설치 중 실패는 — 신뢰 저장소 셋을 다
 고쳐야 하는 사내망 TLS 검사를 포함해 — [docs/agent-setup.md](docs/agent-setup.md) 에 있다. 누구나
-한 번은 밟는 둘: 중간에 죽었으면 `-resume` 이고 **work 디렉토리는 절대 지우지 않는다**. 스킬이 두
-번 등록됐으면 플러그인과 `install.ps1`/심링크를 같이 쓴 것이다.
+한 번은 밟는 셋: 중간에 죽었으면 `-resume` 이고 **work 디렉토리는 절대 지우지 않는다**. 스킬이 두
+번 등록됐으면 플러그인과 `install.ps1`/심링크를 같이 쓴 것이다. 실행이 로그 한 줄 없이 사라졌으면
+`nohup` 으로 띄운 것이다.
 
 ---
 

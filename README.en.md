@@ -111,8 +111,9 @@ nextflow run nf-core/rnaseq -r 3.18.0 -profile docker --input samplesheet.csv --
 ```
 
 That one line handles QC → trimming → alignment → quantification → report. **This agent assembles
-it, runs it, and reads the results.** Revision pins live in
-[`config/pipelines.tsv`](config/pipelines.tsv) and nowhere else.
+it, runs it, and reads the results.** Pipeline versions are set by
+[`config/pipelines.tsv`](config/pipelines.tsv) and checked before a run starts. Any revision printed
+in the docs, the one above included, is a copy of that table.
 
 ---
 
@@ -132,7 +133,7 @@ node is forbidden at most sites, so check before you start.
 ```bash
 git clone https://github.com/ehojune/bioinfo-agent.git ~/bioinfo-agent
 cd ~/bioinfo-agent
-cp config/host.env.example config/host.env   # set paths and resource caps for this machine
+cp config/host.env.example config/host.env   # set the distro name, paths and caps for this machine
 set -a; . config/host.env; set +a
 
 bash bootstrap/01-wsl-base.sh    # 00-windows-wsl.ps1 first, on Windows
@@ -182,6 +183,11 @@ Hand long runs to the agent — `Tell the bioinfo-tech agent to run sarek`. `nex
 of thousands of log lines; run inside a subagent, that traffic is digested there and only the
 conclusion comes back.
 
+> **A long run needs its window left open.** WSL shuts the distro down when the last session
+> closes, so a job pushed into the background (`nohup … &`) disappears without writing a single log
+> line. Leave the session open, or start it under `tmux`. Details in
+> [runbook.md](skills/bioinfo-analyze/references/runbook.md) section 5.
+
 Useful to give it: the absolute data path, sample count and format, species and genome build, **the
 actual question** ("find rare variants" vs "expression differences" is what decides the pipeline),
 the design, your time tolerance, and any existing outputs. A path alone is enough to start — it
@@ -204,32 +210,9 @@ permissions, repeating observe → decide → act. But **steps 1–3 are read-on
 `file`, a few FASTQ header lines. A 50 GB BAM is recorded, not opened; verifying it becomes a line
 in `plan.md`.
 
-### Why three layers
-
-- **Substrate** (`bootstrap/`, `config/`) — machine-specific and constantly changing; re-running
-  rebuilds it from scratch.
-- **Skill** (`skills/bioinfo-analyze/`) — just markdown. You edit it, diff it, read it. Knowledge
-  trapped in an agent prompt is knowledge you cannot grep.
-- **Agent** (`agents/`) — execution isolation. Logs stay in the subagent; only the conclusion
-  crosses over.
-
-A pipeline that dies gets diagnosed from the skill's failure-mode reference, and whatever you worked
-out gets written back into the skill. **The agent is disposable; the skill compounds.**
-
-References follow the same principle: pipeline commands name only the standard path
-`$BIOINFO_REFS/genomes/GRCh38/fasta/genome.fa`, never `hg38.fa`. `config/refs.manifest.tsv` connects
-the two, and moving machines you fix only its source column. **What is portable is the manifest, not
-the bytes.**
-
-### Guardrails
-
-- Nothing estimated over **24 hours** starts without approval
-- No skipped **stub-run**; no deleted work directory (that kills `-resume`)
-- Refuses when free disk is under **1.5×** the estimate; warns before any download over **10 GB**
-- If it narrowed the scope, it says so out loud. QC verdicts only, no biological interpretation
-- **Does not hand-reproduce an existing pipeline** — wiring `bwa` + `samtools` + `gatk` together
-  yourself is rewriting sarek, and it costs you reproducibility, `-resume` and MultiQC
-- **Does not run binaries it found on disk** — tools come from containers
+Why the three layers (substrate, skill, agent) are split, how references travel as a manifest, and
+the full guardrail list are in **[docs/agent-architecture.md](docs/agent-architecture.md)**. None of
+it is needed on first use, and nothing is lost by reading it later.
 
 ---
 
@@ -267,9 +250,10 @@ bash bootstrap/05-verify.sh
 It sweeps every layer and prints a verdict per item. Run-time failures are covered in
 [runbook.md](skills/bioinfo-analyze/references/runbook.md), install-time ones — including corporate
 TLS interception, which needs all three trust stores fixed and not just the system one — in
-[docs/agent-setup.md](docs/agent-setup.md). Two that catch everyone: a run that died partway wants
-`-resume` and **never** a deleted work directory, and a skill registered twice means the plugin and
-`install.ps1`/symlinks were both used.
+[docs/agent-setup.md](docs/agent-setup.md). Three that catch everyone: a run that died partway wants
+`-resume` and **never** a deleted work directory, a skill registered twice means the plugin and
+`install.ps1`/symlinks were both used, and a run that vanished without writing a single log line was
+started with `nohup`.
 
 ---
 
