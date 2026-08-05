@@ -1,0 +1,16 @@
+# Informational record of the resolved parameters for this run — cmd.sh passes these
+# on the CLI (matching the repo's rnaseq-run convention), this file is not consumed via
+# -params-file. Kept here so the choices are legible without reading cmd.sh's quoting.
+aligner: star
+protocol: 10XV3
+# NOT --genome GRCh38: scrnaseq 2.7.1's compact --genome form does not resolve fasta/gtf
+# on this host (see plan.md "Discovered this run"). cmd.sh passes these two explicitly,
+# and bin/preflight.sh's reference-existence check greps /refs paths out of this file --
+# recording the compact form here would let preflight pass while checking nothing that
+# the actual invocation depends on.
+fasta: /refs/genomes/GRCh38/fasta/GRCh38.fa
+gtf: /refs/genomes/GRCh38/gtf/GRCh38.gtf.gz
+igenomes_ignore: true
+star_feature: Gene
+save_reference: true
+input: runs/20260805-scrnaseq-skin-cd3/samplesheet.csv
