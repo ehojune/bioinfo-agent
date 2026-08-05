@@ -617,8 +617,11 @@ results are the small part.
 on its own; it will sit at its high-water mark on `D:`. To actually reclaim, from PowerShell:
 
 ```powershell
+# PowerShell, not the distro. $BIOINFO_DISTRO does not exist here — it lives inside WSL, and
+# `wsl --shutdown` has just torn that down anyway. Substitute the name, or set it first:
+#   $env:BIOINFO_DISTRO = 'Ubuntu-24.04'      # whatever `wsl -l -v` shows
 wsl --shutdown
-wsl --manage "$BIOINFO_DISTRO" --set-sparse true     # WSL 2.0+; makes the VHDX auto-shrinking
+wsl --manage $env:BIOINFO_DISTRO --set-sparse true   # WSL 2.0+; makes the VHDX auto-shrinking
 ```
 <!-- UNVERIFIED: --set-sparse flag name/availability on the installed WSL version; check `wsl --help`.
      Fallback: diskpart → select vdisk file="D:\wsl\ubuntu-24.04\ext4.vhdx" → attach vdisk readonly

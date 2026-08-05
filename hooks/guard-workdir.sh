@@ -89,12 +89,24 @@ if printf '%s' "$CMD" | grep -qE 'cleanup[[:space:]]*=[[:space:]]*true'; then
 fi
 
 # ---------------------------------------------------------------- 2. archive distro is read-only
-ARCHIVE_DISTRO="${BIOINFO_ARCHIVE_DISTRO:-Ubuntu-legacy}"
-esc_archive="$(printf '%s' "$ARCHIVE_DISTRO" | sed 's/[][\.*^$+?()|{}]/\\&/g')"
-if printf '%s' "$CMD" | grep -qE "wsl(\.exe)?[^|;&]*-d[[:space:]]+${esc_archive}" \
-   && printf '%s' "$CMD" | grep -qE 'nextflow|nf-core|docker[[:space:]]+run'; then
-  deny "$ARCHIVE_DISTRO is a read-only archive of the old environment. Run pipelines in the
-      distro named by BIOINFO_DISTRO instead."
+# NO DEFAULT, deliberately. hooks.json starts this as `bash guard-workdir.sh` on the Windows
+# side, where BIOINFO_ARCHIVE_DISTRO is only whatever the agent process happened to inherit —
+# usually nothing, since host.env lives inside the distro. Defaulting to "Ubuntu-legacy" was
+# wrong in both directions: on a host whose archive has another name the real archive went
+# unprotected, and on a host with no archive at all a legitimate distro that happened to be
+# called Ubuntu-legacy was blocked outright.
+#
+# So the check only runs when the name is actually known. That narrows this rule to sessions
+# that export the variable, and it is the honest scope: a guard that guesses which distro is
+# read-only can silently protect the wrong one. The prompt-level rule in agents/bioinfo-tech.md
+# still covers the rest.
+if [ -n "${BIOINFO_ARCHIVE_DISTRO:-}" ]; then
+  esc_archive="$(printf '%s' "$BIOINFO_ARCHIVE_DISTRO" | sed 's/[][\.*^$+?()|{}]/\\&/g')"
+  if printf '%s' "$CMD" | grep -qE "wsl(\.exe)?[^|;&]*-d[[:space:]]+${esc_archive}" \
+     && printf '%s' "$CMD" | grep -qE 'nextflow|nf-core|docker[[:space:]]+run'; then
+    deny "$BIOINFO_ARCHIVE_DISTRO is a read-only archive of the old environment. Run pipelines
+      in the distro named by BIOINFO_DISTRO instead."
+  fi
 fi
 
 # ---------------------------------------------------------------- 3. collapsed-path rm
