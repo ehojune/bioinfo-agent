@@ -5,7 +5,10 @@ RUNID=20260805-scrnaseq-skin-cd3
 PIPE=nf-core/scrnaseq
 REV=2.7.1        # from config/pipelines.tsv
 RUNDIR=/mnt/d/bioinfo-agent/runs/$RUNID
-NXFDIR=/work/nxf/$RUNID
+# Same derivation bin/preflight.sh uses to pick the work dir it checks (disk space, ext4-ness).
+# A literal /work/nxf/$RUNID here would silently diverge from that check on any host that sets
+# BIOINFO_WORK or NXF_WORKROOT -- preflight would gate one tree while Nextflow writes another.
+NXFDIR="${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID"
 
 # NXF_SYNTAX_PARSER=v1 — required on this host's installed Nextflow (26.04.6), same
 # reason as the rnaseq runs: the default v2 config parser rejects local.config's

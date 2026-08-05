@@ -53,7 +53,11 @@ interpretation included — mechanics and depth only, per this report's scope.
   works for `nf-core/rnaseq -r 3.18.0` on this host. Root cause not fully isolated (leading
   suspect: scrnaseq 2.7.1 pins the older `nf-validation@1.1.4` plugin rather than the
   `nf-schema` plugin rnaseq 3.18 uses). Worked around with explicit `--fasta`/`--gtf` pointed at
-  the same build-named alias paths. Documented in `config/genomes.config` and merged as PR #8.
+  the same build-named alias paths. A `config/genomes.config` section documenting this (section
+  3a, explicit-form-only guidance for scrnaseq) is proposed in PR #8 — **open, not yet merged**
+  as of this handoff. Until it merges, `genomes.config` does not yet warn a future scrnaseq run
+  away from the compact `--genome <key>` form; this run's `cmd.sh`/`plan.md` are the only record
+  of the workaround in the meantime.
 - **Real OOM found and fixed this run**: `local.config`'s `withName: '.*STAR_ALIGN.*'` selector
   matches both bulk `nf-core/rnaseq`'s STAR_ALIGN (single-pass, fine at 34 GB, proven across
   three rnaseq runs on this host) and `nf-core/scrnaseq`'s `STARSOLO:STAR_ALIGN` (two-pass +
