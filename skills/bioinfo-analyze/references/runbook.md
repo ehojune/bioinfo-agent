@@ -300,13 +300,19 @@ tmux new-session -d -s "$RUNID" "bash '$RUNDIR/cmd.sh'"
 # deleting the work directory of a running run. Without it the guard falls through to the
 # 7-day hold check, which an older run id passes — so a live run's work dir becomes deletable.
 #
-# The pattern is delimited with the surrounding path separators, and exactly one match is
-# required. A bare "nextflow.*$RUNID" matches a SIBLING whose id merely extends this one
-# (…-study vs …-study-rerun): if this run's JVM has not appeared yet, the file would hold the
-# sibling's pid and the stop command below would kill the wrong experiment; if both appear,
-# the file holds two lines and `kill "$(cat …)"` fails on a multi-line operand.
+# `pgrep -f` takes a REGEX, not a substring, so the id is escaped once here and that escaped
+# form is the only one that goes into a pattern — below, and in the stop command later.
+# Unescaped, `study.v2` also matches `studyXv2` (a different experiment) and `a+b` matches
+# nothing at all, not even its own run.
+ERUNID=$(printf '%s' "$RUNID" | sed 's/[][\.*^$+?()|{}]/\\&/g')
+
+# Delimited with the surrounding path separators, and exactly one match required. A bare
+# "nextflow.*$RUNID" also matches a SIBLING whose id merely extends this one (…-study vs
+# …-study-rerun): if this run's JVM has not appeared yet the file would hold the sibling's
+# pid and the stop command would kill the wrong experiment; if both appear, the file holds
+# two lines and `kill "$(cat …)"` fails on a multi-line operand.
 for _ in $(seq 30); do                             # up to ~30 s for the JVM to appear
-  mapfile -t _pids < <(pgrep -f "nextflow.*/$RUNID/")
+  mapfile -t _pids < <(pgrep -f "nextflow.*/$ERUNID/")
   [ "${#_pids[@]}" -ge 1 ] && break
   sleep 1
 done
@@ -353,13 +359,22 @@ launch recorded:
 kill -TERM "$(cat "/work/nxf/$RUNID/nextflow.pid")"
 ```
 
-Use the recorded pid, **not** `pkill -f "nextflow.*$RUNID"`. `-f` matches the whole command
-line as a substring, so a run id that is a prefix of another (`20260804-rnaseq-study` and
-`20260804-rnaseq-study-rerun`) matches both and kills someone else's experiment. If you have
-no pid file, delimit the id with the path separators that surround it in the command line:
-`pkill -TERM -f "nextflow.*/$RUNID/"`. Nextflow traps SIGTERM, kills running tasks,
-and flushes the cache — the run stays resumable. `kill -9` leaves orphaned containers holding
-CPU and disk; if you must, follow with `docker ps` and `docker kill <ids>`.
+Use the recorded pid, **not** `pkill -f "nextflow.*$RUNID"`. `-f` matches against the whole
+command line, and the pattern is a regex — two separate ways to hit the wrong process. As a
+substring, a run id that is a prefix of another (`20260804-rnaseq-study` and
+`20260804-rnaseq-study-rerun`) matches both. As a regex, `study.v2` also matches `studyXv2`,
+and `a+b` matches neither `studyXv2` nor its own run.
+
+With no pid file, escape the id and delimit it with the path separators that surround it:
+
+```bash
+ERUNID=$(printf '%s' "$RUNID" | sed 's/[][\.*^$+?()|{}]/\\&/g')
+pkill -TERM -f "nextflow.*/$ERUNID/"
+```
+
+Nextflow traps SIGTERM, kills running tasks, and flushes the cache — the run stays resumable.
+`kill -9` leaves orphaned containers holding CPU and disk; if you must, follow with
+`docker ps` and `docker kill <ids>`.
 
 The pid file is written by the tmux recipe above and is not optional: `hooks/guard-workdir.sh`
 reads it to refuse deleting a live run's work directory. A foreground launch has no `$!` to
