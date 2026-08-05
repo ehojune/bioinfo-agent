@@ -15,7 +15,7 @@ Docker **engine** inside the distro, distro ext4 on `D:\wsl\ubuntu-24.04\ext4.vh
 3. Write `samplesheet.csv`, `params.yaml`, `cmd.sh` into `$RUNDIR`.
 4. Preflight. Any FAIL is a hard stop.
 5. `-preview`, then `-stub-run`. Both must be clean.
-6. Launch backgrounded on ext4 with reports and `-resume`.
+6. Launch on ext4 with reports and `-resume`, in a session you keep alive (or under `tmux`).
 7. Monitor the trace, not the terminal.
 8. On completion: read MultiQC, rsync results out to `/mnt/d`, write the handoff.
 9. Leave the work dir alone for at least 7 days.
@@ -99,7 +99,7 @@ export BIOINFO_REFS=/refs
 export NXF_WORKROOT="${BIOINFO_WORK:-/work}/nxf"
 export NXF_ASSETS="$BIOINFO_REFS/cache/nf-assets"    # pipeline clones live on ext4
 export NXF_OPTS='-Xms1g -Xmx8g'                       # cap the launcher JVM (03-nextflow.sh sets this)
-export NXF_ANSI_LOG=false                             # backgrounded logs must not be redraw spam
+export NXF_ANSI_LOG=false                             # append-only log; ANSI redraws make it unreadable
 ```
 
 Two Windows-side settings that decide whether a long run survives. Run these from PowerShell, not
@@ -246,7 +246,8 @@ then launch.
 ## 5. Launch
 
 Write this into `$RUNDIR/cmd.sh` verbatim so the exact invocation is recorded next to the plan, then
-source it. Timestamped report filenames mean a re-launch after a failure never collides with the
+run it with `bash "$RUNDIR/cmd.sh"` — not `source`, which would leak its `set -euo pipefail` and
+its variables into your shell. Timestamped report filenames mean a re-launch after a failure never collides with the
 previous attempt's reports, and you keep the history of attempts.
 
 ```bash
@@ -300,6 +301,8 @@ RUNDIR=/mnt/d/bioinfo-agent/runs/$RUNID
 # leaving the guard and the stop command reading a file that does not exist.
 NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID
 
+mkdir -p "$NXFDIR"                                 # cmd.sh creates it too, but the pid write below
+                                                   # races the session start; do not depend on it
 tmux new-session -d -s "$RUNID" "bash '$RUNDIR/cmd.sh'"
 
 # Record the live pid. NOT optional: hooks/guard-workdir.sh reads this file to refuse
