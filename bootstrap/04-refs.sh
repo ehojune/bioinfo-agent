@@ -140,6 +140,7 @@ declare -a HARD_MISSING=()
 # malformed row can never be composed into a path a second time under looser rules.
 declare -A ALIAS_ROW_MODE=()
 declare -A ALIAS_ROW_SRC=()
+declare -A MANIFEST_STD=()
 
 row() {
   # STATUS  MODE  STANDARD_PATH  DETAIL
@@ -157,8 +158,43 @@ row ------ ---- ------------- ------
 
 avail_bytes() { df -Pk "$1" | awk 'NR==2{print $4*1024}'; }
 
+# ------------------------------------------------------------------ containment
+# Nothing destructive may run on a path that resolves outside $REFS.
+#
+# `$REFS/$std` is a STRING. Validating $std — which the main loop does, rejecting absolute
+# paths and '..' — cannot make it safe, because the escape happens at RESOLUTION, not in the
+# string: if any parent component beneath $REFS is a symlink pointing elsewhere, `rm -rf` on
+# that path follows it and destroys data the reference store neither owns nor can rebuild.
+# Reproduced with `/refs/escape -> /user/data` and a copy row targeting `escape/victim`.
+#
+# realpath -m, not -e: the path legitimately may not exist yet (a --dry-run preview, or a
+# first materialisation). -m still resolves the components that DO exist, which is the whole
+# check, and normalises the rest instead of failing.
+# Checks the PARENT DIRECTORY, not the path itself, because that is where the create or the
+# delete actually lands. The final component being a symlink out of the store is the normal,
+# intended state of a `link` row: `rm -f` on it removes the link, never its target. Resolving
+# the full path instead would refuse every healthy alias, whose canonical target is a source
+# on /mnt/d by design.
+inside_refs() {   # $1 = path the operation will create/replace; need not exist
+  local rp rr
+  rp="$(realpath -m "$(dirname "$1")" 2>/dev/null || true)"
+  rr="$(realpath -m "$REFS" 2>/dev/null || printf '%s' "$REFS")"
+  [ -n "$rp" ] || return 1
+  case "$rp/" in
+    "$rr"/*) return 0 ;;
+    *)       return 1 ;;
+  esac
+}
+
 do_link() {
   local std="$1" src="$2" dest="$REFS/$1"
+  # Once, at the top: EVERY branch below writes or deletes at $dest — the repoint branch
+  # rm -f's a symlink, the force branch rm -rf's a real file, and the create branch mkdir -p's
+  # the parent. Guarding only one of them, as this first did, leaves the other two escaping.
+  if ! inside_refs "$dest"; then
+    row STALE link "$std" "resolves outside $REFS — refusing to touch it"
+    n_stale=$((n_stale+1)); return 0
+  fi
   if [ ! -e "$src" ]; then
     row MISSING link "$std" "source absent: $src"
     n_hard=$((n_hard+1)); HARD_MISSING+=("$std  <- $src")
@@ -192,7 +228,14 @@ do_link() {
 }
 
 do_copy() {
-  local std="$1" src="$2" dest="$REFS/$1"
+  local std="$1" src="$2" dest="$REFS/$1" rmdir_first=0
+  # Once, at the top — see do_link(). rm -f on a stale symlink, rm -rf on a directory, and
+  # `mv -f "$tmp" "$dest"` at the end all land at $dest; the last one writes even where
+  # nothing is deleted, so a per-branch guard misses it entirely.
+  if ! inside_refs "$dest"; then
+    row STALE copy "$std" "resolves outside $REFS — refusing to touch it"
+    n_stale=$((n_stale+1)); return 0
+  fi
   if [ ! -e "$src" ]; then
     row MISSING copy "$std" "source absent: $src"
     n_hard=$((n_hard+1)); HARD_MISSING+=("$std  <- $src")
@@ -215,6 +258,23 @@ do_copy() {
     row STALE copy "$std" "symlink found where a real copy is required — replacing"
     n_stale=$((n_stale+1))
     [ "$DRY" -eq 1 ] || rm -f "$dest"
+  elif [ -d "$dest" ]; then
+    # The same directory-collision footgun do_link() and do_alias() are both guarded against,
+    # and the one path that never got it. Without this branch a real directory here falls
+    # straight through to `mv -f "$tmp" "$dest"`, which deposits the temp file INSIDE the
+    # directory as <name>.part.<pid> and still reports COPIED with the right byte count.
+    if [ "$FORCE" -eq 1 ]; then
+      row STALE copy "$std" "--force: replacing a real directory with the copy"
+      n_stale=$((n_stale+1))
+      # DEFERRED, not done here. Removing it now would happen before the free-space check
+      # and before cp has staged anything, so an unreadable source or a full volume would
+      # leave the directory permanently deleted and no copy in its place. The rm runs
+      # immediately before the mv, once the replacement is on disk.
+      rmdir_first=1
+    else
+      row STALE copy "$std" "a real directory is here, a file is expected — inspect, then re-run with --force"
+      n_stale=$((n_stale+1)); return 0
+    fi
   fi
 
   if [ "$DRY" -eq 1 ]; then
@@ -234,7 +294,15 @@ do_copy() {
 
   # temp + mv so an interrupted copy never leaves a plausible-looking partial file
   local tmp="$dest.part.$$"
-  cp -p "$src" "$tmp"
+  if ! cp -p "$src" "$tmp"; then
+    rm -f "$tmp"
+    row MISSING copy "$std" "copy failed — destination left untouched"
+    n_hard=$((n_hard+1)); HARD_MISSING+=("$std  (copy failed)")
+    return 0
+  fi
+  # Only now, with the replacement staged and verified on disk, is it safe to remove what
+  # --force said to replace.
+  [ "$rmdir_first" -eq 1 ] && rm -rf "$dest"
   mv -f "$tmp" "$dest"
   row COPIED copy "$std" "$(human "$ssize")"
   n_copy=$((n_copy+1)); copied_bytes=$((copied_bytes+ssize))
@@ -260,6 +328,14 @@ do_verify() {
 
 do_build() {
   local std="$1" hint="$2" dest="$REFS/$1"
+  # Same containment check as do_link()/do_copy(). This function creates directories and, for
+  # an empty leftover, removes one — both follow a symlinked parent out of the store exactly
+  # as the delete paths did. Guarded here rather than per branch, which is how the sibling
+  # call sites kept getting missed.
+  if ! inside_refs "$dest"; then
+    row STALE build "$std" "resolves outside $REFS — refusing to touch it"
+    n_stale=$((n_stale+1)); return 0
+  fi
   case "$std" in
     */)
       # Deliberately does NOT mkdir -p "$dest" when absent/empty. A directory-mode build row
@@ -302,6 +378,14 @@ do_build() {
 
 do_fetch() {
   local std="$1" hint="$2" dest="$REFS/$1"
+  # Same containment check as do_link()/do_copy(). This function creates directories and, for
+  # an empty leftover, removes one — both follow a symlinked parent out of the store exactly
+  # as the delete paths did. Guarded here rather than per branch, which is how the sibling
+  # call sites kept getting missed.
+  if ! inside_refs "$dest"; then
+    row STALE fetch "$std" "resolves outside $REFS — refusing to touch it"
+    n_stale=$((n_stale+1)); return 0
+  fi
   case "$std" in
     */)
       if [ -d "$dest" ] && [ -n "$(ls -A "$dest" 2>/dev/null)" ]; then
@@ -357,6 +441,11 @@ while IFS= read -r raw || [ -n "$raw" ]; do
       ALIAS_ROW_MODE["$std"]="$mode"; ALIAS_ROW_SRC["$std"]="$src" ;;
   esac
 
+  # Every validated standard_path, so the alias step can refuse to touch a path the manifest
+  # already owns. Without this the derived alias silently outranks an explicit declaration and
+  # the two stages repoint the same symlink against each other on every run, forever.
+  MANIFEST_STD["$std"]=1
+
   # --verify hashes what is already in $REFS and never looks at a source, so the mount
   # warning and the mode dispatch below are both irrelevant to it.
   if [ "$RUNMODE" = verify ]; then
@@ -405,10 +494,25 @@ done < "$MANIFEST"
 # path is someone's data, not ours to delete, so it is reported STALE and left alone unless
 # --force is given -- ln -sf must never be used here unguarded.
 n_alias=0
+n_aliasok=0
 do_alias() {   # $1=alias_path $2=target_basename $3=label (for row output)
   local alias="$1" target="$2" label="$3"
+
+  # CONTAINMENT. $alias is composed from $(dirname "$dest"), which resolves through the live
+  # filesystem — a directory-valued `link` row for a build's fasta dir lands it inside the
+  # user's own source tree on /mnt/d. Validating the $std string (as the main loop does) does
+  # not cover that, because the escape happens at resolution, not in the string. Refuse to
+  # create or replace anything that is not genuinely under $REFS.
+  if ! inside_refs "$alias"; then
+    row STALE alias "$label" "parent resolves outside $REFS ($(realpath -m "$(dirname "$alias")" 2>/dev/null)) — refusing to touch it"
+    n_stale=$((n_stale+1)); return 0
+  fi
+
   if [ -L "$alias" ]; then
-    [ "$(readlink "$alias")" = "$target" ] && return 0   # already correct, no row needed
+    if [ "$(readlink "$alias")" = "$target" ]; then
+      row OK alias "$label" "-> $target"     # say it exists; a silent no-op is unverifiable
+      n_aliasok=$((n_aliasok+1)); return 0
+    fi
     row LINKED alias "$label" "repointed from $(readlink "$alias")"
     # rm then ln -s, not ln -sf: if the existing symlink resolves to a directory, `ln -sf`
     # follows it and creates $target *inside* that directory instead of replacing the alias
@@ -417,17 +521,16 @@ do_alias() {   # $1=alias_path $2=target_basename $3=label (for row output)
     n_alias=$((n_alias+1)); return 0
   fi
   if [ -e "$alias" ]; then
-    if [ "$FORCE" -eq 1 ]; then
-      row LINKED alias "$label" "--force: replaced a real file with the alias symlink"
-      # rm -rf, not rm -f: rm -f cannot remove a directory (fails under set -e, after the row
-      # above already claimed success) -- do_link()'s force branch already uses -rf for the
-      # same reason.
-      [ "$DRY" -eq 1 ] || { rm -rf "$alias"; ln -s "$target" "$alias"; }
-      n_alias=$((n_alias+1))
-    else
-      row STALE alias "$label" "a real file is here, alias symlink expected — inspect, then re-run with --force"
-      n_stale=$((n_stale+1))
-    fi
+    # DELIBERATELY NO --force BRANCH, unlike do_link()/do_copy().
+    # An alias is derived convenience: it is reconstructible from the canonical file in a
+    # millisecond, so nothing here is ever worth deleting real data for. do_link()'s force
+    # branch is defensible because the manifest declares that path; nothing declares this one.
+    # It also closes a containment hole: $alias is composed from $(dirname "$dest"), which is
+    # resolved through the live filesystem, so a directory-valued `link` row for a build's
+    # fasta dir puts this path inside the user's own source tree — where an rm -rf would
+    # destroy an original the reference store does not back up.
+    row STALE alias "$label" "a real file is here, alias symlink expected — inspect and remove it by hand"
+    n_stale=$((n_stale+1))
     return 0
   fi
   row LINKED alias "$label" "-> $target"
@@ -452,13 +555,45 @@ if [ "$RUNMODE" = copy ]; then
     elif [ "$DRY" -eq 1 ] && { [ "$mode" = link ] || [ "$mode" = copy ]; } && [ -e "$src" ]; then
       eligible=1
     fi
-    [ "$eligible" -eq 1 ] || continue
+    # The canonical file is not there and will not be by the end of this run (fetch/build rows
+    # are only reported, never materialised). genomes.config points its fasta/gtf params at the
+    # ALIAS, so staying silent here leaves the pipeline to fail on a path nothing explains.
+    # PENDING, and no counter: an unmaterialised fetch/build row is the EXPECTED state of a
+    # fresh store, and n_hard means "link/copy source missing or manifest malformed", which
+    # exits 1. Routing this there failed the bootstrap on exactly the machines it is meant to
+    # set up. The row is the signal; it is informational, not a failure.
+    if [ "$eligible" -ne 1 ]; then
+      case "$std" in
+        genomes/*/fasta/genome.fa|genomes/*/gtf/genes.gtf.gz)
+          row PENDING alias "genomes/$build/…/$build.*" "waiting on $std — until it exists, genomes.config's $build fasta/gtf will not resolve" ;;
+      esac
+      continue
+    fi
+    aliasstd=""; aliastarget=""
     case "$std" in
-      genomes/*/fasta/genome.fa)
-        do_alias "$(dirname "$dest")/$build.fa" genome.fa "genomes/$build/fasta/$build.fa" ;;
-      genomes/*/gtf/genes.gtf.gz)
-        do_alias "$(dirname "$dest")/$build.gtf.gz" genes.gtf.gz "genomes/$build/gtf/$build.gtf.gz" ;;
+      genomes/*/fasta/genome.fa)    aliasstd="genomes/$build/fasta/$build.fa";     aliastarget=genome.fa ;;
+      genomes/*/gtf/genes.gtf.gz)   aliasstd="genomes/$build/gtf/$build.gtf.gz";   aliastarget=genes.gtf.gz ;;
+      *) continue ;;
     esac
+
+    # A build directory named literally `genome` (or `genes`) makes the alias collapse onto the
+    # canonical path. Left unguarded that produces `genome.fa -> genome.fa`: ELOOP, unreadable,
+    # and it never converges because do_link and do_alias then repoint it against each other.
+    if [ "$aliasstd" = "$std" ]; then
+      row STALE alias "$aliasstd" "would collide with the canonical file itself — build directory is named '$build'"
+      n_stale=$((n_stale+1)); continue
+    fi
+
+    # The manifest outranks a derived alias. If a row already declares this exact path, the
+    # alias step must not touch it: otherwise the two stages repoint the same symlink on every
+    # run and the store never reaches a steady state — and a row naming a DIFFERENT source
+    # would be silently redirected at the canonical file, feeding pipelines the wrong FASTA.
+    if [ -n "${MANIFEST_STD[$aliasstd]:-}" ]; then
+      row OK alias "$aliasstd" "declared by the manifest — leaving it to that row"
+      n_aliasok=$((n_aliasok+1)); continue
+    fi
+
+    do_alias "$(dirname "$dest")/$(basename "$aliasstd")" "$aliastarget" "$aliasstd"
   done
 fi
 
@@ -486,8 +621,12 @@ fi
 total=$((n_ok+n_link+n_copy+n_stale+n_build+n_fetch+n_hard+n_parse))
 say ""
 say "[04-refs] $total rows: ok=$n_ok linked=$n_link copied=$n_copy stale=$n_stale not-built=$n_build fetch-missing=$n_fetch broken=$n_hard parse-errors=$n_parse"
-[ "$n_copy" -gt 0 ] && say "[04-refs] bytes copied: $(human "$copied_bytes")"
-[ "$n_alias" -gt 0 ] && say "[04-refs] rnaseq iGenomes-heuristic aliases (re)created: $n_alias"
+if [ "$n_copy" -gt 0 ]; then say "[04-refs] bytes copied: $(human "$copied_bytes")"; fi
+# Reported unconditionally when there are any: a healthy alias that prints nothing cannot be
+# distinguished from an alias that was never created, and genomes.config depends on it.
+if [ "$((n_alias+n_aliasok))" -gt 0 ]; then
+  say "[04-refs] rnaseq iGenomes-heuristic aliases: $n_aliasok already correct, $n_alias (re)created"
+fi
 
 if [ "$n_build" -gt 0 ] || [ "$n_fetch" -gt 0 ]; then
   say "[04-refs] NOT BUILT / fetch-MISSING rows are expected on a fresh machine. Genuinely absent today:"

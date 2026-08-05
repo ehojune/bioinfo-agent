@@ -73,7 +73,9 @@ Do them in order. Do not skip step 3 or step 4.
    — the input CSV. Without `--pipeline` the required-column gate is skipped.
    Then `-stub-run` (or `-preview`) the real command with the real samplesheet. A stub run
    that fails is a real failure — fix it, do not "try it for real and see".
-5. **Execution.** Launch from ext4, detached, logging to file. Read `references/runbook.md`.
+5. **Execution.** Launch from ext4, logging to file, in a session you keep alive for the whole run
+   — or under `tmux`, which survives. `nohup … &` does not: a fire-and-forget launch from a
+   one-shot `wsl.exe` dies with the distro and leaves no log. Read `references/runbook.md`.
    If a `bioinfo-tech` subagent is available and the estimate exceeds ~1 h, hand steps 5–6 to it and
    resume at step 7 from its handoff — Nextflow logs must not land in the main conversation.
 6. **QC verdict.** Read MultiQC and the pipeline's own metrics. Report PASS / PASS WITH CAVEATS /
@@ -113,9 +115,18 @@ revision is not reproducible.
 
 ## Environment contract
 
-- **Execution host**: WSL2 distro `Ubuntu-24.04`. From Windows:
-  `wsl -d Ubuntu-24.04 -- bash -lc '<cmd>'`. Never run pipelines in `Ubuntu-legacy` — that distro is
-  a read-only archive of the user's old environment, useful only for pulling old scripts and data.
+**Every value below is one machine's.** `config/host.env` and the generated
+`~/.config/bioinfo/env.sh` are authoritative; read them before you compose a command. The numbers
+and names here are for orientation, not for typing into a shell.
+
+- **Execution host**: the WSL2 distro named by `BIOINFO_DISTRO` (`Ubuntu-24.04` on the machine this
+  was written for — confirm with `wsl -l -v`, and do not assume it: a second Windows profile on the
+  same box has its own distros). From Windows: `wsl -d <distro> -- bash -lc '<cmd>'` — substitute
+  the name. `$BIOINFO_DISTRO` is a WSL-side variable; in PowerShell it expands to nothing and
+  `wsl -d ""` fails. On the Windows side use `$env:BIOINFO_DISTRO`, and only if you set it there.
+  If `BIOINFO_ARCHIVE_DISTRO` is set it is a read-only archive of the user's old environment —
+  pull old scripts and data out of it, never run a pipeline in it. It may be unset, in which case
+  there is no archive distro on this machine.
 - **Profile**: `-profile docker`. Docker engine runs inside the distro, not Docker Desktop.
 - **ext4 vs drvfs**: `/mnt/c`, `/mnt/d`, `/mnt/e` are Windows drives through drvfs and are 5–10×
   slower. The Nextflow **work directory, the launch directory** (it holds `.nextflow/cache`, which

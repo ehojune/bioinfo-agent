@@ -1,8 +1,11 @@
 # pipelines.tsv — the stocked pipeline set and the revision each is pinned to.
 #
-# SINGLE SOURCE OF TRUTH for revisions. Nothing else in this repo states a pin.
-# Reference docs, READMEs and run plans cite this file; they do not restate it.
-# bin/preflight.sh reads it and refuses a cmd.sh whose -r disagrees.
+# SINGLE SOURCE OF TRUTH for revisions. This file decides; nothing else does.
+# Docs and READMEs do carry a revision inside runnable example commands — an
+# example you cannot copy is worse than a duplicated string. Those are copies,
+# not authorities: change a pin here and grep the repo for the old string.
+# bin/preflight.sh reads this file and refuses a cmd.sh whose -r disagrees, so
+# the run you actually launch is checked against this table, not against a doc.
 #
 # A pipeline that is not listed here is not stocked. Adding a row is a
 # procurement decision — see skills/bioinfo-analyze/references/new-pipeline.md.

@@ -15,7 +15,7 @@ Docker **engine** inside the distro, distro ext4 on `D:\wsl\ubuntu-24.04\ext4.vh
 3. Write `samplesheet.csv`, `params.yaml`, `cmd.sh` into `$RUNDIR`.
 4. Preflight. Any FAIL is a hard stop.
 5. `-preview`, then `-stub-run`. Both must be clean.
-6. Launch backgrounded on ext4 with reports and `-resume`.
+6. Launch on ext4 with reports and `-resume`, in a session you keep alive (or under `tmux`).
 7. Monitor the trace, not the terminal.
 8. On completion: read MultiQC, rsync results out to `/mnt/d`, write the handoff.
 9. Leave the work dir alone for at least 7 days.
@@ -38,7 +38,7 @@ RUNID = <YYYYMMDD>-<pipeline>-<slug>          e.g. 20260728-rnaseq-koges-pilot
   ├── reports/                           rsync target: report/trace/timeline per attempt
   └── handoff.md                         written at the END
 
-/work/nxf/$RUNID/                      ext4 inside the distro — everything live
+$BIOINFO_WORK/nxf/$RUNID/              ext4 inside the distro — everything live  (BIOINFO_WORK defaults to /work)
   ├── work/                              -work-dir, task scratch
   ├── .nextflow/                         resume cache (LevelDB)  <-- must be ext4
   ├── .nextflow.log[.1.2…]
@@ -66,7 +66,7 @@ sufficient:
 
 **The launch dir is also on ext4** — not only `-work-dir`. `.nextflow/cache` and `.nextflow.log` are
 created relative to the current directory, so launching from `/mnt/d/...` puts the resume cache on
-drvfs even when `-work-dir` is correct. Always `cd /work/nxf/$RUNID` first.
+drvfs even when `-work-dir` is correct. Always `cd "$NXFDIR"` first.
 
 **`--outdir` points at ext4 during the run**, and results are rsynced to `/mnt/d` once at the end.
 nf-core's default `publish_dir_mode = 'copy'` means every published file is copied out of the work
@@ -76,19 +76,19 @@ One sequential rsync at the end costs a fraction of it. Corollary: never set
 boundary and drvfs symlinks require Windows developer mode.
 
 **You can still look at live results from Windows.** The distro's ext4 is browsable at
-`\\wsl.localhost\Ubuntu-24.04\work\nxf\<RUNID>\` in Explorer, and MultiQC HTML opens fine from
-there. Windows-visibility is not a reason to put the outdir on drvfs.
+`\\wsl.localhost\<distro>\work\nxf\<RUNID>\` in Explorer — `<distro>` is `$BIOINFO_DISTRO` — and
+MultiQC HTML opens fine from there. Windows-visibility is not a reason to put the outdir on drvfs.
 
 **Input FASTQs may stay on `/mnt/d`.** They are read sequentially, once or twice, and drvfs
 sequential throughput is adequate. If the trace shows alignment tasks pinned at low `%cpu` with high
-`wa`, copy the FASTQs to `/work/staging/$RUNID/` and re-point the samplesheet — but see the
+`wa`, copy the FASTQs to `$BIOINFO_WORK/staging/$RUNID/` and re-point the samplesheet — but see the
 `-resume` section first, because doing that mid-run changes input mtimes and busts the cache.
 
 ### One-time host setup
 
 ```bash
-sudo mkdir -p /work/nxf /work/staging
-sudo chown -R "$USER:$USER" /work
+sudo mkdir -p "${BIOINFO_WORK:-/work}"/nxf "${BIOINFO_WORK:-/work}"/staging
+sudo chown -R "$USER:$USER" "${BIOINFO_WORK:-/work}"
 ```
 
 Put this in `~/.bashrc` (or the skill's env preamble):
@@ -96,10 +96,10 @@ Put this in `~/.bashrc` (or the skill's env preamble):
 ```bash
 export BIOINFO_HOME=/mnt/d/bioinfo-agent
 export BIOINFO_REFS=/refs
-export NXF_WORKROOT=/work/nxf
+export NXF_WORKROOT="${BIOINFO_WORK:-/work}/nxf"
 export NXF_ASSETS="$BIOINFO_REFS/cache/nf-assets"    # pipeline clones live on ext4
 export NXF_OPTS='-Xms1g -Xmx8g'                       # cap the launcher JVM (03-nextflow.sh sets this)
-export NXF_ANSI_LOG=false                             # backgrounded logs must not be redraw spam
+export NXF_ANSI_LOG=false                             # append-only log; ANSI redraws make it unreadable
 ```
 
 Two Windows-side settings that decide whether a long run survives. Run these from PowerShell, not
@@ -197,7 +197,9 @@ Two cheap gates, in this order. Never skip either.
 violations, missing required params, and unresolvable reference paths in seconds.
 
 ```bash
-cd /work/nxf/$RUNID
+NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
+mkdir -p "$NXFDIR"          # the launch dir only — NOT work/, the real launch creates that
+cd "$NXFDIR"
 nextflow run nf-core/rnaseq -r 3.18.0 -profile docker \
   -params-file $RUNDIR/params.yaml \
   -c $BIOINFO_HOME/config/local.config \
@@ -209,12 +211,14 @@ the real command. It creates empty output files, so it validates channel wiring,
 parsing, and the full topology end to end — in minutes, on kilobytes.
 
 ```bash
-cd /work/nxf/$RUNID
+NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
+mkdir -p "$NXFDIR"          # the launch dir only — NOT work/, the real launch creates that
+cd "$NXFDIR"
 nextflow run nf-core/rnaseq -r 3.18.0 -profile docker \
   -params-file $RUNDIR/params.yaml \
   -c $BIOINFO_HOME/config/local.config \
-  -work-dir /work/nxf/$RUNID/stub-work \
-  --outdir /work/nxf/$RUNID/stub-results \
+  -work-dir "$NXFDIR/stub-work" \
+  --outdir "$NXFDIR/stub-results" \
   -stub-run -ansi-log false
 ```
 
@@ -244,7 +248,8 @@ then launch.
 ## 5. Launch
 
 Write this into `$RUNDIR/cmd.sh` verbatim so the exact invocation is recorded next to the plan, then
-source it. Timestamped report filenames mean a re-launch after a failure never collides with the
+run it with `bash "$RUNDIR/cmd.sh"` — not `source`, which would leak its `set -euo pipefail` and
+its variables into your shell. Timestamped report filenames mean a re-launch after a failure never collides with the
 previous attempt's reports, and you keep the history of attempts.
 
 ```bash
@@ -255,13 +260,17 @@ RUNID=20260728-rnaseq-koges-pilot
 PIPE=nf-core/rnaseq
 REV=3.18.0                                  # from config/pipelines.tsv
 RUNDIR=/mnt/d/bioinfo-agent/runs/$RUNID
-NXFDIR=/work/nxf/$RUNID
+NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation as bin/preflight.sh
 TS=$(date +%Y%m%d-%H%M%S)
 
 mkdir -p "$NXFDIR/work" "$NXFDIR/results" "$NXFDIR/reports"
 cd "$NXFDIR"                                # launch dir MUST be ext4: .nextflow/cache lives here
 
-nohup nextflow -log "$NXFDIR/.nextflow.log" \
+# FOREGROUND, and the `wsl.exe` session that started it stays open for the whole run.
+# Backgrounding this with `nohup … &` from a one-shot `wsl -d <distro> -- bash …` loses the
+# run: WSL tears the distro down when the last session exits, and the job dies with it —
+# no log, no process, no error. See "Notes on the shape" below.
+nextflow -log "$NXFDIR/.nextflow.log" \
   run "$PIPE" \
     -r "$REV" \
     -profile docker \
@@ -275,10 +284,59 @@ nohup nextflow -log "$NXFDIR/.nextflow.log" \
     -with-dag      "$NXFDIR/reports/dag.$TS.html" \
     -ansi-log false \
     -resume \
-  > "$NXFDIR/nextflow.stdout.log" 2>&1 &
+  2>&1 | tee "$NXFDIR/nextflow.stdout.log"
+```
 
-echo $! > "$NXFDIR/nextflow.pid"
-echo "launched $RUNID pid $(cat "$NXFDIR/nextflow.pid"); log: $NXFDIR/nextflow.stdout.log"
+**To detach it instead, use `tmux` — not `nohup`.** `tmux` keeps its own server process
+alive, which keeps the distro up, and lets you re-attach to see live output:
+
+```bash
+# bootstrap/01-wsl-base.sh installs tmux. On a host bootstrapped some other way:
+#   sudo apt-get install -y tmux
+
+# Self-contained on purpose: RUNID and RUNDIR are assigned INSIDE cmd.sh, so a fresh shell
+# (which is what the one-shot `wsl -d <distro> -- bash …` workflow always gives you) has
+# neither. Left unset they expand to an empty session name and `bash /cmd.sh`.
+RUNID=20260728-rnaseq-koges-pilot                  # the same id cmd.sh sets
+RUNDIR=/mnt/d/bioinfo-agent/runs/$RUNID
+# Same derivation as cmd.sh and bin/preflight.sh. A host that moves runs off the default root
+# by setting BIOINFO_WORK would otherwise have the pid written somewhere cmd.sh never used,
+# leaving the guard and the stop command reading a file that does not exist.
+NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID
+
+mkdir -p "$NXFDIR"                                 # cmd.sh creates it too, but the pid write below
+                                                   # races the session start; do not depend on it
+tmux new-session -d -s "$RUNID" "bash '$RUNDIR/cmd.sh'"
+
+# Record the live pid. NOT optional: hooks/guard-workdir.sh reads this file to refuse
+# deleting the work directory of a running run. Without it the guard falls through to the
+# 7-day hold check, which an older run id passes — so a live run's work dir becomes deletable.
+#
+# `pgrep -f` takes a REGEX, not a substring, so the id is escaped once here and that escaped
+# form is the only one that goes into a pattern — below, and in the stop command later.
+# Unescaped, `study.v2` also matches `studyXv2` (a different experiment) and `a+b` matches
+# nothing at all, not even its own run.
+ERUNID=$(printf '%s' "$RUNID" | sed 's/[][\.*^$+?()|{}]/\\&/g')
+
+# Delimited with the surrounding path separators, and exactly one match required. A bare
+# "nextflow.*$RUNID" also matches a SIBLING whose id merely extends this one (…-study vs
+# …-study-rerun): if this run's JVM has not appeared yet the file would hold the sibling's
+# pid and the stop command would kill the wrong experiment; if both appear, the file holds
+# two lines and `kill "$(cat …)"` fails on a multi-line operand.
+for _ in $(seq 30); do                             # up to ~30 s for the JVM to appear
+  mapfile -t _pids < <(pgrep -f "nextflow.*/$ERUNID/")
+  [ "${#_pids[@]}" -ge 1 ] && break
+  sleep 1
+done
+if [ "${#_pids[@]}" -eq 1 ]; then
+  printf '%s\n' "${_pids[0]}" > "$NXFDIR/nextflow.pid"
+else
+  echo "WARNING: expected exactly one nextflow process for $RUNID, found ${#_pids[@]}." >&2
+  echo "         No pid recorded; the work-dir guard falls back to its process scan." >&2
+fi
+
+tmux ls                                            # confirm it is there
+tmux attach -t "$RUNID"                            # watch;  Ctrl-b d to leave it running
 ```
 
 Notes on the shape:
@@ -297,13 +355,44 @@ Notes on the shape:
   already exists.
 - Set `trace.raw = true` in `local.config`. The default trace writes durations as `1h 2m` and memory
   as `3.4 GB`, which is unsortable; raw writes milliseconds and bytes.
-- `nohup … &` survives the terminal closing. It does **not** survive `wsl --shutdown`, Windows
-  sleep, or a forced reboot. If `tmux` is available (`sudo apt-get install -y tmux`) prefer running
-  under it so you can re-attach and see live output.
+- **`nohup … &` does not detach a run from a Windows-driven `wsl.exe` invocation.** Inside a
+  terminal you keep open it behaves as expected, but when the launching
+  `wsl -d <distro> -- bash …` returns, WSL tears down the distro and the job dies with it —
+  measured here: both `nohup … &` and `setsid nohup … &` were gone within seconds, with no
+  log written and no process left. It also does not survive `wsl --shutdown`, Windows sleep,
+  or a reboot. Either keep the launching session alive for the whole run, or run under `tmux`
+  (installed by `bootstrap/01-wsl-base.sh`) inside a session that stays open, so you can re-attach.
+  A run launched fire-and-forget from Windows is a run you have silently lost.
 
-**Stopping cleanly:** `kill -TERM "$(cat $NXFDIR/nextflow.pid)"`. Nextflow traps SIGTERM, kills
-running tasks, and flushes the cache — the run stays resumable. `kill -9` leaves orphaned containers
-holding CPU and disk; if you must, follow with `docker ps` and `docker kill <ids>`.
+**Stopping cleanly:** Ctrl-C in the foreground session, or — under `tmux` — kill the pid the
+launch recorded:
+
+```bash
+NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID
+kill -TERM "$(cat "$NXFDIR/nextflow.pid")"
+```
+
+Use the recorded pid, **not** `pkill -f "nextflow.*$RUNID"`. `-f` matches against the whole
+command line, and the pattern is a regex — two separate ways to hit the wrong process. As a
+substring, a run id that is a prefix of another (`20260804-rnaseq-study` and
+`20260804-rnaseq-study-rerun`) matches both. As a regex, `study.v2` also matches `studyXv2`,
+and `a+b` matches neither `studyXv2` nor its own run.
+
+With no pid file, escape the id and delimit it with the path separators that surround it:
+
+```bash
+ERUNID=$(printf '%s' "$RUNID" | sed 's/[][\.*^$+?()|{}]/\\&/g')
+pkill -TERM -f "nextflow.*/$ERUNID/"
+```
+
+Nextflow traps SIGTERM, kills running tasks, and flushes the cache — the run stays resumable.
+`kill -9` leaves orphaned containers holding CPU and disk; if you must, follow with
+`docker ps` and `docker kill <ids>`.
+
+The pid file is written by the tmux recipe above and is not optional: `hooks/guard-workdir.sh`
+reads it to refuse deleting a live run's work directory. A foreground launch has no `$!` to
+record, so the guard also scans for a running `nextflow` process carrying the run id — either
+signal is enough to block the deletion, and neither alone is reliable.
 
 ---
 
@@ -315,7 +404,8 @@ Four things to read, in decreasing order of usefulness.
 columns by header name, not position — the field set is configurable and nf-core changes it.
 
 ```bash
-T=$(ls -t /work/nxf/$RUNID/reports/trace.*.txt | head -1)
+NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
+T=$(ls -t "$NXFDIR"/reports/trace.*.txt | head -1)
 
 # status counts
 awk -F'\t' 'NR==1{for(i=1;i<=NF;i++)h[$i]=i;next}{c[$h["status"]]++}END{for(s in c)print s, c[s]}' "$T"
@@ -336,7 +426,8 @@ plus the final summary block.
 directory; that is where you go next.
 
 ```bash
-grep -nE 'ERROR|WARN|Caused by|Command exit status|Work dir' /work/nxf/$RUNID/.nextflow.log | tail -40
+NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
+grep -nE 'ERROR|WARN|Caused by|Command exit status|Work dir' "$NXFDIR/.nextflow.log" | tail -40
 ```
 
 **The HTML execution report** is written at completion (success or failure), not incrementally.
@@ -348,8 +439,8 @@ Do not wait on it mid-run; the trace is the live source.
 |---|---|---|
 | `docker stats --no-stream` | at least one container with meaningful CPU% | all near 0% |
 | `vmstat 5 3` | `r` non-zero, or `wa` high (I/O-bound but progressing) | `r`=0, `wa`=0, `si`/`so`=0 |
-| `find /work/nxf/$RUNID/work -newermt '-10 min' \| head` | files appearing | nothing for >10 min |
-| `df -h /work` | shrinking slowly | pinned at 0% avail |
+| `find "$NXFDIR/work" -newermt '-10 min' \| head` | files appearing | nothing for >10 min |
+| `df -h "${BIOINFO_WORK:-/work}"` | shrinking slowly | pinned at 0% avail |
 | trace last line timestamp | advancing | frozen |
 
 Two specific slow-but-healthy states worth recognising before you kill anything: heavy **swap**
@@ -402,8 +493,8 @@ raise the `memory` directive for the offending process in `local.config`. Then `
 `memory` alone does not invalidate the cache, so completed tasks are reused.
 
 **Disk full.** `.command.err` contains `No space left on device`, or Nextflow reports a staging
-failure. `df -h /work`. Recovery: free space *outside* the current work dir — old runs' work dirs
-(section 9), `docker image prune`, `/work/staging`. Never delete the current run's work dir to make
+failure. `df -h "${BIOINFO_WORK:-/work}"`. Recovery: free space *outside* the current work dir — old runs' work dirs
+(section 9), `docker image prune`, `$BIOINFO_WORK/staging`. Never delete the current run's work dir to make
 room; you lose the resume cache and start over. Then `-resume`. If there is genuinely no room, the
 estimate was wrong: stop, re-plan, re-scope.
 
@@ -455,7 +546,7 @@ Never respond to a single failing sample by re-running the whole cohort from scr
 
 Nextflow hashes each task and skips it if a matching entry exists in the cache *and* the outputs are
 still in the work dir. **Both** halves are required: `.nextflow/cache/<session-id>/` in the launch
-dir, and `/work/nxf/$RUNID/work/`. Lose either and resume degrades to a full re-run, silently.
+dir, and `$NXFDIR/work/`. Lose either and resume degrades to a full re-run, silently.
 
 Part of the hash:
 
@@ -473,7 +564,7 @@ Things that quietly destroy the cache on this host:
 
 - Changing `-work-dir`. Cache entries hold absolute paths; a different work dir is a different run.
 - Relaunching from a different directory. `.nextflow/cache` is relative to the launch dir. Always
-  `cd /work/nxf/$RUNID` first.
+  `cd "$NXFDIR"` first.
 - Copying or re-syncing input FASTQs. `cp` sets a new mtime, and the default cache mode reads mtime.
   If inputs live on drvfs, or you expect to move them, set `cache = 'lenient'` (path+size only) in
   `local.config` before the first run — not after.
@@ -509,12 +600,13 @@ somewhere else instead (§7, Disk full).
 The sync-out and the verification:
 
 ```bash
-rsync -a --info=progress2 /work/nxf/$RUNID/results/  "$RUNDIR/results/"
-rsync -a                  /work/nxf/$RUNID/reports/  "$RUNDIR/reports/"
-cp /work/nxf/$RUNID/.nextflow.log "$RUNDIR/reports/nextflow.log"
-diff <(cd /work/nxf/$RUNID/results && find . -type f | sort) \
+NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
+rsync -a --info=progress2 "$NXFDIR/results/"  "$RUNDIR/results/"
+rsync -a                  "$NXFDIR/reports/"  "$RUNDIR/reports/"
+cp "$NXFDIR/.nextflow.log" "$RUNDIR/reports/nextflow.log"
+diff <(cd "$NXFDIR/results" && find . -type f | sort) \
      <(cd "$RUNDIR/results"        && find . -type f | sort) && echo "results synced clean"
-du -sh /work/nxf/$RUNID/work /work/nxf/$RUNID/results
+du -sh "$NXFDIR/work" "$NXFDIR/results"
 ```
 
 Then, and only then:
@@ -525,8 +617,15 @@ nextflow clean -n -before <run-name>               # DRY RUN first, always
 nextflow clean -f -before <run-name>               # removes work dirs + cache entries for older runs
 ```
 
-Or, for one finished run: `rm -rf /work/nxf/$RUNID/work` and keep `.nextflow/`, the logs and the
-reports — they are small and they are the record.
+Or, for one finished run, with the path RESOLVED — `hooks/guard-workdir.sh` reads the command
+text before your shell expands it, so `rm -rf "$NXFDIR/work"` reaches it as an unexpanded
+variable it cannot tie to a run, and it refuses rather than guess:
+
+```bash
+rm -rf /work/nxf/20260728-rnaseq-koges-pilot/work    # substitute the real root and run id
+```
+
+Keep `.nextflow/`, the logs and the reports — they are small and they are the record.
 
 How much this frees: the work dir is typically 80–95% of a run's footprint. Concretely, ~90% of
 ~400 GB for a 30× WGS sarek run, ~90% of ~120 GB for a six-sample human RNA-seq run. Published
@@ -536,8 +635,11 @@ results are the small part.
 on its own; it will sit at its high-water mark on `D:`. To actually reclaim, from PowerShell:
 
 ```powershell
+# PowerShell, not the distro. $BIOINFO_DISTRO does not exist here — it lives inside WSL, and
+# `wsl --shutdown` has just torn that down anyway. Substitute the name, or set it first:
+#   $env:BIOINFO_DISTRO = 'Ubuntu-24.04'      # whatever `wsl -l -v` shows
 wsl --shutdown
-wsl --manage Ubuntu-24.04 --set-sparse true     # WSL 2.0+; makes the VHDX auto-shrinking
+wsl --manage $env:BIOINFO_DISTRO --set-sparse true   # WSL 2.0+; makes the VHDX auto-shrinking
 ```
 <!-- UNVERIFIED: --set-sparse flag name/availability on the installed WSL version; check `wsl --help`.
      Fallback: diskpart → select vdisk file="D:\wsl\ubuntu-24.04\ext4.vhdx" → attach vdisk readonly
@@ -578,7 +680,7 @@ explicitly capped, e.g. `-c` with a small override giving it 4 CPUs and 8 GB.
 Enforce it rather than remembering it. Wrap the launch:
 
 ```bash
-exec 9>/work/nxf/.heavy.lock
+exec 9>${BIOINFO_WORK:-/work}/nxf/.heavy.lock
 flock -n 9 || { echo "another heavy run holds the lock; not launching"; exit 1; }
 # … launch here; the lock is released when this shell exits
 ```

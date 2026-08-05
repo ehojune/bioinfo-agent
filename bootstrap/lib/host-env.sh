@@ -63,6 +63,20 @@ load_host_env() {
             *'$('*|*'`'*|*';'*|*'|'*|*'&'*|*'>'*|*'<'*|*$'\n'*) continue ;;
         esac
 
+        # UNSET on an empty value, do not merely skip it.
+        # Both readings of `BIOINFO_REFS=` converge on unset: as a typo, the script's own
+        # `${VAR:-default}` should win; as a deliberate "use the default", the same. Skipping
+        # achieves neither when the caller already has the variable exported — which is the
+        # normal case, since ~/.bashrc sources ~/.config/bioinfo/env.sh — because the stale
+        # inherited value simply survives and the bootstrap keeps using the old root.
+        # Exporting the empty string is no good either: that is safe only while every default
+        # uses `:-` rather than `-`, and BIOINFO_USER reaches usermod, chown and a sudoers
+        # line while BIOINFO_REFS reaches rm.
+        if [ -z "$_he_val" ]; then
+            unset "$_he_key"
+            continue
+        fi
+
         export "$_he_key=$_he_val"
     done < "$_he_file"
 

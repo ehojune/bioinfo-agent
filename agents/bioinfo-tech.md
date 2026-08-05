@@ -56,11 +56,20 @@ your next turn, never inside this one.
 
 ## Environment, without looking it up
 
-- Everything executes in the WSL2 distro **`Ubuntu-24.04`**. From Windows:
-  `wsl -d Ubuntu-24.04 -- bash -lc '<command>'`. For a long run, launch detached with `nohup … &`
-  and poll the log file; do not hold a foreground `wsl.exe` open for six hours.
-- The other distro, **`Ubuntu-legacy`**, is a read-only archive of the user's old environment. Pull
-  a script or a data file out of it if you need one. Never run a pipeline there and never write to it.
+- Everything executes in the WSL2 distro named by `BIOINFO_DISTRO` in `config/host.env`
+  (`Ubuntu-24.04` on the machine this was written for; do not assume it — read the file, or
+  `wsl -l -v`). From Windows: `wsl -d <distro> -- bash -lc '<command>'`.
+- **A long run must hold its `wsl.exe` session open.** `nohup … &` does NOT survive: when the
+  last client session exits, WSL tears the distro down and takes the job with it. Verified —
+  both `nohup … &` and `setsid nohup … &` were killed within seconds of the launching
+  `wsl.exe` returning, leaving no log and no process. So launch the run in the foreground of a
+  session you keep alive for its duration, and report progress from there. To detach, use the
+  `tmux` recipe in `references/runbook.md` section 5 — its server is a long-lived process that
+  keeps the distro up, which is why it survives where `nohup` does not (measured both ways).
+  A fire-and-forget invocation loses the run silently, which is worse than a slow one.
+- `BIOINFO_ARCHIVE_DISTRO`, if set, names a read-only archive of the user's old environment
+  (`Ubuntu-legacy` on the original machine). Pull a script or a data file out of it if you need one.
+  Never run a pipeline there and never write to it. It is unset where there is no archive distro.
 - Repo `$BIOINFO_HOME` = `/mnt/d/bioinfo-agent` (= `D:\bioinfo-agent` from Windows). Config in `config/`,
   run records in `runs/<runid>/`.
 - References `$BIOINFO_REFS` = `/refs`, governed by `config/refs.manifest.tsv`. Standard paths only.

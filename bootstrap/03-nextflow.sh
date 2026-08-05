@@ -81,6 +81,21 @@ for d in "$NXF_HOME_V" "$NXF_ASSETS_V" "$NXF_WORK_V" "$NXF_TEMP_V" "$NXF_CONTAIN
   fi
 done
 
+# Publish the COMPUTED values into this script's own environment, here, before anything
+# spawns a child. load_host_env() above exported whatever NXF_* config/host.env carries, and
+# those are not necessarily these: host.env.example ships NXF_TEMP=/var/tmp/nxf while this
+# script computes $WORK_ROOT/tmp. The nextflow installer below reads NXF_TEMP from the
+# environment and mktemp's in it — an inherited path this script never created fails the
+# download with a misleading "Cannot download nextflow required file / check your internet".
+# Only the directories created in the loop above are guaranteed to exist, so only the values
+# that named them may reach a child.
+export NXF_HOME="$NXF_HOME_V" \
+       NXF_ASSETS="$NXF_ASSETS_V" \
+       NXF_WORK="$NXF_WORK_V" \
+       NXF_TEMP="$NXF_TEMP_V" \
+       NXF_SINGULARITY_CACHEDIR="$NXF_CONTAINERS_V" \
+       NXF_APPTAINER_CACHEDIR="$NXF_CONTAINERS_V"
+
 # ------------------------------------------------------------------ java
 log "java"
 command -v java >/dev/null 2>&1 || die "no java. Run bootstrap/01-wsl-base.sh as root first."
@@ -146,7 +161,20 @@ else
     info "BIOINFO_NXF_SHA256 unset — the download is sanity-checked, NOT authenticated"
   fi
 
-  ( cd "$TMPD" && JAVA_HOME="$JAVA_HOME_V" NXF_VER="$NXF_PIN" bash install.sh ) \
+  # `bash < install.sh`, NOT `bash install.sh` — and this is not a style choice.
+  # get.nextflow.io serves ONE script that is both the installer and the nextflow launcher.
+  # It picks a mode by inspecting $0:
+  #
+  #     if [ "$0" = "bash" ] || [[ "$0" =~ .*/bash ]]; then   # ... install ...
+  #
+  # Redirecting the file on stdin leaves $0 as "bash", which is the install branch and what
+  # the upstream `curl -s https://get.nextflow.io | bash` recipe actually relies on. Passing
+  # the file as an argument makes $0 "install.sh", which silently takes the LAUNCHER branch:
+  # it prints nextflow's help, exits 0, and creates no launcher at all. Verified all three
+  # forms on Ubuntu 22.04 — only the stdin and pipe forms produce ./nextflow.
+  # Feeding it on stdin from a file we have already downloaded and checksummed keeps the
+  # download-verify-then-execute ordering that piping straight from curl gives up.
+  ( cd "$TMPD" && JAVA_HOME="$JAVA_HOME_V" NXF_VER="$NXF_PIN" bash < install.sh ) \
     || die "nextflow installer failed — check network, and that NXF_OFFLINE is not set"
   [ -x "$TMPD/nextflow" ] || die "installer exited 0 but left no ./nextflow launcher"
 
@@ -259,6 +287,12 @@ export NXF_OPTS="-Xms1g -Xmx8g"
 # NXF_OFFLINE must stay UNSET: nf-core pipelines resolve revisions and pull containers
 # on first run. Explicitly clear it in case a parent shell set it.
 unset NXF_OFFLINE
+
+# config/local.config states in two places that it REQUIRES the v1 config parser, because it
+# mixes top-level \`def\` with config blocks and v2 rejects that. Nothing was actually setting
+# it: it worked only because v1 is still the default. Pin it, so the day the default flips the
+# failure is not "every run aborts at config-parse time" with no clue why.
+export NXF_SYNTAX_PARSER=v1
 
 # Sanity net, interactive shells only — silence in scp/rsync/non-tty sessions, where
 # stray stdout output breaks the protocol.

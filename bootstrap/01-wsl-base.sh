@@ -174,6 +174,10 @@ PKGS=(
   openjdk-17-jre-headless          # Nextflow needs a JRE >= 17; headless is ~180 MB lighter
   python3 python3-venv python3-pip pipx  # installed here because 03-nextflow.sh runs unprivileged
   dos2unix                         # the NTFS/CRLF escape hatch, referenced by the other scripts
+  tmux                             # the only detach route that survives a one-shot wsl.exe
+                                   # returning: its server is long-lived, so it holds the distro
+                                   # up. runbook.md section 5 documents no alternative, so this
+                                   # is not optional tooling.
   jq rsync tree less procps bc time file findutils util-linux
 )
 

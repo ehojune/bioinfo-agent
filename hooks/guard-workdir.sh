@@ -13,7 +13,7 @@
 #   nextflow clean                   while any nextflow run is live.
 #   rm -r/-rf under the work root    unless the run is finished, handed off, and past the hold.
 #   rm -rf on a collapsed path       e.g. an unset variable turning a path into / or /<one-word>.
-#   a pipeline launched in the archive distro (Ubuntu-legacy), which is read-only by policy.
+#   a pipeline launched in the archive distro ($BIOINFO_ARCHIVE_DISTRO), which is read-only.
 #
 # WHAT IT DOES NOT DO
 # It is not a sandbox. It reads one command string and pattern-matches it. A determined caller
@@ -63,8 +63,15 @@ fi
 #
 # The list is deliberately short. sed (-i), git (clean), find (-delete) and xargs are NOT
 # on it: each can delete, so each stays subject to the checks.
+#
+# A redirection cancels the exemption. `echo "cleanup = true" >> nextflow.config` starts with
+# a reader but WRITES the setting that destroys -resume, and the verb alone cannot see that.
+# Any segment containing `>` is scanned. That costs a false positive on things like
+# `grep -r 'nextflow clean' docs/ > out.txt`, which is the right way to be wrong here: the
+# exemption exists because reading about a command is not running it, and a redirect is a write.
 CMD_SCAN="$(
   printf '%s\n' "$CMD" | tr ';|&' '\n\n\n' | while IFS= read -r _seg || [ -n "$_seg" ]; do
+    case "$_seg" in *'>'*) printf '%s\n' "$_seg"; continue ;; esac
     _verb="$(printf '%s' "$_seg" | sed 's/^[[:space:]]*//' | awk '{print $1}')"
     case "${_verb##*/}" in
       echo|printf|grep|egrep|fgrep|rg|ag|cat|head|tail|less|more|wc|diff|comm|sort|uniq|column|nl|strings|jq|test|true|false)
@@ -89,9 +96,24 @@ if printf '%s' "$CMD" | grep -qE 'cleanup[[:space:]]*=[[:space:]]*true'; then
 fi
 
 # ---------------------------------------------------------------- 2. archive distro is read-only
-if printf '%s' "$CMD" | grep -qE 'wsl(\.exe)?[^|;&]*-d[[:space:]]+Ubuntu-legacy' \
-   && printf '%s' "$CMD" | grep -qE 'nextflow|nf-core|docker[[:space:]]+run'; then
-  deny "Ubuntu-legacy is a read-only archive of the old environment. Pipelines run in Ubuntu-24.04."
+# NO DEFAULT, deliberately. hooks.json starts this as `bash guard-workdir.sh` on the Windows
+# side, where BIOINFO_ARCHIVE_DISTRO is only whatever the agent process happened to inherit —
+# usually nothing, since host.env lives inside the distro. Defaulting to "Ubuntu-legacy" was
+# wrong in both directions: on a host whose archive has another name the real archive went
+# unprotected, and on a host with no archive at all a legitimate distro that happened to be
+# called Ubuntu-legacy was blocked outright.
+#
+# So the check only runs when the name is actually known. That narrows this rule to sessions
+# that export the variable, and it is the honest scope: a guard that guesses which distro is
+# read-only can silently protect the wrong one. The prompt-level rule in agents/bioinfo-tech.md
+# still covers the rest.
+if [ -n "${BIOINFO_ARCHIVE_DISTRO:-}" ]; then
+  esc_archive="$(printf '%s' "$BIOINFO_ARCHIVE_DISTRO" | sed 's/[][\.*^$+?()|{}]/\\&/g')"
+  if printf '%s' "$CMD" | grep -qE "wsl(\.exe)?[^|;&]*-d[[:space:]]+${esc_archive}" \
+     && printf '%s' "$CMD" | grep -qE 'nextflow|nf-core|docker[[:space:]]+run'; then
+    deny "$BIOINFO_ARCHIVE_DISTRO is a read-only archive of the old environment. Run pipelines
+      in the distro named by BIOINFO_DISTRO instead."
+  fi
 fi
 
 # ---------------------------------------------------------------- 3. collapsed-path rm
@@ -120,7 +142,26 @@ fi
 # Only fires when a target genuinely sits under the work root; unrelated rm is none of our business.
 printf '%s' "$CMD" | grep -qE "$RECURSIVE" || allow
 
-esc_root="$(printf '%s' "$WORK_ROOT" | sed 's/[][\.*^$/]/\\&/g')"
+esc_root="$(printf '%s' "$WORK_ROOT" | sed 's/[][\.*^$+?(){}|/]/\\&/g')"
+
+# UNEXPANDED VARIABLE IN THE TARGET.
+# This hook sees the command TEXT, before the caller's shell expands anything. So
+# `rm -rf "$NXFDIR/work"` arrives literally, and the extraction below pulls `/work` out of it
+# and would report "that is the entire work root" — blocking the one cleanup section 9
+# actually documents. The opposite shape, `cd $NXFDIR && rm -rf work`, hides the target
+# completely and would sail through.
+#
+# Neither answer is available to us: without the value there is no run id, so the finished /
+# handed-off / past-the-hold conditions cannot be checked at all. Say that, rather than guess
+# in either direction, and name the form that can be checked.
+if printf '%s' "$CMD" | grep -qE '\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/(nxf|work)'; then
+  deny "the target is an unexpanded variable, so this hook cannot tell which run it is —
+      and therefore cannot confirm the run has finished, been handed off, and passed the
+      ${HOLD_DAYS}-day hold. Re-issue it with the resolved path, e.g.
+        rm -rf ${WORK_ROOT}/nxf/<runid>/work
+      which is checkable. (references/runbook.md section 9 shows that form.)"
+fi
+
 targets="$(printf '%s' "$CMD" | grep -oE "(${esc_root}|/work)(/[^[:space:]\"';|&]*)*" || true)"
 [ -n "$targets" ] || allow
 
@@ -140,11 +181,31 @@ while IFS= read -r t; do
   rundir="$(printf '%s' "$t" | sed -nE "s#^((${esc_root}|/work)/nxf/[^/]+).*#\1#p")"
 
   # Condition 1 — the run must not be live.
+  # TWO independent checks, because either alone has a hole. The pid file is only written if
+  # the launcher happened to write one — a foreground or tmux launch has no `$!` to record —
+  # and a missing file silently means "not live", which would let this fall through to the
+  # hold check and delete a running run's work directory. The process scan covers that, and
+  # the pid file covers the case where the scan cannot see the process (a different mount
+  # namespace, or a `nextflow` invocation whose command line does not carry the run id).
   if [ -f "$rundir/nextflow.pid" ]; then
     pid="$(cat "$rundir/nextflow.pid" 2>/dev/null || true)"
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
       deny "run $runid is still running (pid $pid). Deleting its work directory now loses the run."
     fi
+  fi
+  # Delimited with the path separators that surround the run id on a real command line
+  # (-work-dir /work/nxf/<runid>/work). A bare "nextflow.*$runid" also matches a DIFFERENT
+  # run whose id merely starts with this one — 20260804-study vs 20260804-study-rerun — which
+  # here would block a legitimate reclaim, and in the runbook's stop recipe killed the wrong
+  # run outright. runid comes from a path component, so it needs escaping for the regex.
+  # `\\&`, not `\&`. In a sed replacement `&` is the whole match and `\&` escapes it into a
+  # LITERAL ampersand — so the old form turned study.v2 into study&v2, a pattern that matches
+  # nothing, and the guard then saw a live run as finished. `\\` emits one backslash, `&` the
+  # matched character: study.v2 -> study\.v2.
+  esc_runid="$(printf '%s' "$runid" | sed 's/[][\.*^$+?()|{}]/\\&/g')"
+  if command -v pgrep >/dev/null 2>&1 && pgrep -f "nextflow.*/${esc_runid}/" >/dev/null 2>&1; then
+    deny "a nextflow process for run $runid is still running. Deleting its work directory now
+      loses the run. If that process is stale, stop it first."
   fi
 
   # Conditions 2-4 — handed off, and past the hold. The handoff note is the record that the run
