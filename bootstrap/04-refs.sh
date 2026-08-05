@@ -328,6 +328,14 @@ do_verify() {
 
 do_build() {
   local std="$1" hint="$2" dest="$REFS/$1"
+  # Same containment check as do_link()/do_copy(). This function creates directories and, for
+  # an empty leftover, removes one — both follow a symlinked parent out of the store exactly
+  # as the delete paths did. Guarded here rather than per branch, which is how the sibling
+  # call sites kept getting missed.
+  if ! inside_refs "$dest"; then
+    row STALE build "$std" "resolves outside $REFS — refusing to touch it"
+    n_stale=$((n_stale+1)); return 0
+  fi
   case "$std" in
     */)
       # Deliberately does NOT mkdir -p "$dest" when absent/empty. A directory-mode build row
@@ -370,6 +378,14 @@ do_build() {
 
 do_fetch() {
   local std="$1" hint="$2" dest="$REFS/$1"
+  # Same containment check as do_link()/do_copy(). This function creates directories and, for
+  # an empty leftover, removes one — both follow a symlinked parent out of the store exactly
+  # as the delete paths did. Guarded here rather than per branch, which is how the sibling
+  # call sites kept getting missed.
+  if ! inside_refs "$dest"; then
+    row STALE fetch "$std" "resolves outside $REFS — refusing to touch it"
+    n_stale=$((n_stale+1)); return 0
+  fi
   case "$std" in
     */)
       if [ -d "$dest" ] && [ -n "$(ls -A "$dest" 2>/dev/null)" ]; then
