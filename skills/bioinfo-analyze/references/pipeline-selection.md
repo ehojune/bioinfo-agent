@@ -399,9 +399,12 @@ hydroxymethylation deconvolution without oxBS/ACE-seq pairs, which the pipeline 
 ```
 $BIOINFO_REFS/genomes/GRCh38/fasta/genome.fa
 $BIOINFO_REFS/genomes/GRCh38/index/bismark/     build mode — absent, first run pays for it
+$BIOINFO_REFS/genomes/GRCh38/index/bwameth/     build mode — absent, first --aligner bwameth run pays for it
 ```
 
-bwameth needs its own index. There is no manifest row for it — see §9.
+bwameth needs its own index — manifest row present (`config/refs.manifest.tsv`, added 2026-08-05),
+index itself not yet built by any run on this host. Not the gap it used to be; still a real cost
+the first time `--aligner bwameth` is used.
 
 **Key outputs:** per-sample `*.bismark.cov.gz` (or MethylDackel `*.bedGraph`), splitting reports,
 deduplicated BAMs, M-bias plots, MultiQC.

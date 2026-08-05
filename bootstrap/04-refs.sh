@@ -437,7 +437,7 @@ while IFS= read -r raw || [ -n "$raw" ]; do
   # which is what let a malformed row with '..' in it (already rejected above) reach the
   # alias step regardless and compose a path outside $REFS.
   case "$std" in
-    genomes/*/fasta/genome.fa|genomes/*/gtf/genes.gtf.gz)
+    genomes/*/fasta/genome.fa|genomes/*/fasta/genome.fa.fai|genomes/*/gtf/genes.gtf.gz)
       ALIAS_ROW_MODE["$std"]="$mode"; ALIAS_ROW_SRC["$std"]="$src" ;;
   esac
 
@@ -489,6 +489,12 @@ done < "$MANIFEST"
 # fasta_alias/gtf_alias param) so BOTH invocation forms in that file's section 2 -- explicit
 # --fasta/--gtf, and the compact --genome <key> form that reads params.genomes.<key>.fasta/.gtf
 # through the pipeline's own getGenomeAttribute() -- resolve to the safe name automatically.
+#
+# genome.fa.fai gets the same treatment, for a different reason: methylseq's bwameth path
+# looks up the FASTA index by appending .fai to whatever --fasta path it was given, so a
+# fasta_index that names genome.fa.fai while params.fasta is the GRCh38.fa alias is simply
+# the wrong file for that tool to find beside it (found via PR #13 review, run
+# 20260805-methylseq-sle-rrbs-smoke). Same mechanism as the fasta/gtf alias, one more suffix.
 #
 # Same collision policy as do_link() above: a real (non-symlink) file already at the alias
 # path is someone's data, not ours to delete, so it is reported STALE and left alone unless
@@ -564,15 +570,16 @@ if [ "$RUNMODE" = copy ]; then
     # set up. The row is the signal; it is informational, not a failure.
     if [ "$eligible" -ne 1 ]; then
       case "$std" in
-        genomes/*/fasta/genome.fa|genomes/*/gtf/genes.gtf.gz)
+        genomes/*/fasta/genome.fa|genomes/*/fasta/genome.fa.fai|genomes/*/gtf/genes.gtf.gz)
           row PENDING alias "genomes/$build/…/$build.*" "waiting on $std — until it exists, genomes.config's $build fasta/gtf will not resolve" ;;
       esac
       continue
     fi
     aliasstd=""; aliastarget=""
     case "$std" in
-      genomes/*/fasta/genome.fa)    aliasstd="genomes/$build/fasta/$build.fa";     aliastarget=genome.fa ;;
-      genomes/*/gtf/genes.gtf.gz)   aliasstd="genomes/$build/gtf/$build.gtf.gz";   aliastarget=genes.gtf.gz ;;
+      genomes/*/fasta/genome.fa)      aliasstd="genomes/$build/fasta/$build.fa";     aliastarget=genome.fa ;;
+      genomes/*/fasta/genome.fa.fai)  aliasstd="genomes/$build/fasta/$build.fa.fai"; aliastarget=genome.fa.fai ;;
+      genomes/*/gtf/genes.gtf.gz)     aliasstd="genomes/$build/gtf/$build.gtf.gz";   aliastarget=genes.gtf.gz ;;
       *) continue ;;
     esac
 

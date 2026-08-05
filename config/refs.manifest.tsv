@@ -39,7 +39,8 @@ genomes/GRCh38gatk/index/bwa/genome.fa.sa	copy	/mnt/d/Research/references/Homo_s
 # Indexes we must build ourselves. ~1h each, STAR needs ~38G RAM.
 genomes/GRCh38/index/star/	build	nf-core/rnaseq --save_reference (or STAR --runMode genomeGenerate)	first rnaseq run builds and saves here
 genomes/GRCh38/index/salmon/	build	nf-core/rnaseq --save_reference
-genomes/GRCh38/index/bismark/	build	nf-core/methylseq --save_reference	methylation only
+genomes/GRCh38/index/bismark/	build	nf-core/methylseq --save_reference	methylation only, --aligner bismark (the default)
+genomes/GRCh38/index/bwameth/	build	nf-core/methylseq --save_reference --aligner bwameth	methylation only, WGS-scale bisulfite; not built by any run on this host yet -- previously a documented gap with no row at all (pipeline-selection.md §9)
 genomes/GRCh38/index/bowtie2/	build	nf-core/atacseq --save_reference (or bowtie2-build)	atacseq / chipseq / cutandrun
 genomes/GRCh38gatk/index/bwamem2/	build	bwa-mem2 index genome.fa	not interchangeable with the bwa index above
 genomes/GRCh38gatk/index/dragmap/	build	dragen-os --build-hash-table	sarek --aligner dragmap only
