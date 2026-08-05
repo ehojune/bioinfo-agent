@@ -66,8 +66,9 @@ your next turn, never inside this one.
   session you keep alive for its duration, and report progress from there. If you truly need
   to detach, keep a separate `wsl.exe` process alive for the whole run; a fire-and-forget
   invocation loses the run silently, which is worse than a slow one.
-- The other distro, **`Ubuntu-legacy`**, is a read-only archive of the user's old environment. Pull
-  a script or a data file out of it if you need one. Never run a pipeline there and never write to it.
+- `BIOINFO_ARCHIVE_DISTRO`, if set, names a read-only archive of the user's old environment
+  (`Ubuntu-legacy` on the original machine). Pull a script or a data file out of it if you need one.
+  Never run a pipeline there and never write to it. It is unset where there is no archive distro.
 - Repo `$BIOINFO_HOME` = `/mnt/d/bioinfo-agent` (= `D:\bioinfo-agent` from Windows). Config in `config/`,
   run records in `runs/<runid>/`.
 - References `$BIOINFO_REFS` = `/refs`, governed by `config/refs.manifest.tsv`. Standard paths only.

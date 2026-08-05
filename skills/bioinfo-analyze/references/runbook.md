@@ -76,8 +76,8 @@ One sequential rsync at the end costs a fraction of it. Corollary: never set
 boundary and drvfs symlinks require Windows developer mode.
 
 **You can still look at live results from Windows.** The distro's ext4 is browsable at
-`\\wsl.localhost\Ubuntu-24.04\work\nxf\<RUNID>\` in Explorer, and MultiQC HTML opens fine from
-there. Windows-visibility is not a reason to put the outdir on drvfs.
+`\\wsl.localhost\<distro>\work\nxf\<RUNID>\` in Explorer — `<distro>` is `$BIOINFO_DISTRO` — and
+MultiQC HTML opens fine from there. Windows-visibility is not a reason to put the outdir on drvfs.
 
 **Input FASTQs may stay on `/mnt/d`.** They are read sequentially, once or twice, and drvfs
 sequential throughput is adequate. If the trace shows alignment tasks pinned at low `%cpu` with high
@@ -618,7 +618,7 @@ on its own; it will sit at its high-water mark on `D:`. To actually reclaim, fro
 
 ```powershell
 wsl --shutdown
-wsl --manage Ubuntu-24.04 --set-sparse true     # WSL 2.0+; makes the VHDX auto-shrinking
+wsl --manage "$BIOINFO_DISTRO" --set-sparse true     # WSL 2.0+; makes the VHDX auto-shrinking
 ```
 <!-- UNVERIFIED: --set-sparse flag name/availability on the installed WSL version; check `wsl --help`.
      Fallback: diskpart → select vdisk file="D:\wsl\ubuntu-24.04\ext4.vhdx" → attach vdisk readonly

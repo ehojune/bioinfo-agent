@@ -13,7 +13,7 @@
 #   nextflow clean                   while any nextflow run is live.
 #   rm -r/-rf under the work root    unless the run is finished, handed off, and past the hold.
 #   rm -rf on a collapsed path       e.g. an unset variable turning a path into / or /<one-word>.
-#   a pipeline launched in the archive distro (Ubuntu-legacy), which is read-only by policy.
+#   a pipeline launched in the archive distro ($BIOINFO_ARCHIVE_DISTRO), which is read-only.
 #
 # WHAT IT DOES NOT DO
 # It is not a sandbox. It reads one command string and pattern-matches it. A determined caller
@@ -89,9 +89,12 @@ if printf '%s' "$CMD" | grep -qE 'cleanup[[:space:]]*=[[:space:]]*true'; then
 fi
 
 # ---------------------------------------------------------------- 2. archive distro is read-only
-if printf '%s' "$CMD" | grep -qE 'wsl(\.exe)?[^|;&]*-d[[:space:]]+Ubuntu-legacy' \
+ARCHIVE_DISTRO="${BIOINFO_ARCHIVE_DISTRO:-Ubuntu-legacy}"
+esc_archive="$(printf '%s' "$ARCHIVE_DISTRO" | sed 's/[][\.*^$+?()|{}]/\\&/g')"
+if printf '%s' "$CMD" | grep -qE "wsl(\.exe)?[^|;&]*-d[[:space:]]+${esc_archive}" \
    && printf '%s' "$CMD" | grep -qE 'nextflow|nf-core|docker[[:space:]]+run'; then
-  deny "Ubuntu-legacy is a read-only archive of the old environment. Pipelines run in Ubuntu-24.04."
+  deny "$ARCHIVE_DISTRO is a read-only archive of the old environment. Run pipelines in the
+      distro named by BIOINFO_DISTRO instead."
 fi
 
 # ---------------------------------------------------------------- 3. collapsed-path rm
@@ -120,7 +123,7 @@ fi
 # Only fires when a target genuinely sits under the work root; unrelated rm is none of our business.
 printf '%s' "$CMD" | grep -qE "$RECURSIVE" || allow
 
-esc_root="$(printf '%s' "$WORK_ROOT" | sed 's/[][\.*^$/]/\\&/g')"
+esc_root="$(printf '%s' "$WORK_ROOT" | sed 's/[][\.*^$+?(){}|/]/\\&/g')"
 targets="$(printf '%s' "$CMD" | grep -oE "(${esc_root}|/work)(/[^[:space:]\"';|&]*)*" || true)"
 [ -n "$targets" ] || allow
 
