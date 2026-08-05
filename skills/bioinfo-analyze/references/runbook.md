@@ -434,7 +434,7 @@ Do not wait on it mid-run; the trace is the live source.
 | `docker stats --no-stream` | at least one container with meaningful CPU% | all near 0% |
 | `vmstat 5 3` | `r` non-zero, or `wa` high (I/O-bound but progressing) | `r`=0, `wa`=0, `si`/`so`=0 |
 | `find "$NXFDIR/work" -newermt '-10 min' \| head` | files appearing | nothing for >10 min |
-| `df -h /work` | shrinking slowly | pinned at 0% avail |
+| `df -h "${BIOINFO_WORK:-/work}"` | shrinking slowly | pinned at 0% avail |
 | trace last line timestamp | advancing | frozen |
 
 Two specific slow-but-healthy states worth recognising before you kill anything: heavy **swap**
@@ -487,7 +487,7 @@ raise the `memory` directive for the offending process in `local.config`. Then `
 `memory` alone does not invalidate the cache, so completed tasks are reused.
 
 **Disk full.** `.command.err` contains `No space left on device`, or Nextflow reports a staging
-failure. `df -h /work`. Recovery: free space *outside* the current work dir — old runs' work dirs
+failure. `df -h "${BIOINFO_WORK:-/work}"`. Recovery: free space *outside* the current work dir — old runs' work dirs
 (section 9), `docker image prune`, `$BIOINFO_WORK/staging`. Never delete the current run's work dir to make
 room; you lose the resume cache and start over. Then `-resume`. If there is genuinely no room, the
 estimate was wrong: stop, re-plan, re-scope.
@@ -611,8 +611,15 @@ nextflow clean -n -before <run-name>               # DRY RUN first, always
 nextflow clean -f -before <run-name>               # removes work dirs + cache entries for older runs
 ```
 
-Or, for one finished run: `rm -rf "$NXFDIR/work"` and keep `.nextflow/`, the logs and the
-reports — they are small and they are the record.
+Or, for one finished run, with the path RESOLVED — `hooks/guard-workdir.sh` reads the command
+text before your shell expands it, so `rm -rf "$NXFDIR/work"` reaches it as an unexpanded
+variable it cannot tie to a run, and it refuses rather than guess:
+
+```bash
+rm -rf /work/nxf/20260728-rnaseq-koges-pilot/work    # substitute the real root and run id
+```
+
+Keep `.nextflow/`, the logs and the reports — they are small and they are the record.
 
 How much this frees: the work dir is typically 80–95% of a run's footprint. Concretely, ~90% of
 ~400 GB for a 30× WGS sarek run, ~90% of ~120 GB for a six-sample human RNA-seq run. Published

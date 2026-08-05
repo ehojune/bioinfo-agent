@@ -136,6 +136,25 @@ fi
 printf '%s' "$CMD" | grep -qE "$RECURSIVE" || allow
 
 esc_root="$(printf '%s' "$WORK_ROOT" | sed 's/[][\.*^$+?(){}|/]/\\&/g')"
+
+# UNEXPANDED VARIABLE IN THE TARGET.
+# This hook sees the command TEXT, before the caller's shell expands anything. So
+# `rm -rf "$NXFDIR/work"` arrives literally, and the extraction below pulls `/work` out of it
+# and would report "that is the entire work root" — blocking the one cleanup section 9
+# actually documents. The opposite shape, `cd $NXFDIR && rm -rf work`, hides the target
+# completely and would sail through.
+#
+# Neither answer is available to us: without the value there is no run id, so the finished /
+# handed-off / past-the-hold conditions cannot be checked at all. Say that, rather than guess
+# in either direction, and name the form that can be checked.
+if printf '%s' "$CMD" | grep -qE '\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/(nxf|work)'; then
+  deny "the target is an unexpanded variable, so this hook cannot tell which run it is —
+      and therefore cannot confirm the run has finished, been handed off, and passed the
+      ${HOLD_DAYS}-day hold. Re-issue it with the resolved path, e.g.
+        rm -rf ${WORK_ROOT}/nxf/<runid>/work
+      which is checkable. (references/runbook.md section 9 shows that form.)"
+fi
+
 targets="$(printf '%s' "$CMD" | grep -oE "(${esc_root}|/work)(/[^[:space:]\"';|&]*)*" || true)"
 [ -n "$targets" ] || allow
 
