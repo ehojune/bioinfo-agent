@@ -63,9 +63,10 @@ your next turn, never inside this one.
   last client session exits, WSL tears the distro down and takes the job with it. Verified —
   both `nohup … &` and `setsid nohup … &` were killed within seconds of the launching
   `wsl.exe` returning, leaving no log and no process. So launch the run in the foreground of a
-  session you keep alive for its duration, and report progress from there. If you truly need
-  to detach, keep a separate `wsl.exe` process alive for the whole run; a fire-and-forget
-  invocation loses the run silently, which is worse than a slow one.
+  session you keep alive for its duration, and report progress from there. To detach, use the
+  `tmux` recipe in `references/runbook.md` section 5 — its server is a long-lived process that
+  keeps the distro up, which is why it survives where `nohup` does not (measured both ways).
+  A fire-and-forget invocation loses the run silently, which is worse than a slow one.
 - `BIOINFO_ARCHIVE_DISTRO`, if set, names a read-only archive of the user's old environment
   (`Ubuntu-legacy` on the original machine). Pull a script or a data file out of it if you need one.
   Never run a pipeline there and never write to it. It is unset where there is no archive distro.
