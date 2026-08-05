@@ -5,7 +5,10 @@ RUNID=20260804-rnaseq-scer-verify
 PIPE=nf-core/rnaseq
 REV=3.18.0        # from config/pipelines.tsv
 RUNDIR=/mnt/d/bioinfo-agent/runs/$RUNID
-NXFDIR=/work/nxf/$RUNID
+# Same derivation bin/preflight.sh uses to pick the work dir it checks (disk space, ext4-ness).
+# A literal /work/nxf/$RUNID would silently diverge from that check on any host that sets
+# BIOINFO_WORK or NXF_WORKROOT.
+NXFDIR="${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID"
 
 # NXF_SYNTAX_PARSER=v1 — required on this host's installed Nextflow (26.04.6).
 # The default v2 config parser rejects local.config's `def X = ...` statements
