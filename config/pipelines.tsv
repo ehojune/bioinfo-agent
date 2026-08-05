@@ -30,4 +30,4 @@ methylseq	3.0.0	no	3.0 is a template rewrite from 2.x - re-derive columns
 atacseq	2.1.2	no	stable
 chipseq	2.1.0	no	samplesheet changed 1.x to 2.x; confirm replicate/control_replicate
 cutandrun	3.2.2	no	stable
-scrnaseq	2.7.1	no	aligner-specific params churn
+scrnaseq	2.7.1	2026-08-05	compact --genome form broken for this pipeline/nf-validation combo -- see config/genomes.config section 3a; use explicit --fasta/--gtf
