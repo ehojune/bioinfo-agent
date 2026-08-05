@@ -32,6 +32,9 @@ weaker %mCHH proxy can't fully separate "real conversion issue" from "RRBS locus
 | Global mCpG | 59.02% | 63.2% | 70–82% pass / 65–70% or 82–88% warn / further fail | **FAIL** both by the stated (WGBS) band — RRBS's CpG-island enrichment selects for typically-hypomethylated regions, which pulls this number down independent of conversion quality; the two effects are not separable from this data alone |
 | Duplication (dedup) | not run | not run | RRBS must NOT be deduplicated | **Correct** — `--rrbs` correctly skipped `deduplicate_bismark`, confirmed by the empty "Duplicate Reads (removed)" column in `bismark_summary_report.txt` for both samples |
 | Read length | 51 bp uniform | 51 bp uniform | — | Reported, matches SOURCE.md's intake verification |
+| M-bias, CHH context, R1 pos 1 | 5.70% | 8.21% | flat pass / edge ≤10bp warn / >20bp fail | **WARN, both** — inspected `bismark/methylation_calls/mbias/*.M-bias.txt` directly (not deferred). Elevated apparent methylation at R1 position 1 only (~2–3× the ~2.7% baseline both samples settle to by position 4), R2 flat from position 1 in both samples. Matches the classic RRBS end-repair fill-in artifact (Bismark's own docs recommend 5' clipping on R1 for exactly this), confined to ≤2bp — inside the warn band, not the fail band |
+
+**This M-bias finding directly bears on the FAIL rows above**: the aggregate %mCHH conversion proxy sums across all 51 positions, so ~1–2bp of artificially elevated signal at the very start of R1 inflates the whole-read average by a small, bounded amount — it does not by itself explain a swing from ≤1% (pass) to >2.7% (fail), but it is a real, non-conversion contributor to that number, on top of the RRBS-band-mismatch caveat already noted. Re-running with `--clip_r1 2` (or similar) and recomputing %mCHH on the clipped data would separate the two effects; not done in this run.
 
 Thresholds applied: `skills/bioinfo-analyze/references/qc-interpretation.md` §3.3. Note explicit in
 that file: "real non-CpG methylation exists in neurons and ES cells" as a caveat on the %mCHH
@@ -71,8 +74,9 @@ yet — reported as an open question, not resolved here.
   under `--igenomes_ignore`, these three new keys (bismark/bwameth/fasta_index) do not appear to
   actually reach `getGenomeAttribute()` — a compact `--genome GRCh38 --igenomes_ignore` stub-run
   still ran `BISMARK_GENOMEPREPARATION` rather than treating the (still-absent) index as prebuilt.
-  Root cause not isolated; use the explicit `--fasta`/`--bismark_index` form (as this run did) until
-  that's resolved.
+  Root cause not isolated; use the explicit `--fasta` form (as this run did — `--bismark_index`
+  specifically was NOT exercised, since no promoted index existed yet; `cmd.sh` passes `--fasta`
+  and lets `--save_reference` build the index fresh) until that's resolved.
 - Bismark index for GRCh38 not promoted from `results/bismark/reference_genome/` into
   `$BIOINFO_REFS` — a second methylseq run would rebuild it (~1h9m) unless promoted by hand first.
 - No RRBS-specific QC bands exist in `qc-interpretation.md` §3.3 (only WGBS mapping/global-mCpG
@@ -80,8 +84,9 @@ yet — reported as an open question, not resolved here.
   closing if RRBS becomes a recurring workload on this host.
 
 ## Next step for you
-Open the MultiQC report and Bismark's M-bias plots (paths above) if you want to check the
-conversion-efficiency question directly — a flat M-bias profile across the read body would argue
-against a trimming/conversion artifact and toward the RRBS-enrichment explanation; a sharp edge
-deviation would argue the other way. If bisulfite conversion quality matters for downstream work on
-this protocol, the cleanest fix is a spike-in-controlled run, not re-reading this data harder.
+M-bias is inspected above (WARN, R1 position 1 only, both samples) — it's a real but small,
+bounded contributor to the elevated %mCHH number, not the whole explanation. If bisulfite
+conversion quality matters for downstream work on this protocol: (1) a `--clip_r1 2`-and-recompute
+pass would isolate how much of the %mCHH gap the edge artifact alone accounts for, and (2) a
+spike-in-controlled run is the only way to get a real conversion-efficiency number rather than the
+weaker CHH proxy. Neither was run here — this run's scope was the mechanics smoke test.
