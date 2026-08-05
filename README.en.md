@@ -210,37 +210,9 @@ permissions, repeating observe → decide → act. But **steps 1–3 are read-on
 `file`, a few FASTQ header lines. A 50 GB BAM is recorded, not opened; verifying it becomes a line
 in `plan.md`.
 
-### Why three layers
-
-- **Substrate** (`bootstrap/`, `config/`) — machine-specific and constantly changing; re-running
-  rebuilds it from scratch.
-- **Skill** (`skills/bioinfo-analyze/`) — just markdown. You edit it, diff it, read it. Knowledge
-  trapped in an agent prompt is knowledge you cannot grep.
-- **Agent** (`agents/`) — execution isolation. Logs stay in the subagent; only the conclusion
-  crosses over.
-
-A pipeline that dies gets diagnosed from the skill's failure-mode reference, and whatever you worked
-out gets written back into the skill. **The agent is disposable; the skill compounds.**
-
-References follow the same principle: pipeline commands name only the standard path
-`$BIOINFO_REFS/genomes/GRCh38/fasta/genome.fa`, never `hg38.fa`. `config/refs.manifest.tsv` connects
-the two, and moving machines you fix only its source column. **What is portable is the manifest, not
-the bytes.**
-
-### Guardrails
-
-- Nothing estimated over **24 hours** starts without approval
-- No skipped **stub-run**; no deleted work directory (that kills `-resume`)
-- Refuses when free disk is under **1.5×** the estimate; warns before any download over **10 GB**
-- If it narrowed the scope, it says so out loud. QC verdicts only, no biological interpretation
-- **Does not hand-reproduce an existing pipeline** — wiring `bwa` + `samtools` + `gatk` together
-  yourself is rewriting sarek, and it costs you reproducibility, `-resume` and MultiQC
-- **Does not run binaries it found on disk** — tools come from containers
-
-Only the work-directory rule is machine-checked. If you installed the plugin, a hook refuses the
-dangerous deletions outright — install via `install.ps1` or symlinks and there is no hook. The rest
-of the list is a sentence in a prompt, and what the hook blocks under which conditions is documented
-in [`hooks/guard-workdir.sh`](hooks/guard-workdir.sh) itself.
+Why the three layers (substrate, skill, agent) are split, how references travel as a manifest, and
+the full guardrail list are in **[docs/agent-architecture.md](docs/agent-architecture.md)**. None of
+it is needed on first use, and nothing is lost by reading it later.
 
 ---
 
