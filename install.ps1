@@ -449,7 +449,14 @@ function Save-SettingsFile {
         (New-Object System.Text.UTF8Encoding($false)))
 }
 
-# Every hook command in PreToolUse that mentions our script, whatever path it names.
+# Every hook entry in PreToolUse that mentions our script, whatever path it names, as
+# @{ Text; ExecForm }.
+#
+# ExecForm is not cosmetic. Flattening `"command": "bash"` + `"args": ["<path>"]` into one string
+# produces the same text as the shell form `"command": "bash <path>"`, so comparing text alone
+# reports an exec-form entry for this very checkout as already correct and leaves the args key
+# in place -- the one shape that fails open on Windows, which is what this whole change exists to
+# remove. The caller needs to tell the two apart.
 function Get-RegisteredGuardCommands {
     param($Settings)
     $found = New-Object System.Collections.ArrayList
@@ -460,7 +467,9 @@ function Get-RegisteredGuardCommands {
             $blob = [string](Get-JsonProp $h 'command')
             $a = Get-JsonProp $h 'args'
             if ($null -ne $a) { $blob = $blob + ' ' + ((@($a) | ForEach-Object { [string]$_ }) -join ' ') }
-            if ($blob -like "*$GuardMarker*") { $null = $found.Add($blob.Trim()) }
+            if ($blob -like "*$GuardMarker*") {
+                $null = $found.Add([pscustomobject]@{ Text = $blob.Trim(); ExecForm = ($null -ne $a) })
+            }
         }
     }
     return $found
@@ -551,24 +560,33 @@ function Install-GuardHook {
 
     $want     = Get-GuardHookCommand
     $existing = @(Get-RegisteredGuardCommands -Settings $settings)
+    $foreign  = @($existing | Where-Object { $_.Text -ne $want })
+    $stale    = @($existing | Where-Object { $_.Text -eq $want -and $_.ExecForm })
 
-    if ($existing.Count -eq 1 -and $existing[0] -eq $want) {
+    if ($foreign.Count -eq 0 -and $existing.Count -eq 1 -and $stale.Count -eq 0) {
         Add-Result $Scope $item 'OK' 'already registered for this repo'
         return
     }
-    if ($existing.Count -gt 0 -and -not $Force) {
+
+    # -Force gates one thing only: a registration naming a DIFFERENT path, which means two
+    # checkouts disagree and the user should see that rather than have it resolved silently.
+    # Everything left over here is ours -- an exec-form entry for this same checkout, or a
+    # duplicate of it -- and rewriting that needs no permission. Exec form is the fail-open
+    # shape; refusing to fix it without a flag would strand the user on the broken one.
+    if ($foreign.Count -gt 0 -and -not $Force) {
         $detail = if ($existing.Count -gt 1) {
             "$($existing.Count) guard hooks already registered - re-run with -Force to collapse to one"
         } else {
-            "a guard hook is registered for another path ($($existing[0])) - re-run with -Force to repoint"
+            "a guard hook is registered for another path ($($existing[0].Text)) - re-run with -Force to repoint"
         }
         Add-Result $Scope $item 'REFUSED' $detail
         return
     }
 
     $verb = if ($existing.Count -gt 0) { 'REPLACED' } else { 'LINKED' }
-    if (-not $PSCmdlet.ShouldProcess($settingsPath, "register PreToolUse hook -> $want")) {
-        Add-Result $Scope $item 'DRY-RUN' "would register PreToolUse hook -> $want"
+    $why  = if ($stale.Count -gt 0 -and $foreign.Count -eq 0) { ' (was exec form: "args" resolves bash on PATH and fails open on Windows)' } else { '' }
+    if (-not $PSCmdlet.ShouldProcess($settingsPath, "register PreToolUse hook -> $want$why")) {
+        Add-Result $Scope $item 'DRY-RUN' "would register PreToolUse hook -> $want$why"
         return
     }
 
@@ -585,7 +603,7 @@ function Install-GuardHook {
     $hooks.PreToolUse = @(@($hooks.PreToolUse) + (New-GuardHookEntry))
 
     Save-SettingsFile -Path $settingsPath -Settings $settings -BackupStamp $stamp
-    $detail = "PreToolUse on Bash -> $want"
+    $detail = "PreToolUse on Bash -> $want$why"
     if ($read.Existed) { $detail += " (backup: settings.json.bak-$stamp)" }
     Add-Result $Scope $item $verb $detail
 }
@@ -812,7 +830,8 @@ foreach ($t in $targets) {
     $rd = Read-SettingsFile -Path $sp
     if ($rd.Ok) {
         foreach ($c in @(Get-RegisteredGuardCommands -Settings $rd.Object)) {
-            Write-Host ("  {0}  ->  PreToolUse: {1}" -f $sp, $c)
+            $form = if ($c.ExecForm) { '  [EXEC FORM - fails open on Windows]' } else { '' }
+            Write-Host ("  {0}  ->  PreToolUse: {1}{2}" -f $sp, $c.Text, $form)
         }
     }
 }
