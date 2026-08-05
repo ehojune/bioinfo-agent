@@ -112,11 +112,17 @@ via `df -h` just now): comfortably clear.
 ```
 nextflow run nf-core/scrnaseq -r 2.7.1 -profile docker \
   -c config/local.config -c config/genomes.config \
-  --igenomes_ignore --genome GRCh38 \
+  --igenomes_ignore \
+  --fasta /refs/genomes/GRCh38/fasta/GRCh38.fa \
+  --gtf   /refs/genomes/GRCh38/gtf/GRCh38.gtf.gz \
   --aligner star --protocol 10XV3 \
   --input samplesheet.csv --save_reference \
   --outdir <work>/results -work-dir <work>/work -resume
 ```
+(Written at plan time with the compact `--genome GRCh38` form -- corrected here to the explicit
+`--fasta`/`--gtf` form that `cmd.sh` actually uses, once "Discovered this run" below found the
+compact form broken. This is the runnable shape; copying the version with `--genome GRCh38`
+reproduces the parameter-validation failure, not this run's successful invocation.)
 
 ## QC thresholds to apply at step 6
 Per `qc-interpretation.md` conventions for scrnaseq/STARsolo (stated here so the verdict isn't
