@@ -428,10 +428,10 @@ analysis. Not for single-cell ATAC.
 
 | param | value | why |
 |---|---|---|
-| `--aligner` | `bowtie2` | the ATAC convention; `chromap` is much faster if you accept its filtering behaviour |
+| `--aligner` | `bowtie2` | the ATAC convention. **Confirmed 2026-08-05 (atacseq 2.1.2): the pipeline's own default is `bwa`, not `bowtie2`** — this is a bounded choice you make explicitly, not the tool defaulting your way. `chromap` is much faster if you accept its filtering behaviour |
 | `--read_length` | actual read length | selects the matching index/mappability settings |
-| `--macs_gsize` | `2.7e9` for human | wrong gsize silently distorts every peak call |
-| `--blacklist` | ENCODE hg38 blacklist | the pipeline ships blacklists under `assets/blacklists/`; not having one leaves a ring of artefact peaks <!-- UNVERIFIED: confirm the bundled filename with `find "$NXF_ASSETS" -path '*nf-core/atacseq*' -path '*assets/blacklists*' -name '*hg38*'` --> |
+| `--macs_gsize` | `2700000000` for human — **plain decimal, not `2.7e9`** | wrong gsize silently distorts every peak call. Confirmed 2026-08-05 (atacseq 2.1.2): nf-schema's number-type validation rejects scientific-notation CLI strings outright (`expected type: Number, found: String (2.7e9)`), which fails the run before anything executes — not a silent distortion this time, but still worth getting right on the first `-stub-run` rather than the second |
+| `--blacklist` | ENCODE hg38 blacklist v2 | confirmed bundled at `assets/blacklists/v2.0/hg38-blacklist.v2.bed` (atacseq 2.1.2); byte-identical to the store's own `genomes/GRCh38/bed/blacklist.bed` (added 2026-08-05, see §9) — not having one leaves a ring of artefact peaks |
 | `--mito_name` | `chrM` | must match the FASTA. UCSC hg38 uses `chrM`. Getting this wrong means mito reads are never removed and the library looks far better than it is |
 | `--min_reps_consensus` | 1 or 2 | how many replicates a peak must appear in to enter the consensus set. **This is a bounded choice — state it in the handoff** |
 
@@ -440,8 +440,8 @@ analysis. Not for single-cell ATAC.
 ```
 $BIOINFO_REFS/genomes/GRCh38/fasta/genome.fa
 $BIOINFO_REFS/genomes/GRCh38/gtf/genes.gtf.gz
-$BIOINFO_REFS/genomes/GRCh38/index/bowtie2/      no manifest row yet — see §9
-$BIOINFO_REFS/genomes/GRCh38/bed/blacklist.bed   no manifest row yet — see §9
+$BIOINFO_REFS/genomes/GRCh38/index/bowtie2/      manifest row present (build mode) — index itself absent until a --save_reference run builds it
+$BIOINFO_REFS/genomes/GRCh38/bed/blacklist.bed   present — added 2026-08-05, see §9
 ```
 
 **Key outputs:** `<aligner>/merged_library/macs2/narrow_peak/` per-sample peaks, the consensus peak
@@ -465,10 +465,13 @@ differential binding as a finished product (same limitation as atacseq).
 are samples too and need their own rows; that is what makes a 6-ChIP + 2-input design cost eight.
 
 **Parameters that matter here:** `--narrow_peak` vs broad (default is broad in some revisions —
-check; TFs want narrow, H3K27me3/H3K36me3 want broad), `--macs_gsize 2.7e9`, `--blacklist`,
-`--read_length`, `--aligner bwa|bowtie2`, `--min_reps_consensus`.
+check; TFs want narrow, H3K27me3/H3K36me3 want broad), `--macs_gsize 2700000000` (plain decimal —
+see the atacseq §4.6 note on why `2.7e9` fails schema validation), `--blacklist`, `--read_length`,
+`--aligner bwa|bowtie2`, `--min_reps_consensus`.
 
-**Reference-store paths:** same set as atacseq (§4.6).
+**Reference-store paths:** same set as atacseq (§4.6) — **including** the blacklist, which the
+store now carries at `genomes/GRCh38/bed/blacklist.bed` (§9). Not the same store asset as
+cutandrun's blacklist below; see the note on §4.8's row for why those two must not be conflated.
 
 **Key outputs:** same shape as atacseq — per-sample peaks, consensus BED + count matrix, bigWigs,
 MultiQC with phantompeakqualtools metrics.
@@ -504,10 +507,17 @@ uses `group`/`replicate`, **not** `sample`; copying an atacseq samplesheet acros
 ```
 $BIOINFO_REFS/genomes/GRCh38/fasta/genome.fa
 $BIOINFO_REFS/genomes/GRCh38/gtf/genes.gtf.gz
-$BIOINFO_REFS/genomes/GRCh38/index/bowtie2/        no manifest row yet — see §9
+$BIOINFO_REFS/genomes/GRCh38/index/bowtie2/        manifest row present (build mode) — index itself absent until built
 $BIOINFO_REFS/genomes/ECOLI_K12/fasta/genome.fa    no manifest row yet — see §9
 $BIOINFO_REFS/genomes/ECOLI_K12/index/bowtie2/     no manifest row yet — see §9
 ```
+
+**Do not point `--blacklist` at `genomes/GRCh38/bed/blacklist.bed` (the atacseq/chipseq ENCODE
+list) for this pipeline.** nf-core/cutandrun 3.2.2's own `conf/igenomes.config` maps GRCh38 to its
+bundled `assets/blacklists/GRCh38-blacklist.bed` — a different, CUT&RUN-specific region set (1049
+regions vs 636 in the ENCODE ChIP-seq list; confirmed by diff 2026-08-05). Use the pipeline's own
+bundled file, or add a *separate* manifest row for it if it needs to be store-resident — do not
+reuse the atacseq/chipseq row.
 
 By default the pipeline will fetch the spike-in genome itself. On this host, prefer adding it to
 the store so the run is offline-reproducible.
@@ -862,14 +872,23 @@ Selecting a pipeline surfaces references the manifest does not yet carry. These 
 not missing files — fix `config/refs.manifest.tsv` and re-run `bootstrap/04-refs.sh` rather than
 hand-placing anything under `/refs`.
 
+**As of 2026-08-05 (run `20260805-atacseq-gbr-lcl-smoke`)**, two of the rows this section used to
+list as missing were re-checked against the manifest directly and turned out not to both be gaps:
+`genomes/GRCh38/index/bowtie2/` has had a `build`-mode manifest row from day one (it was never
+missing — only the index *file* was, which the first atacseq run has since built and promoted into
+the store); `genomes/GRCh38/bed/blacklist.bed` genuinely had no row and was fetched and added this
+run (PR #10). Both are removed from the table below. If you are reading this file at a much later
+date, re-verify with `bash bootstrap/04-refs.sh --dry-run` rather than trusting this table on
+sight — this stale-doc drift is exactly why: the row can look missing here for months after the
+underlying gap was actually fixed, and the fastest way to know is to ask the filesystem.
+
 | Standard path | Mode | Needed by | Note |
 |---|---|---|---|
-| `genomes/GRCh38/index/bowtie2/` | build | atacseq, chipseq, cutandrun | `bowtie2-build`, or `--save_reference` on the first run |
 | `genomes/GRCh38/index/bwa/` | build | chipseq (`--aligner bwa`), methylseq bwameth | the existing BWA index is on `GRCh38gatk`, a different FASTA |
 | `genomes/GRCh38/index/bwameth/` | build | methylseq `--aligner bwameth` | `bwameth.py index` |
-| `genomes/GRCh38/bed/blacklist.bed` | fetch | atacseq, chipseq | ENCODE hg38 blacklist v2; the pipelines also ship copies under `assets/blacklists/` |
 | `genomes/ECOLI_K12/fasta/genome.fa` + `index/bowtie2/` | fetch/build | cutandrun spike-in | otherwise the pipeline downloads it per run |
 | `genomes/GRCh38/fasta/genome.dict` | build | any GATK-adjacent step on the UCSC build | already a `build` row; still absent |
+| cutandrun's own GRCh38 blacklist | none — pipeline-bundled, not a store asset | cutandrun `--blacklist` | **not** the atacseq/chipseq ENCODE blacklist above — nf-core/cutandrun 3.2.2 bundles a different, protocol-specific region set at `assets/blacklists/GRCh38-blacklist.bed`. Add a separate manifest row only if it needs to be store-resident; do not point cutandrun at `genomes/GRCh38/bed/blacklist.bed` |
 
 Everything already flagged missing in `references/reference-store.md` — both `.dict` files, the
 GATK bundle, STAR/salmon/bismark indexes, VEP/snpEff caches — applies here too. State the missing
