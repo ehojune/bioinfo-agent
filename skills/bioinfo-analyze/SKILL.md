@@ -119,7 +119,9 @@ and names here are for orientation, not for typing into a shell.
 
 - **Execution host**: the WSL2 distro named by `BIOINFO_DISTRO` (`Ubuntu-24.04` on the machine this
   was written for — confirm with `wsl -l -v`, and do not assume it: a second Windows profile on the
-  same box has its own distros). From Windows: `wsl -d "$BIOINFO_DISTRO" -- bash -lc '<cmd>'`.
+  same box has its own distros). From Windows: `wsl -d <distro> -- bash -lc '<cmd>'` — substitute
+  the name. `$BIOINFO_DISTRO` is a WSL-side variable; in PowerShell it expands to nothing and
+  `wsl -d ""` fails. On the Windows side use `$env:BIOINFO_DISTRO`, and only if you set it there.
   If `BIOINFO_ARCHIVE_DISTRO` is set it is a read-only archive of the user's old environment —
   pull old scripts and data out of it, never run a pipeline in it. It may be unset, in which case
   there is no archive distro on this machine.
