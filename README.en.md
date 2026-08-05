@@ -111,9 +111,9 @@ nextflow run nf-core/rnaseq -r 3.18.0 -profile docker --input samplesheet.csv --
 ```
 
 That one line handles QC → trimming → alignment → quantification → report. **This agent assembles
-it, runs it, and reads the results.** [`config/pipelines.tsv`](config/pipelines.tsv) decides the
-revision pins. The one in the example above, like every pin in these docs, is a copy;
-`bin/preflight.sh` checks the command you actually launch against that table.
+it, runs it, and reads the results.** Pipeline versions are set by
+[`config/pipelines.tsv`](config/pipelines.tsv) and checked before a run starts. Any revision printed
+in the docs, the one above included, is a copy of that table.
 
 ---
 
@@ -183,11 +183,10 @@ Hand long runs to the agent — `Tell the bioinfo-tech agent to run sarek`. `nex
 of thousands of log lines; run inside a subagent, that traffic is digested there and only the
 conclusion comes back.
 
-> **A long run needs a session that stays open.** If you drive WSL from Windows one
-> `wsl -d <distro> -- bash …` call at a time, a job started with `nohup … &` dies within seconds:
-> WSL tears the distro down as the last session closes, and nothing is left behind — no log, no
-> process, no error. Keep the launching session open, or start the run under `tmux`, whose
-> long-lived server process holds the distro up (`01-wsl-base.sh` installs it).
+> **A long run needs its window left open.** WSL shuts the distro down when the last session
+> closes, so a job pushed into the background (`nohup … &`) disappears without writing a single log
+> line. Leave the session open, or start it under `tmux`. Details in
+> [runbook.md](skills/bioinfo-analyze/references/runbook.md) section 5.
 
 Useful to give it: the absolute data path, sample count and format, species and genome build, **the
 actual question** ("find rare variants" vs "expression differences" is what decides the pipeline),
@@ -238,13 +237,10 @@ the bytes.**
   yourself is rewriting sarek, and it costs you reproducibility, `-resume` and MultiQC
 - **Does not run binaries it found on disk** — tools come from containers
 
-Exactly one of those is machine-checked, and only if you installed the plugin:
-[`hooks/guard-workdir.sh`](hooks/guard-workdir.sh) ships in `hooks/hooks.json` and registers as a
-PreToolUse hook. It refuses `-with-cleanup`, `cleanup = true`, `nextflow clean` while a run is live,
-and any `rm -rf` on a work directory unless that run is finished, handed off, and past the hold
-(7 days by default) — on every Bash call in the session, not just the subagent's. `install.ps1` and
-hand-made symlinks cover `skills/` and `agents/` only, so on that route this rule is a sentence in a
-prompt like the rest of the list.
+Only the work-directory rule is machine-checked. If you installed the plugin, a hook refuses the
+dangerous deletions outright — install via `install.ps1` or symlinks and there is no hook. The rest
+of the list is a sentence in a prompt, and what the hook blocks under which conditions is documented
+in [`hooks/guard-workdir.sh`](hooks/guard-workdir.sh) itself.
 
 ---
 

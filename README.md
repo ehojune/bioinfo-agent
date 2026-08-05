@@ -106,9 +106,8 @@ nextflow run nf-core/rnaseq -r 3.18.0 -profile docker --input samplesheet.csv --
 ```
 
 이 한 줄이 QC → 트리밍 → 정렬 → 정량 → 리포트를 전부 처리한다. **이 에이전트는 그 한 줄을 대신
-조립하고, 돌리고, 결과를 읽어준다.** 리비전 핀은 [`config/pipelines.tsv`](config/pipelines.tsv) 가
-정한다. 위 예시처럼 문서에 박힌 리비전은 복사본이고, 실제로 띄우는 명령은 `bin/preflight.sh` 가 이
-표와 맞춰본다.
+조립하고, 돌리고, 결과를 읽어준다.** 파이프라인 버전은 [`config/pipelines.tsv`](config/pipelines.tsv)
+가 정하고, 실행 전에 대조한다. 위 예시처럼 문서에 적힌 리비전은 복사본이다.
 
 ---
 
@@ -173,11 +172,9 @@ Claude Code의 스킬과 에이전트는 **로컬 파일**이라 Anthropic 계�
 긴 실행은 에이전트에 위임한다 — `bioinfo-tech 에이전트한테 sarek 돌리라고 해줘`. `nextflow run`
 은 로그를 수만 줄 뱉는데, 서브에이전트 안에서 돌면 그게 거기서 소화되고 결론만 돌아온다.
 
-> **긴 실행은 세션을 열어둔 채로 돌린다.** Windows에서 `wsl -d <distro> -- bash …` 로 한 번씩
-> 호출하는 방식이면 `nohup … &` 로 띄운 작업이 몇 초 안에 죽는다. 마지막 세션이 닫히는 순간 WSL이
-> 배포판을 내리기 때문이고, 로그도 프로세스도 에러도 남지 않는다. 실행한 세션을 그대로 두거나
-> `tmux` 로 띄운다 — tmux는 서버 프로세스가 살아 있어서 배포판을 붙잡아 둔다
-> (`01-wsl-base.sh` 가 설치한다).
+> **긴 실행은 창을 닫지 말고 켜둔다.** WSL은 마지막 세션이 닫히면 배포판을 내려버려서, 백그라운드로
+> (`nohup … &`) 띄운 작업이 로그 한 줄 없이 사라진다. 창을 그대로 두거나 `tmux` 로 띄운다. 자세한
+> 건 [runbook.md](skills/bioinfo-analyze/references/runbook.md) 5절.
 
 주면 좋은 것: 데이터 절대경로, 샘플 수·형식, 종·게놈 빌드, **실제 질문**("희귀변이 찾기" 인지
 "발현 차이" 인지에서 파이프라인이 갈린다), 설계, 시간 허용치, 기존 산출물. 경로만 줘도 시작한다 —
@@ -223,12 +220,9 @@ Claude Code의 스킬과 에이전트는 **로컬 파일**이라 Anthropic 계�
   sarek을 다시 짜는 것이고, 재현성도 `-resume` 도 MultiQC도 잃는다
 - **디스크에서 찾은 바이너리를 실행하지 않는다** — 도구는 컨테이너에서 온다
 
-위 항목 가운데 기계가 막는 건 work 디렉토리 하나뿐이고, 플러그인으로 설치했을 때만 그렇다.
-[`hooks/guard-workdir.sh`](hooks/guard-workdir.sh) 가 `hooks/hooks.json` 에 실려 PreToolUse 훅으로
-붙는다. `-with-cleanup` 과 `cleanup = true`, 살아 있는 실행을 향한 `nextflow clean`, 그리고 끝나서
-인계되고 보류 기간(기본 7일)까지 지난 실행이 아니면 work 디렉토리 삭제를 거부한다. 서브에이전트만이
-아니라 그 세션의 Bash 호출 전부에 걸린다. `install.ps1` 과 손으로 건 심링크는 `skills/` 와
-`agents/` 만 잡아주니, 그 경로로 설치했으면 이 항목도 나머지처럼 프롬프트에 적힌 문장이다.
+이 중 work 디렉토리 규칙만 기계가 막는다. 플러그인으로 설치했으면 훅이 위험한 삭제 명령을 실제로
+거부한다 — `install.ps1` 이나 심링크로 깔았으면 훅이 없다. 나머지는 프롬프트에 적힌 문장이고,
+무엇을 어떤 조건에서 막는지는 [`hooks/guard-workdir.sh`](hooks/guard-workdir.sh) 주석에 있다.
 
 ---
 
