@@ -63,8 +63,15 @@ fi
 #
 # The list is deliberately short. sed (-i), git (clean), find (-delete) and xargs are NOT
 # on it: each can delete, so each stays subject to the checks.
+#
+# A redirection cancels the exemption. `echo "cleanup = true" >> nextflow.config` starts with
+# a reader but WRITES the setting that destroys -resume, and the verb alone cannot see that.
+# Any segment containing `>` is scanned. That costs a false positive on things like
+# `grep -r 'nextflow clean' docs/ > out.txt`, which is the right way to be wrong here: the
+# exemption exists because reading about a command is not running it, and a redirect is a write.
 CMD_SCAN="$(
   printf '%s\n' "$CMD" | tr ';|&' '\n\n\n' | while IFS= read -r _seg || [ -n "$_seg" ]; do
+    case "$_seg" in *'>'*) printf '%s\n' "$_seg"; continue ;; esac
     _verb="$(printf '%s' "$_seg" | sed 's/^[[:space:]]*//' | awk '{print $1}')"
     case "${_verb##*/}" in
       echo|printf|grep|egrep|fgrep|rg|ag|cat|head|tail|less|more|wc|diff|comm|sort|uniq|column|nl|strings|jq|test|true|false)

@@ -291,7 +291,8 @@ nextflow -log "$NXFDIR/.nextflow.log" \
 alive, which keeps the distro up, and lets you re-attach to see live output:
 
 ```bash
-sudo apt-get install -y tmux                       # once
+# bootstrap/01-wsl-base.sh installs tmux. On a host bootstrapped some other way:
+#   sudo apt-get install -y tmux
 
 # Self-contained on purpose: RUNID and RUNDIR are assigned INSIDE cmd.sh, so a fresh shell
 # (which is what the one-shot `wsl -d <distro> -- bash …` workflow always gives you) has
@@ -360,7 +361,7 @@ Notes on the shape:
   measured here: both `nohup … &` and `setsid nohup … &` were gone within seconds, with no
   log written and no process left. It also does not survive `wsl --shutdown`, Windows sleep,
   or a reboot. Either keep the launching session alive for the whole run, or run under `tmux`
-  (`sudo apt-get install -y tmux`) inside a session that stays open, so you can re-attach.
+  (installed by `bootstrap/01-wsl-base.sh`) inside a session that stays open, so you can re-attach.
   A run launched fire-and-forget from Windows is a run you have silently lost.
 
 **Stopping cleanly:** Ctrl-C in the foreground session, or — under `tmux` — kill the pid the
