@@ -223,11 +223,12 @@ Claude Code의 스킬과 에이전트는 **로컬 파일**이라 Anthropic 계�
   sarek을 다시 짜는 것이고, 재현성도 `-resume` 도 MultiQC도 잃는다
 - **디스크에서 찾은 바이너리를 실행하지 않는다** — 도구는 컨테이너에서 온다
 
-위 항목 가운데 기계가 막는 건 work 디렉토리 하나다. [`hooks/guard-workdir.sh`](hooks/guard-workdir.sh)
-가 PreToolUse 훅으로 붙어 `-with-cleanup` 과 `cleanup = true`, 살아 있는 실행을 향한
-`nextflow clean`, 그리고 끝나서 인계되고 보류 기간(기본 7일)까지 지난 실행이 아니면 work 디렉토리
-삭제를 거부한다. 서브에이전트만이 아니라 플러그인이 깔린 세션의 Bash 호출 전부에 걸린다. 나머지
-항목은 프롬프트에 적힌 문장일 뿐이다.
+위 항목 가운데 기계가 막는 건 work 디렉토리 하나뿐이고, 플러그인으로 설치했을 때만 그렇다.
+[`hooks/guard-workdir.sh`](hooks/guard-workdir.sh) 가 `hooks/hooks.json` 에 실려 PreToolUse 훅으로
+붙는다. `-with-cleanup` 과 `cleanup = true`, 살아 있는 실행을 향한 `nextflow clean`, 그리고 끝나서
+인계되고 보류 기간(기본 7일)까지 지난 실행이 아니면 work 디렉토리 삭제를 거부한다. 서브에이전트만이
+아니라 그 세션의 Bash 호출 전부에 걸린다. `install.ps1` 과 손으로 건 심링크는 `skills/` 와
+`agents/` 만 잡아주니, 그 경로로 설치했으면 이 항목도 나머지처럼 프롬프트에 적힌 문장이다.
 
 ---
 

@@ -238,12 +238,13 @@ the bytes.**
   yourself is rewriting sarek, and it costs you reproducibility, `-resume` and MultiQC
 - **Does not run binaries it found on disk** — tools come from containers
 
-Exactly one of those is enforced mechanically: the work directory.
-[`hooks/guard-workdir.sh`](hooks/guard-workdir.sh) installs as a PreToolUse hook and refuses
-`-with-cleanup`, `cleanup = true`, `nextflow clean` while a run is live, and any `rm -rf` on a work
-directory unless that run is finished, handed off, and past the hold (7 days by default). It sees
-every Bash call in a session with the plugin installed, not just the subagent's. The rest of the list
-is a sentence in a prompt.
+Exactly one of those is machine-checked, and only if you installed the plugin:
+[`hooks/guard-workdir.sh`](hooks/guard-workdir.sh) ships in `hooks/hooks.json` and registers as a
+PreToolUse hook. It refuses `-with-cleanup`, `cleanup = true`, `nextflow clean` while a run is live,
+and any `rm -rf` on a work directory unless that run is finished, handed off, and past the hold
+(7 days by default) — on every Bash call in the session, not just the subagent's. `install.ps1` and
+hand-made symlinks cover `skills/` and `agents/` only, so on that route this rule is a sentence in a
+prompt like the rest of the list.
 
 ---
 
