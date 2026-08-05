@@ -38,7 +38,7 @@ RUNID = <YYYYMMDD>-<pipeline>-<slug>          e.g. 20260728-rnaseq-koges-pilot
   ├── reports/                           rsync target: report/trace/timeline per attempt
   └── handoff.md                         written at the END
 
-/work/nxf/$RUNID/                      ext4 inside the distro — everything live
+$BIOINFO_WORK/nxf/$RUNID/              ext4 inside the distro — everything live  (BIOINFO_WORK defaults to /work)
   ├── work/                              -work-dir, task scratch
   ├── .nextflow/                         resume cache (LevelDB)  <-- must be ext4
   ├── .nextflow.log[.1.2…]
@@ -87,8 +87,8 @@ sequential throughput is adequate. If the trace shows alignment tasks pinned at 
 ### One-time host setup
 
 ```bash
-sudo mkdir -p /work/nxf /work/staging
-sudo chown -R "$USER:$USER" /work
+sudo mkdir -p "${BIOINFO_WORK:-/work}"/nxf "${BIOINFO_WORK:-/work}"/staging
+sudo chown -R "$USER:$USER" "${BIOINFO_WORK:-/work}"
 ```
 
 Put this in `~/.bashrc` (or the skill's env preamble):
@@ -96,7 +96,7 @@ Put this in `~/.bashrc` (or the skill's env preamble):
 ```bash
 export BIOINFO_HOME=/mnt/d/bioinfo-agent
 export BIOINFO_REFS=/refs
-export NXF_WORKROOT=/work/nxf
+export NXF_WORKROOT="${BIOINFO_WORK:-/work}/nxf"
 export NXF_ASSETS="$BIOINFO_REFS/cache/nf-assets"    # pipeline clones live on ext4
 export NXF_OPTS='-Xms1g -Xmx8g'                       # cap the launcher JVM (03-nextflow.sh sets this)
 export NXF_ANSI_LOG=false                             # backgrounded logs must not be redraw spam
@@ -255,7 +255,7 @@ RUNID=20260728-rnaseq-koges-pilot
 PIPE=nf-core/rnaseq
 REV=3.18.0                                  # from config/pipelines.tsv
 RUNDIR=/mnt/d/bioinfo-agent/runs/$RUNID
-NXFDIR=/work/nxf/$RUNID
+NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation as bin/preflight.sh
 TS=$(date +%Y%m%d-%H%M%S)
 
 mkdir -p "$NXFDIR/work" "$NXFDIR/results" "$NXFDIR/reports"
@@ -293,6 +293,10 @@ sudo apt-get install -y tmux                       # once
 # neither. Left unset they expand to an empty session name and `bash /cmd.sh`.
 RUNID=20260728-rnaseq-koges-pilot                  # the same id cmd.sh sets
 RUNDIR=/mnt/d/bioinfo-agent/runs/$RUNID
+# Same derivation as cmd.sh and bin/preflight.sh. A host that moves runs off the default root
+# by setting BIOINFO_WORK would otherwise have the pid written somewhere cmd.sh never used,
+# leaving the guard and the stop command reading a file that does not exist.
+NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID
 
 tmux new-session -d -s "$RUNID" "bash '$RUNDIR/cmd.sh'"
 
@@ -317,7 +321,7 @@ for _ in $(seq 30); do                             # up to ~30 s for the JVM to 
   sleep 1
 done
 if [ "${#_pids[@]}" -eq 1 ]; then
-  printf '%s\n' "${_pids[0]}" > "/work/nxf/$RUNID/nextflow.pid"
+  printf '%s\n' "${_pids[0]}" > "$NXFDIR/nextflow.pid"
 else
   echo "WARNING: expected exactly one nextflow process for $RUNID, found ${#_pids[@]}." >&2
   echo "         No pid recorded; the work-dir guard falls back to its process scan." >&2
@@ -356,7 +360,8 @@ Notes on the shape:
 launch recorded:
 
 ```bash
-kill -TERM "$(cat "/work/nxf/$RUNID/nextflow.pid")"
+NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID
+kill -TERM "$(cat "$NXFDIR/nextflow.pid")"
 ```
 
 Use the recorded pid, **not** `pkill -f "nextflow.*$RUNID"`. `-f` matches against the whole
