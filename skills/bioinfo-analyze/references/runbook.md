@@ -66,7 +66,7 @@ sufficient:
 
 **The launch dir is also on ext4** — not only `-work-dir`. `.nextflow/cache` and `.nextflow.log` are
 created relative to the current directory, so launching from `/mnt/d/...` puts the resume cache on
-drvfs even when `-work-dir` is correct. Always `cd /work/nxf/$RUNID` first.
+drvfs even when `-work-dir` is correct. Always `cd "$NXFDIR"` first.
 
 **`--outdir` points at ext4 during the run**, and results are rsynced to `/mnt/d` once at the end.
 nf-core's default `publish_dir_mode = 'copy'` means every published file is copied out of the work
@@ -81,7 +81,7 @@ MultiQC HTML opens fine from there. Windows-visibility is not a reason to put th
 
 **Input FASTQs may stay on `/mnt/d`.** They are read sequentially, once or twice, and drvfs
 sequential throughput is adequate. If the trace shows alignment tasks pinned at low `%cpu` with high
-`wa`, copy the FASTQs to `/work/staging/$RUNID/` and re-point the samplesheet — but see the
+`wa`, copy the FASTQs to `$BIOINFO_WORK/staging/$RUNID/` and re-point the samplesheet — but see the
 `-resume` section first, because doing that mid-run changes input mtimes and busts the cache.
 
 ### One-time host setup
@@ -197,7 +197,8 @@ Two cheap gates, in this order. Never skip either.
 violations, missing required params, and unresolvable reference paths in seconds.
 
 ```bash
-cd /work/nxf/$RUNID
+NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
+cd $NXFDIR
 nextflow run nf-core/rnaseq -r 3.18.0 -profile docker \
   -params-file $RUNDIR/params.yaml \
   -c $BIOINFO_HOME/config/local.config \
@@ -209,12 +210,13 @@ the real command. It creates empty output files, so it validates channel wiring,
 parsing, and the full topology end to end — in minutes, on kilobytes.
 
 ```bash
-cd /work/nxf/$RUNID
+NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
+cd $NXFDIR
 nextflow run nf-core/rnaseq -r 3.18.0 -profile docker \
   -params-file $RUNDIR/params.yaml \
   -c $BIOINFO_HOME/config/local.config \
-  -work-dir /work/nxf/$RUNID/stub-work \
-  --outdir /work/nxf/$RUNID/stub-results \
+  -work-dir $NXFDIR/stub-work \
+  --outdir $NXFDIR/stub-results \
   -stub-run -ansi-log false
 ```
 
@@ -396,7 +398,8 @@ Four things to read, in decreasing order of usefulness.
 columns by header name, not position — the field set is configurable and nf-core changes it.
 
 ```bash
-T=$(ls -t /work/nxf/$RUNID/reports/trace.*.txt | head -1)
+NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
+T=$(ls -t $NXFDIR/reports/trace.*.txt | head -1)
 
 # status counts
 awk -F'\t' 'NR==1{for(i=1;i<=NF;i++)h[$i]=i;next}{c[$h["status"]]++}END{for(s in c)print s, c[s]}' "$T"
@@ -417,7 +420,8 @@ plus the final summary block.
 directory; that is where you go next.
 
 ```bash
-grep -nE 'ERROR|WARN|Caused by|Command exit status|Work dir' /work/nxf/$RUNID/.nextflow.log | tail -40
+NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
+grep -nE 'ERROR|WARN|Caused by|Command exit status|Work dir' $NXFDIR/.nextflow.log | tail -40
 ```
 
 **The HTML execution report** is written at completion (success or failure), not incrementally.
@@ -429,7 +433,7 @@ Do not wait on it mid-run; the trace is the live source.
 |---|---|---|
 | `docker stats --no-stream` | at least one container with meaningful CPU% | all near 0% |
 | `vmstat 5 3` | `r` non-zero, or `wa` high (I/O-bound but progressing) | `r`=0, `wa`=0, `si`/`so`=0 |
-| `find /work/nxf/$RUNID/work -newermt '-10 min' \| head` | files appearing | nothing for >10 min |
+| `find "$NXFDIR/work" -newermt '-10 min' \| head` | files appearing | nothing for >10 min |
 | `df -h /work` | shrinking slowly | pinned at 0% avail |
 | trace last line timestamp | advancing | frozen |
 
@@ -484,7 +488,7 @@ raise the `memory` directive for the offending process in `local.config`. Then `
 
 **Disk full.** `.command.err` contains `No space left on device`, or Nextflow reports a staging
 failure. `df -h /work`. Recovery: free space *outside* the current work dir — old runs' work dirs
-(section 9), `docker image prune`, `/work/staging`. Never delete the current run's work dir to make
+(section 9), `docker image prune`, `$BIOINFO_WORK/staging`. Never delete the current run's work dir to make
 room; you lose the resume cache and start over. Then `-resume`. If there is genuinely no room, the
 estimate was wrong: stop, re-plan, re-scope.
 
@@ -536,7 +540,7 @@ Never respond to a single failing sample by re-running the whole cohort from scr
 
 Nextflow hashes each task and skips it if a matching entry exists in the cache *and* the outputs are
 still in the work dir. **Both** halves are required: `.nextflow/cache/<session-id>/` in the launch
-dir, and `/work/nxf/$RUNID/work/`. Lose either and resume degrades to a full re-run, silently.
+dir, and `$NXFDIR/work/`. Lose either and resume degrades to a full re-run, silently.
 
 Part of the hash:
 
@@ -554,7 +558,7 @@ Things that quietly destroy the cache on this host:
 
 - Changing `-work-dir`. Cache entries hold absolute paths; a different work dir is a different run.
 - Relaunching from a different directory. `.nextflow/cache` is relative to the launch dir. Always
-  `cd /work/nxf/$RUNID` first.
+  `cd "$NXFDIR"` first.
 - Copying or re-syncing input FASTQs. `cp` sets a new mtime, and the default cache mode reads mtime.
   If inputs live on drvfs, or you expect to move them, set `cache = 'lenient'` (path+size only) in
   `local.config` before the first run — not after.
@@ -590,12 +594,13 @@ somewhere else instead (§7, Disk full).
 The sync-out and the verification:
 
 ```bash
-rsync -a --info=progress2 /work/nxf/$RUNID/results/  "$RUNDIR/results/"
-rsync -a                  /work/nxf/$RUNID/reports/  "$RUNDIR/reports/"
-cp /work/nxf/$RUNID/.nextflow.log "$RUNDIR/reports/nextflow.log"
-diff <(cd /work/nxf/$RUNID/results && find . -type f | sort) \
+NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
+rsync -a --info=progress2 $NXFDIR/results/  "$RUNDIR/results/"
+rsync -a                  $NXFDIR/reports/  "$RUNDIR/reports/"
+cp $NXFDIR/.nextflow.log "$RUNDIR/reports/nextflow.log"
+diff <(cd $NXFDIR/results && find . -type f | sort) \
      <(cd "$RUNDIR/results"        && find . -type f | sort) && echo "results synced clean"
-du -sh /work/nxf/$RUNID/work /work/nxf/$RUNID/results
+du -sh $NXFDIR/work $NXFDIR/results
 ```
 
 Then, and only then:
@@ -606,7 +611,7 @@ nextflow clean -n -before <run-name>               # DRY RUN first, always
 nextflow clean -f -before <run-name>               # removes work dirs + cache entries for older runs
 ```
 
-Or, for one finished run: `rm -rf /work/nxf/$RUNID/work` and keep `.nextflow/`, the logs and the
+Or, for one finished run: `rm -rf "$NXFDIR/work"` and keep `.nextflow/`, the logs and the
 reports — they are small and they are the record.
 
 How much this frees: the work dir is typically 80–95% of a run's footprint. Concretely, ~90% of
@@ -662,7 +667,7 @@ explicitly capped, e.g. `-c` with a small override giving it 4 CPUs and 8 GB.
 Enforce it rather than remembering it. Wrap the launch:
 
 ```bash
-exec 9>/work/nxf/.heavy.lock
+exec 9>${BIOINFO_WORK:-/work}/nxf/.heavy.lock
 flock -n 9 || { echo "another heavy run holds the lock; not launching"; exit 1; }
 # … launch here; the lock is released when this shell exits
 ```
