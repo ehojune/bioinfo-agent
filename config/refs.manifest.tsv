@@ -24,6 +24,7 @@ genomes/GRCh38/fasta/genome.fa.fai	link	/mnt/d/Research/references/hg38.fa.fai
 genomes/GRCh38/fasta/genome.dict	build	gatk CreateSequenceDictionary -R genome.fa	absent on D:; any GATK tool on this build needs it. sarek does not - it uses GRCh38gatk
 genomes/GRCh38/gtf/genes.gtf.gz	link	/mnt/d/gencode.v50.annotation.gtf.gz	GENCODE v50
 genomes/GRCh38/bed/genes.bed	link	/mnt/d/gencode.v50.genes.bed	GENCODE v50 gene intervals
+genomes/GRCh38/bed/blacklist.bed	fetch	https://raw.githubusercontent.com/Boyle-Lab/Blacklist/master/lists/hg38-blacklist.v2.bed.gz	ENCODE hg38 blacklist v2, gunzip'd on arrival; byte-identical to nf-core/atacseq's own assets/blacklists/v2.0/hg38-blacklist.v2.bed (diffed 2026-08-05); atacseq/chipseq --blacklist ONLY -- NOT cutandrun: nf-core/cutandrun 3.2.2's own conf/igenomes.config maps GRCh38 to its bundled assets/blacklists/GRCh38-blacklist.bed, a different, protocol-specific region set (1049 vs 636 regions, diffed 2026-08-05); routing cutandrun here would silently change its filtering	31c69342df43bbc19dd8ef2886611a8150cb53e90f341de14d30e742c9251737
 
 # GATK-flavoured analysis set, already BWA-indexed. Preferred for sarek.
 genomes/GRCh38gatk/fasta/genome.fa	link	/mnt/d/Research/references/Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta	no ALT/HLA/decoy
