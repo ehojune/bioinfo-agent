@@ -81,7 +81,8 @@ PCR artefacts).
 - **Bismark index**: `genomes/GRCh38/index/bismark/` does **not exist yet** (confirmed via
   `bootstrap/04-refs.sh --dry-run`: `NOT BUILT`). `--save_reference` builds it this run
   (`bismark_genome_preparation`, one-off, ~1.5–3 h, ~8–16 GB RAM, ~10–14 GB disk —
-  `estimates.md` §109). It lands in this run's own `results/reference_genome/`; promotion into
+  `estimates.md` §109). It lands in this run's own `results/bismark/reference_genome/` (nf-core/methylseq 3.0.0 namespaces
+  `--save_reference` output under `${params.aligner}/`, confirmed on disk); promotion into
   the shared store is done after a successful run (same convention as the atacseq bowtie2 index).
 - `.dict`, STAR/salmon/bowtie2 indexes, GATK bundle, VEP/snpEff cache: all still absent, all
   irrelevant to this pipeline — noted only for completeness, not blocking.
