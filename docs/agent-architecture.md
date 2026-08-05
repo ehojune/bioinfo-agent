@@ -39,13 +39,21 @@ Pipeline commands name only the standard path
   yourself is rewriting sarek, and it costs you reproducibility, `-resume` and MultiQC
 - **Does not run binaries it found on disk** — tools come from containers
 
-Only the work-directory rule is machine-checked, and only on the plugin install route.
-`hooks/guard-workdir.sh` registers from `hooks/hooks.json` as a PreToolUse hook and refuses
-`-with-cleanup`, `cleanup = true`, `nextflow clean` while a run is live, and any `rm -rf` on a work
-directory unless that run is finished, handed off, and past the hold (`BIOINFO_WORKDIR_HOLD_DAYS`,
-7 by default). It sees every Bash call in the session, not only the subagent's, and it fails open if
-it cannot parse its input — a guard that blocks everything when `jq` is missing is worse than no
-guard.
+Only the work-directory rule is machine-checked. `hooks/guard-workdir.sh` registers as a PreToolUse
+hook and refuses `-with-cleanup`, `cleanup = true`, `nextflow clean` while a run is live, and any
+`rm -rf` on a work directory unless that run is finished, handed off, and past the hold
+(`BIOINFO_WORKDIR_HOLD_DAYS`, 7 by default). It sees every Bash call in the session, not only the
+subagent's, and it fails open if it cannot parse its input — a guard that blocks everything when
+`jq` is missing is worse than no guard.
 
-`install.ps1` and hand-made symlinks install `skills/` and `agents/` only, so on that route there is
-no hook and every rule above is a sentence in a prompt.
+Both install routes register it: the plugin from `hooks/hooks.json`, `install.ps1` by merging one
+entry into the config dir's `settings.json`. Hand-made symlinks do not, so on that route every rule
+above is a sentence in a prompt.
+
+Both use **shell form** — a `command` string, no `args` array — and on Windows that is load-bearing.
+`args` would make it exec form: no shell, `command` resolved against PATH, and the first `bash.exe`
+on a Windows PATH is `System32\bash.exe`, the WSL launcher (Git's own lives in `Git\usr\bin`, which
+is on PATH only inside a Git Bash session). WSL cannot open the path, exits 127, and Claude Code
+treats any code but 0 or 2 as non-blocking — so the guard would fail open silently. `install.ps1`
+therefore probes the command against a must-block and a must-allow payload before registering it,
+and refuses rather than leave an entry that does nothing.
