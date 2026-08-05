@@ -1,0 +1,3 @@
+sample,fastq_1,fastq_2,strandedness
+DRR220758,/work/rawdata/20260803-rnaseq-scer-la-tolerant/DRR220758_1.fastq.gz,/work/rawdata/20260803-rnaseq-scer-la-tolerant/DRR220758_2.fastq.gz,auto
+DRR220759,/work/rawdata/20260803-rnaseq-scer-la-tolerant/DRR220759_1.fastq.gz,/work/rawdata/20260803-rnaseq-scer-la-tolerant/DRR220759_2.fastq.gz,auto
