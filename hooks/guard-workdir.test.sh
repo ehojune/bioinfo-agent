@@ -227,6 +227,14 @@ check deny  'rm -rf /pipe\|disk/work'              BIOINFO_WORK='/pipe|disk/work
 check allow 'echo hi & echo bye'
 check deny  'echo hi ; rm -rf /work'
 
+section "backslash-escaped path characters — the shell drops the backslash, so must the tokenizer"
+check deny  'rm -rf /ref\?/work'             BIOINFO_WORK='/ref?/work'
+check deny  'rm -rf /ref\?/work/nxf/r/work'  BIOINFO_WORK='/ref?/work'
+check deny  'rm -rf /ref\*/work'             BIOINFO_WORK='/ref*/work'
+check deny  'rm -rf /a\(b/work'              BIOINFO_WORK='/a(b/work'
+check deny  'rm -rf /d\$x/work'              BIOINFO_WORK='/d$x/work'
+check allow 'rm -rf /ref1/work'              BIOINFO_WORK='/ref?/work'
+
 section "runbook section 9 — the reclaim must become possible, not stay blocked forever"
 W="$TMP/fakework"; mkdir -p "$W/nxf/testrun/work"
 check deny  "rm -rf $W/nxf/testrun/work" BIOINFO_WORK="$W"          # no handoff yet

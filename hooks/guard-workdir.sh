@@ -455,7 +455,11 @@ targets="$( { printf '%s' "$CMD" \
         if (c=="\\" && i<n) {
           nx = substr($0,i+1,1)
           if (nx==" " || nx=="\t") { out = out S; i++; continue }
-          out = out c; continue
+          # DROP THE BACKSLASH. A shell does; keeping it meant the token read /ref\?/work
+          # while bash deleted /ref?/work, so a root with any escaped character in its name
+          # matched nothing. Whitespace is the one escape that becomes SEP instead, because
+          # there the backslash is carrying word-joining, not just quoting the character.
+          out = out nx; i++; continue
         }
         if (c=="\"" || c=="\047") continue
         out = out c
@@ -470,7 +474,7 @@ targets="$( { printf '%s' "$CMD" \
         if (q=="" && c=="\\" && i<n) {
           nx = substr($0,i+1,1)
           if (nx==" " || nx=="\t") { out = out S; i++; continue }
-          out = out c; continue
+          out = out nx; i++; continue          # same as stream 1: the shell drops it
         }
         if (q=="") { if (c=="\"" || c=="\047") { q=c; continue } }
         else {
