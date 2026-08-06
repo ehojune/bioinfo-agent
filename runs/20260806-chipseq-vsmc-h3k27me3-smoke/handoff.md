@@ -24,7 +24,7 @@ delete, `-resume` depends on it
 
 ## QC verdict
 
-**0 of 4 samples pass; 1 warn; 3 fail.** (Required verdict-line format,
+**0 of 4 samples pass; 0 warn; 4 fail.** (Required verdict-line format,
 `qc-interpretation.md` §7 — the narrative version below explains the mechanism; this line is the
 formal tally a reader can act on without parsing prose.)
 
@@ -32,23 +32,27 @@ formal tally a reader can act on without parsing prose.)
 |---|---|---|---|
 | VSMC_WT_Input_REP1 | Input control | Fingerprint AUC 0.238 (band: pass ≈0.5, fail if strongly bowed) | **FAIL** |
 | VSMC_WT_Input_REP2 | Input control | Fingerprint AUC 0.270 (same band) | **FAIL** |
-| VSMC_WT_H3K27me3_REP1 | ChIP | Mechanics clean, ChIP-vs-own-Input AUC gap points the right way, but the Input side of that comparison fails its own band (row above) — the comparison this sample's enrichment claim depends on is not valid | **WARN** — cannot be confirmed, not itself showing a failure signature |
-| VSMC_WT_H3K27me3_REP2 | ChIP | ChIP AUC (0.261) nearly identical to its own Input's (0.270) — no enrichment shown independent of the Input-quality problem; 0% peak overlap with REP1 | **FAIL** |
+| VSMC_WT_H3K27me3_REP1 | ChIP | §3.5: replicate peak recovery <50% is FAIL, use overlap fraction for broad marks — 0 of REP1's 193 peaks overlap REP2's. Overlap is symmetric: this fails REP1 exactly as much as it fails REP2, independent of the fingerprint/Input problem above | **FAIL** — corrected from an earlier `WARN` in this same PR that scored REP1 on its fingerprint direction alone and missed that it also independently fails the overlap band |
+| VSMC_WT_H3K27me3_REP2 | ChIP | Same overlap band (0 of 651 peaks overlap REP1's), plus its own ChIP AUC (0.261) nearly identical to its own Input's (0.270) — no enrichment shown independent of either problem | **FAIL** |
 
 **Pipeline mechanics: PASS** — alignment, duplication and control pairing ran cleanly, no crashes,
 correct broad-mark settings. **QC signal: FAIL, at the control level, which undercuts everything
-downstream of it.** This verdict has been revised twice on Codex review (PR #16), each time by
-actually running a check that had been asserted or hedged instead of measured:
+downstream of it.** This verdict has been revised four times on Codex review (PR #16), each time
+by actually running a check that had been asserted, hedged, or scored inconsistently instead of
+measured:
 
 1. First version: `PASS WITH CAVEATS` while admitting the supporting checks were never run.
-2. Second version, after running fingerprint AUC and peak-overlap: framed REP1 as showing "real
-   enrichment" because its ChIP AUC sat well below its own Input's.
-3. **This version**: that framing was still wrong. `qc-interpretation.md` §3.5's Fingerprint band
-   requires the *Input* to be near-diagonal (AUC≈0.5) for a ChIP-vs-Input gap to mean anything —
-   "input strongly bowed" is its own **fail**, independent of what the ChIP track does. Both
-   Inputs here are strongly bowed (AUC 0.238, 0.270 — nowhere near 0.5). REP1's ChIP-vs-Input gap
-   is real as a *number*, but it is being measured against a control that already fails the band
-   on its own, so it cannot be read as clean evidence of real enrichment. Retracted that claim.
+2. After running fingerprint AUC and peak-overlap: framed REP1 as showing "real enrichment"
+   because its ChIP AUC sat well below its own Input's.
+3. That framing was wrong. `qc-interpretation.md` §3.5's Fingerprint band requires the *Input* to
+   be near-diagonal (AUC≈0.5) for a ChIP-vs-Input gap to mean anything — "input strongly bowed" is
+   its own **fail**, independent of what the ChIP track does. Both Inputs here are strongly bowed
+   (AUC 0.238, 0.270 — nowhere near 0.5). Retracted the REP1-enrichment claim.
+4. **This version**: added the required §7 verdict line and per-sample table, and in writing it,
+   caught that REP1 had been scored `WARN` using only the fingerprint mechanism — missing that
+   §3.5 separately fails replicate peak recovery below 50%, and overlap is symmetric: 0% overlap
+   with REP2 fails REP1 exactly as much as it fails REP2. Corrected to **0 of 4 pass; 0 warn; 4
+   fail** — every sample now fails on at least one independently-measured mechanism.
 
 | Metric | REP1 | REP2 | Band (qc-interpretation.md §3.5) | Verdict |
 |---|---|---|---|---|
@@ -59,7 +63,7 @@ actually running a check that had been asserted or hedged instead of measured:
 | NSC / RSC | 1.111 / 0.799 | 1.023 / 1.962 | explicitly not meaningful for broad marks per §3.5 | Reported, not banded |
 | **Fingerprint AUC, Input** | 0.238 | 0.270 | pass = Input AUC ≈0.5 (near diagonal); **"input strongly bowed" is FAIL regardless of the ChIP track** | **FAIL, both** — neither control is clean enough to validate a ChIP-vs-Input comparison against |
 | Fingerprint AUC, ChIP | 0.162 | 0.261 | (only meaningful once Input passes, which neither does here) | Gap vs. own Input exists (0.076 / 0.009) but is **not interpretable** as enrichment while the Input itself fails |
-| **Replicate peak overlap (REP1 ∩ REP2)** | 0 / 193 REP1 peaks overlap a REP2 peak | 0 / 651 REP2 peaks overlap a REP1 peak | §3.5: "For broad marks use overlap fraction" (no numeric band restated, but 0% is far outside any reasonable reading of it) | **0% in both directions** — computed with `bedtools intersect -u` (cached `bedtools:2.30.0` container), cross-checked with a self-intersect control (REP1 vs REP1 correctly returns all 193) |
+| **Replicate peak overlap (REP1 ∩ REP2)** | 0 / 193 REP1 peaks overlap a REP2 peak | 0 / 651 REP2 peaks overlap a REP1 peak | §3.5: recovery <50% is FAIL; "for broad marks use overlap fraction" in place of IDR | **FAIL, both, symmetric** — 0% in both directions, computed with `bedtools intersect -u` (cached `bedtools:2.30.0` container), cross-checked with a self-intersect control (REP1 vs REP1 correctly returns all 193) |
 | Input present, matched per replicate | yes, 2.9M reads (~ChIP depth) | yes | present ≥ ChIP depth for broad marks | Present, but "present" is not the same as "clean" — see Fingerprint row above |
 
 Thresholds applied: `skills/bioinfo-analyze/references/qc-interpretation.md` §3.5, computed
