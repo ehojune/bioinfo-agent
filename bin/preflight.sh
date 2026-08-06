@@ -219,10 +219,16 @@ EOF
 # spellings of the two reference roots to their value first. The trailing "/" in the pattern is
 # required so $REFSOMETHING is left alone; a bare $BIOINFO_REFS with nothing after it names the
 # root, which the check above already covers. (Caught in review of PR #18.)
-refsrc=""
-if [ -f "$RUNDIR/params.yaml" ]; then refsrc="$refsrc $RUNDIR/params.yaml"; fi
-if [ -f "$RUNDIR/cmd.sh" ];      then refsrc="$refsrc $RUNDIR/cmd.sh"; fi
-if [ -n "$refsrc" ]; then
+# AN ARRAY, not a space-joined string. The string form word-split on the caller's own path:
+# with BIOINFO_RUNLOG under something like /mnt/c/Users/Jane Doe/... -- an ordinary Windows home
+# -- sed received "/tmp/run", "dir", "with", "spaces/...' as four operands, read none of them,
+# and left nref at 0. The gate then reported "this run references nothing from the store" and
+# passed, so a missing reference sailed through on a legitimately configured host.
+# (Caught in review of PR #18.)
+refsrc=()
+if [ -f "$RUNDIR/params.yaml" ]; then refsrc+=("$RUNDIR/params.yaml"); fi
+if [ -f "$RUNDIR/cmd.sh" ];      then refsrc+=("$RUNDIR/cmd.sh"); fi
+if [ "${#refsrc[@]}" -gt 0 ]; then
   # $REFS is a filesystem path, and below it goes into a sed REPLACEMENT and a grep -E PATTERN,
   # which read it as neither. An absolute root may legally contain regex metacharacters --
   # /ref+store is a valid directory name -- and unescaped the '+' became a quantifier: the
@@ -248,8 +254,7 @@ if [ -n "$refsrc" ]; then
     else
       bad "ref MISSING: $p — and no row for it in config/refs.manifest.tsv. Add the row, then re-run bootstrap/04-refs.sh."
     fi
-  # word-split $refsrc deliberately: these are run-dir paths this script just built.
-  done < <(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' $refsrc \
+  done < <(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "${refsrc[@]}" \
            | sed -E "s#\\\$\\{?(BIOINFO_)?REFS\\}?/#${REFS_SED}/#g" \
            | grep -oE "(^|[^A-Za-z0-9_./-])${REFS_RE}[^\"' ]*" | sed -E 's#^[^/]*(/.*)#\1#' | sed 's/[,:]$//' | sort -u)
   [ "$nref" -gt 0 ] || note "no $REFS path appears in params.yaml/cmd.sh outside comments — this run references nothing from the store"
