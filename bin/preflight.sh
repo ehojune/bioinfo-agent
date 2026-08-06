@@ -73,10 +73,25 @@ if [ -f "$RUNDIR/cmd.sh" ]; then
   if grep -qE '(^| )-r +"?\$?\{?[0-9A-Za-z._-]+\}?"?' "$RUNDIR/cmd.sh" && ! grep -qE '(^| )-r +"?\$?\{?(dev|master|main)\}?"?( |$)' "$RUNDIR/cmd.sh"; then
     REV="$(grep -oE '(^| )-r +"?\$?\{?[0-9A-Za-z._-]+\}?"?' "$RUNDIR/cmd.sh" | head -1 | tr -d ' "${}' | sed 's/^-r//')"
     if grep -qE "^[[:space:]]*${REV}=" "$RUNDIR/cmd.sh"; then   # -r $REV — resolve the assignment
-      # sed strips a trailing comment first: the cmd.sh template writes
+      # THE LAST ASSIGNMENT BEFORE THE INVOCATION, not the first in the file. bash uses the value
+      # in effect when the line runs, so
+      #   REV=3.18.0
+      #   REV=dev        # left over from a debugging session
+      #   nextflow run ... -r "$REV"
+      # runs dev while `head -1` reported 3.18.0 -- and then the stocked-set check below compared
+      # 3.18.0 against the pin and passed. Both gates cleared a run that was on a floating branch.
+      # Exactly the mistake the host.env reader had, on the other side of the same script; I fixed
+      # it there and left it here. (Caught in review of PR #18.)
+      #
+      # The trailing comment is stripped first: the template writes
       #   REV=3.18.0        # from config/pipelines.tsv
       # and `tr -d ' '` alone would glue the comment onto the revision.
-      REV="$(grep -E "^[[:space:]]*${REV}=" "$RUNDIR/cmd.sh" | head -1 | cut -d= -f2- | sed 's/#.*$//' | tr -d '\047" ')"
+      _rl="$(grep -nE '(^| )-r +' "$RUNDIR/cmd.sh" | head -1 | cut -d: -f1)"
+      REV="$(awk -v v="$REV" -v L="${_rl:-0}" '
+               L>0 && NR>=L { exit }
+               { s=$0; sub(/^[[:space:]]+/,"",s); if (index(s, v "=")==1) line=$0 }
+               END { print line }' "$RUNDIR/cmd.sh" \
+             | cut -d= -f2- | sed 's/#.*$//' | tr -d '\047" ')"
     fi
     # Re-test AFTER resolving. The check above reads the command line as text, so
     # `-r "$REV"` with `REV=dev` assigned two lines up passes it: the literal string
