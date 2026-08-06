@@ -12,10 +12,14 @@ selected — same class of issue as scrnaseq/methylseq)
 **Command**      `runs/20260806-chipseq-vsmc-h3k27me3-smoke/cmd.sh` (`--aligner bowtie2`, reusing
 the bowtie2 index the atacseq run built and promoted; `--macs_gsize 2700000000` plain decimal,
 not `2.7e9`; broad-peak mode, default `--broad_cutoff 0.1`)
-**Wall clock**   ~57 min total (08:54–09:51), across an interrupted first attempt (background
-process died when the executing subagent's turn ended — not a pipeline or config bug, see the
-process-reliability issue tracked separately) and a clean `-resume` that finished the remaining
-work in a few minutes from cache
+**Wall clock**   56m33s combined (08:54–09:51), across two invocations sharing one Nextflow
+session (`nextflow log`, session `de8b7fe9-b9f6-448e-b3cd-7f891d252c4f`):
+  - Interrupted attempt, run name `jolly_mccarthy`, 08:54:02–09:11:14 (17m13s, status `ERR`) —
+    background process died via SIGTERM when the executing subagent's own turn ended, not a
+    pipeline or config bug; see the process-reliability issue tracked separately (PR #17).
+  - Resumed attempt, run name `elated_angela`, 09:12:11–09:51:30 (39m20s, status `OK`) —
+    correctly picked up the interrupted attempt's cache rather than restarting from scratch.
+  `nextflow log <run name>` against either name audits that attempt specifically.
 **Peak disk**    results 5.3 GB + work 13 GB = 18.3 GB combined
 **Results**      `/work/nxf/20260806-chipseq-vsmc-h3k27me3-smoke/results/` (5.3 GB)
 **MultiQC**      `/work/nxf/20260806-chipseq-vsmc-h3k27me3-smoke/results/multiqc/broad_peak/multiqc_report.html`
