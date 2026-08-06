@@ -170,14 +170,23 @@ if [ -d "$REFS" ]; then ok "refs root $REFS"; else bad "refs root $REFS absent �
 # and this block used to skip it while printing "checked via cmd.sh instead" -- a check
 # that did not exist anywhere in this script. Scan whichever of the two are present.
 #
-# Anchored on a real path boundary: the char immediately before REFS must be
-# start-of-line, whitespace, or a quote -- never a path/word character. Without
-# this, prose like "config/refs.manifest.tsv" in a comment (a very natural thing
-# to write) is misread as the path /refs.manifest.tsv, because
-# "config/refs.manifest.tsv" contains "/refs.manifest.tsv" as a raw substring.
-# Found live on run 20260805-atacseq-gbr-lcl-smoke: a comment citing the
-# manifest file by its repo-relative path failed preflight with
-# "ref MISSING: /refs.manifest.tsv" -- a real file, just not the one meant.
+# COMMENTS ARE STRIPPED FIRST. A run record explains itself in prose, and that prose
+# names reference paths that are deliberately NOT arguments. runs/20260804-rnaseq-scer-verify
+# is the case that proves it: it passes --star_index false ON PURPOSE and its comment says why,
+# quoting '/refs/genomes/R64-1-1/index/star' as the directory that does not exist. Scanning the
+# comment turns a correct run into "ref MISSING" and fails preflight. Both # forms go: a line
+# that is only a comment, and a trailing comment after real content. (Caught in review of PR #18.)
+#
+# What survives that is then anchored on a real path boundary: the char immediately before REFS
+# must be start-of-line, whitespace, or a quote -- never a path/word character. Without this,
+# prose like "config/refs.manifest.tsv" is misread as the path /refs.manifest.tsv, because it
+# contains "/refs.manifest.tsv" as a raw substring. Found live on run
+# 20260805-atacseq-gbr-lcl-smoke: a comment citing the manifest file by its repo-relative path
+# failed preflight with "ref MISSING: /refs.manifest.tsv" -- a real file, just not the one meant.
+#
+# Both files are scanned. A run that passes its references as --fasta/--gtf on the command line
+# has no params.yaml at all, and this block used to skip it while printing "checked via cmd.sh
+# instead" -- a check that did not exist anywhere in this script.
 refsrc=""
 if [ -f "$RUNDIR/params.yaml" ]; then refsrc="$refsrc $RUNDIR/params.yaml"; fi
 if [ -f "$RUNDIR/cmd.sh" ];      then refsrc="$refsrc $RUNDIR/cmd.sh"; fi
@@ -189,8 +198,9 @@ if [ -n "$refsrc" ]; then
     if [ -e "$p" ]; then ok "ref resolves: $p"
     else bad "ref MISSING: $p — add a manifest row and re-run bootstrap/04-refs.sh"; fi
   # word-split $refsrc deliberately: these are run-dir paths this script just built.
-  done < <(grep -hoE "(^|[^A-Za-z0-9_./-])${REFS}[^\"' ]*" $refsrc | sed -E 's#^[^/]*(/.*)#\1#' | sed 's/[,:]$//' | sort -u)
-  [ "$nref" -gt 0 ] || note "no $REFS path appears in params.yaml/cmd.sh — this run references nothing from the store"
+  done < <(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' $refsrc \
+           | grep -oE "(^|[^A-Za-z0-9_./-])${REFS}[^\"' ]*" | sed -E 's#^[^/]*(/.*)#\1#' | sed 's/[,:]$//' | sort -u)
+  [ "$nref" -gt 0 ] || note "no $REFS path appears in params.yaml/cmd.sh outside comments — this run references nothing from the store"
 else
   note "neither params.yaml nor cmd.sh present; reference paths not checked"
 fi

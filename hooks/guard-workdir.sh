@@ -179,7 +179,23 @@ NXF_ALT="${esc_nxf}|/work/nxf"
 # Neither answer is available to us: without the value there is no run id, so the finished /
 # handed-off / past-the-hold conditions cannot be checked at all. Say that, rather than guess
 # in either direction, and name the form that can be checked.
-if printf '%s' "$CMD" | grep -qE '\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/(nxf|work)'; then
+#
+# TWO patterns, because one is not enough. The original only looked for a variable followed
+# IMMEDIATELY by /nxf or /work, which misses the shape a custom root produces:
+# `rm -rf "$NXF_WORKROOT/demo/work"` puts `demo` in between, so nothing matched, and since the
+# literal-root extraction below cannot see through the variable either, the command was
+# allowed straight through to the shell — deleting a live run's work directory with no pid,
+# handoff or hold check. (Caught in review of PR #18; the pre-PR code denied it only by
+# accident, via the substring bug this PR removed.)
+#   A — a variable anywhere in a token that also carries an /nxf or /work component.
+#   B — a variable this repo uses to name a work or run DATA root, whatever follows it.
+# Both are deliberately narrow at the boundary: `$USER/workspace` matches neither, because
+# /work must end at a path separator. B is an explicit list rather than a name heuristic on
+# purpose -- $WORKDIR and $TMPD are scratch directories in this repo's own bootstrap scripts,
+# and a "contains the word work" rule would deny them for no reason.
+UNEXPANDED_A='\$\{?[A-Za-z_][A-Za-z0-9_]*\}?[^[:space:]"'"'"';|&]*/(nxf|work)([/[:space:]"'"'"';|&]|$)'
+UNEXPANDED_B='\$\{?(NXF_WORKROOT|NXFDIR|NXF_WORK|BIOINFO_WORK|BIOINFO_RUNS)\}?([^A-Za-z0-9_]|$)'
+if printf '%s' "$CMD" | grep -qE "$UNEXPANDED_A" || printf '%s' "$CMD" | grep -qE "$UNEXPANDED_B"; then
   deny "the target is an unexpanded variable, so this hook cannot tell which run it is —
       and therefore cannot confirm the run has finished, been handed off, and passed the
       ${HOLD_DAYS}-day hold. Re-issue it with the resolved path, e.g.
