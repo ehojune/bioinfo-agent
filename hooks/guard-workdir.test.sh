@@ -202,6 +202,11 @@ check deny  'rm -rf /ref+store/work/nxf/r/work' BIOINFO_HOST_ENV="$TMP/meta.env"
 check allow 'rm -rf /refstore/work'             BIOINFO_HOST_ENV="$TMP/meta.env"
 check allow 'rm -rf /reffff+store/work'         BIOINFO_HOST_ENV="$TMP/meta.env"
 
+section "a root containing a shell-pattern metacharacter"
+printf 'BIOINFO_WORK=/ref?/work\n' > "$TMP/glob.env"
+check deny 'rm -rf "/ref?/work"' BIOINFO_HOST_ENV="$TMP/glob.env" BIOINFO_WORK=/ref1/work
+check deny 'rm -rf /ref1/work'    BIOINFO_HOST_ENV="$TMP/glob.env" BIOINFO_WORK=/ref1/work
+
 section "runbook section 9 — the reclaim must become possible, not stay blocked forever"
 W="$TMP/fakework"; mkdir -p "$W/nxf/testrun/work"
 check deny  "rm -rf $W/nxf/testrun/work" BIOINFO_WORK="$W"          # no handoff yet
