@@ -89,10 +89,27 @@ do
   done
   [ -n "$HOSTENV" ] && break
 done
+# SAME ACCEPTANCE AS bootstrap/lib/host-env.sh, which is the canonical reader for this file.
+# It strips an optional `export ` prefix and whitespace around the key, and takes the value
+# literally: quoted to the matching quote, otherwise up to the first space or '#'. A one-line
+# sed that only understood `KEY=value` therefore missed `export BIOINFO_WORK=/bigdisk/work` --
+# a form host-env.sh explicitly accepts -- and fell back to /work, after which
+# `rm -rf /bigdisk/work` deleted the whole custom work tree with no run-state check. Two
+# readers of one file must not disagree about what the file says. (Caught in review of PR #18.)
 hostenv_get() {
   [ -n "$HOSTENV" ] && [ -r "$HOSTENV" ] || return 0
-  sed -n "s/^[[:space:]]*$1=//p" "$HOSTENV" | head -1 \
-    | sed 's/[[:space:]]*#.*$//; s/^"//; s/"$//; s/^'\''//; s/'\''$//; s/[[:space:]]*$//; s/\r$//'
+  local _v
+  _v="$(sed -n -E "s/^[[:space:]]*(export[[:space:]]+)?$1[[:space:]]*=//p" "$HOSTENV" | head -1)"
+  _v="${_v%$'\r'}"                                    # tolerate a CRLF checkout
+  _v="${_v#"${_v%%[![:space:]]*}"}"                   # leading whitespace off the value
+  case "$_v" in
+    '"'*) _v="${_v#\"}"; _v="${_v%%\"*}" ;;
+    "'"*) _v="${_v#\'}"; _v="${_v%%\'*}" ;;
+    *)    _v="${_v%%#*}"                              # unquoted: drop a trailing comment,
+          _v="${_v%"${_v##*[![:space:]]}"}"
+          case "$_v" in *[[:space:]]*) _v="${_v%%[[:space:]]*}" ;; esac ;;   # end at first space
+  esac
+  printf '%s' "$_v"
 }
 : "${BIOINFO_WORK:=$(hostenv_get BIOINFO_WORK)}"
 : "${NXF_WORKROOT:=$(hostenv_get NXF_WORKROOT)}"
