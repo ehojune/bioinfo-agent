@@ -271,6 +271,15 @@ check deny  'rm -rf "/foo/pipe|disk/work"'            BIOINFO_WORK='/foo/pipe|di
 check deny  'echo hi ; rm -rf /work'
 check deny  'echo hi && rm -rf /work'
 
+section 'inside "" a backslash escapes only $ ` " \ and newline'
+# bash resolves "/foo/a\&b/work" to /foo/a\&b/work — the backslash is a literal character
+# there, so a root that genuinely contains one must still match.
+check deny  'rm -rf "/foo/a\&b/work"'              BIOINFO_WORK='/foo/a\&b/work'
+check deny  'rm -rf "/foo/a\&b/work/nxf/r/work"'   BIOINFO_WORK='/foo/a\&b/work'
+check allow 'rm -rf "/foo/a\&b/workspace"'         BIOINFO_WORK='/foo/a\&b/work'
+# and outside quotes the same two characters ARE an escape, so this root has no backslash
+check deny  'rm -rf /foo/a\&b/work'                BIOINFO_WORK='/foo/a&b/work'
+
 section "runbook section 9 — the reclaim must become possible, not stay blocked forever"
 W="$TMP/fakework"; mkdir -p "$W/nxf/testrun/work"
 check deny  "rm -rf $W/nxf/testrun/work" BIOINFO_WORK="$W"          # no handoff yet

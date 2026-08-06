@@ -286,9 +286,19 @@ shell_prepass() {     # pure shell; gated below so a command with no backslash n
   n=${#s}
   while [ "$i" -lt "$n" ]; do
     c="${s:i:1}"
-    # A backslash is an escape outside quotes and inside "", literal inside ''.
+    # A backslash escapes anything outside quotes, is literal inside '', and inside "" escapes
+    # only $ ` " \ and newline -- before anything else bash keeps it as a literal character.
+    # Treating it as a general escape there rewrote a root that genuinely contains a backslash:
+    # "/foo/a\&b/work" is /foo/a\&b/work to bash, and dropping the backslash left nothing to
+    # match. (Caught in review of PR #18.)
     if [ "$c" = '\' ] && [ "$q" != "'" ] && [ $((i+1)) -lt "$n" ]; then
       nx="${s:i+1:1}"
+      if [ "$q" = '"' ]; then
+        case "$nx" in
+          '$'|'`'|'"'|'\'|"$NL") ;;                    # genuinely an escape here
+          *) out="$out$c"; i=$((i+1)); continue ;;     # literal; let nx be handled on its own
+        esac
+      fi
       case "$nx" in
         ';')   out="$out$_E1" ;;
         '|')   out="$out$_E2" ;;
