@@ -34,8 +34,11 @@ the only commands you may issue are read-only inventory:
 | `bash bootstrap/05-verify.sh`, `04-refs.sh --dry-run` | |
 
 **Header and index reads are allowed, and you should use them.** What decides whether existing data
-is reusable is constant-size, not a scan: `samtools view -H`, `quickcheck`, `idxstats`,
-`bcftools view -h`, `bcftools index -n`, `tabix -l`. On a 39 GB BAM here those cost 300–400 ms.
+is reusable is constant-size, not a scan: `samtools view -H`, `quickcheck`, `bcftools view -h`,
+`bcftools index -n`, `tabix -l`. On a 39 GB BAM here those cost 300–400 ms. `samtools idxstats`
+too — **but only with a `.bai`/`.csi` beside the file**: unindexed, it reads the entire BAM
+(htslib documents this), which is the one thing this gate exists to prevent. Check the index
+exists first.
 Refusing to spend that is how you propose a 90-hour realignment of something already aligned
 correctly. **From the container, never a host binary** — rule 10 holds, and a `samtools` on `$PATH`
 or in someone's `program/` folder is of unknown provenance:
@@ -219,10 +222,18 @@ goes wrong.
 | VCF only | write bcftools one-liners | sarek `--step annotate` |
 | An existing STAR/BWA index | rebuild it | point the manifest at it, add a row, resolve by standard path |
 
-Which row you are in is one header read away. `@HD SO:` is the sort order; `@RG` says whether sarek
-has the read groups it needs; the aligner's `@PG CL:` names the reference actually used — confirm
-it resolves to the same file as the `$BIOINFO_REFS` standard path; and no MarkDuplicates `@PG`
-means `--step markduplicates`, not the row below.
+A header read narrows the row down; two of the three fields need corroborating before you act.
+
+- **`@HD SO:`** — sort order. Says what it says.
+- **`@RG`** — present and carrying `SM`/`PL`/`LB`/`PU`, or sarek will reject the input.
+- **Reference identity.** Do **not** take `@PG CL:` for it: that field preserves a command line,
+  and the path in it may since have been replaced or retargeted. Compare the BAM's `@SQ` `SN`+`LN`
+  — and `M5` when the header carries it — against the standard reference's `.fai`/`.dict`. Any
+  mismatch means the alignment and the calling reference are different genomes.
+- **Dedup.** A missing MarkDuplicates `@PG` is a hint, not proof: `samtools markdup --no-PG` omits
+  it and headers can be rewritten. Corroborate with the script or log that produced the file
+  before choosing `--step markduplicates`; if nothing corroborates, say so in the plan and let the
+  user decide between re-marking and an approved record-level check.
 
 In every row the reuse happens **through the pipeline's own restart mechanism**, not by taking over
 where a human left off. That is what makes the result reproducible and `-resume`-able.
