@@ -247,10 +247,17 @@ then launch.
 
 ## 5. Launch
 
-Write this into `$RUNDIR/cmd.sh` verbatim so the exact invocation is recorded next to the plan, then
-run it with `bash "$RUNDIR/cmd.sh"` — not `source`, which would leak its `set -euo pipefail` and
-its variables into your shell. Timestamped report filenames mean a re-launch after a failure never collides with the
-previous attempt's reports, and you keep the history of attempts.
+Write the invocation into `$RUNDIR/cmd.sh` verbatim so the exact command is recorded next to the
+plan. **Launch it through the `tmux` recipe below — always, not just when you want to "detach."**
+This is the only launch method that has survived every failure mode measured on this host,
+including one that has nothing to do with WSL: an agent starting `nextflow run` as its own
+backgrounded tool call and then separately waiting for it has twice been killed by SIGTERM the
+moment the agent's own turn ended, even with the WSL session still open the whole time (see the
+note in "Notes on the shape" below). `tmux`'s server process is independent of both the WSL
+client session and whatever tracks an agent's own backgrounded tool calls, which is why it is the
+one thing proven to survive both failure modes. Treat this as mandatory even for a run you expect
+to finish in minutes — guessing wrong about which runs count as "long" is exactly how a run gets
+lost.
 
 ```bash
 #!/usr/bin/env bash
@@ -266,10 +273,6 @@ TS=$(date +%Y%m%d-%H%M%S)
 mkdir -p "$NXFDIR/work" "$NXFDIR/results" "$NXFDIR/reports"
 cd "$NXFDIR"                                # launch dir MUST be ext4: .nextflow/cache lives here
 
-# FOREGROUND, and the `wsl.exe` session that started it stays open for the whole run.
-# Backgrounding this with `nohup … &` from a one-shot `wsl -d <distro> -- bash …` loses the
-# run: WSL tears the distro down when the last session exits, and the job dies with it —
-# no log, no process, no error. See "Notes on the shape" below.
 nextflow -log "$NXFDIR/.nextflow.log" \
   run "$PIPE" \
     -r "$REV" \
@@ -287,8 +290,9 @@ nextflow -log "$NXFDIR/.nextflow.log" \
   2>&1 | tee "$NXFDIR/nextflow.stdout.log"
 ```
 
-**To detach it instead, use `tmux` — not `nohup`.** `tmux` keeps its own server process
-alive, which keeps the distro up, and lets you re-attach to see live output:
+**Launch `cmd.sh` inside `tmux` — not bare, not `nohup`, not your own agent-side backgrounded
+tool call.** `tmux` keeps its own server process alive independent of whatever session or turn
+started it, which is why it survives where every other shortcut has failed on this host:
 
 ```bash
 # bootstrap/01-wsl-base.sh installs tmux. On a host bootstrapped some other way:
@@ -363,6 +367,18 @@ Notes on the shape:
   or a reboot. Either keep the launching session alive for the whole run, or run under `tmux`
   (installed by `bootstrap/01-wsl-base.sh`) inside a session that stays open, so you can re-attach.
   A run launched fire-and-forget from Windows is a run you have silently lost.
+- **A SEPARATE failure mode, specific to an agent driving this runbook: starting `nextflow run`
+  as your own backgrounded tool call, then separately polling or waiting for it, is not safe
+  even when the WSL session never closes.** Measured twice on this host (a methylseq run and a
+  chipseq run, both hours into real work): the Nextflow process was killed by SIGTERM at the
+  exact moment the agent's own turn ended, immediately after it had said something like "I'll
+  wait for the background monitor to notify me." The WSL session was never torn down in either
+  case — this is a distinct mechanism from the `nohup`/`wsl.exe` one above, tied to whatever
+  tracks a background command's lifetime against the *agent turn* that started it, not against
+  the shell session. "The session is still open, so backgrounding here is safe" is exactly the
+  reasoning that caused both losses. `tmux` is unaffected by this because its server process is
+  not a child of the agent's turn at all — this is why section 5 above now treats `tmux` launch
+  as mandatory for an agent, not merely a convenience for detaching a human's terminal.
 
 **Stopping cleanly:** Ctrl-C in the foreground session, or — under `tmux` — kill the pid the
 launch recorded:
