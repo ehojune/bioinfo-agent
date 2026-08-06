@@ -1,4 +1,4 @@
-# Run 20260806-chipseq-vsmc-h3k27me3-smoke — nf-core/chipseq -r 2.1.0 — COMPLETE WITH CAVEATS
+# Run 20260806-chipseq-vsmc-h3k27me3-smoke — nf-core/chipseq -r 2.1.0 — PIPELINE MECHANICS PASS, REPLICATE CONCORDANCE FAIL
 
 **Inputs**       4 samples (2 ChIP + 2 matched Input), single-end 51bp, human. PRJNA980697
 ("Prelamin A drives vascular calcification..."), vascular smooth muscle cells (VSMC), WT
@@ -24,29 +24,34 @@ delete, `-resume` depends on it
 
 ## QC verdict
 
-**PASS WITH CAVEATS** — alignment, duplication and control design are clean; FRiP is low even
-accounting for the broad-mark exemption, and this is the metric worth treating with real caution
-rather than the point-source NSC/RSC numbers, which `qc-interpretation.md` §3.5 explicitly says
-not to band for a broad mark like H3K27me3.
+**Pipeline mechanics: PASS.** Alignment, duplication and control pairing are clean, and REP1 shows
+real enrichment signal (fingerprint AUC below its own Input's, in the expected direction).
+**Replicate concordance: FAIL, not "worth a closer look" — actually checked, and it is bad.** An
+earlier version of this verdict called the whole run "PASS WITH CAVEATS" while explicitly listing
+the checks that would support that as not done (Codex review on PR #16 caught this — a verdict is
+not supported by caveats it admits it never checked). Ran them. They do not support a pass.
 
 | Metric | REP1 | REP2 | Band (qc-interpretation.md §3.5) | Verdict |
 |---|---|---|---|---|
 | Duplication (Picard, ChIP) | 6.35% | 4.13% | no explicit band | Clean, reported |
 | Duplication (Picard, Input) | 7.76% | 10.26% | no explicit band | Clean, reported |
-| Peak count (broad, MACS3) | 193 | 651 | — (no band stated for broad marks) | Reported; REP1 noticeably lower than REP2 — see caveat |
-| FRiP (broad histone) | 0.477% | 0.105% | TF band (≥0.05) explicitly **does not apply** to broad marks per §3.5; doc says judge by genome-coverage/input comparison instead | **Low even for a broad mark** — §3.5's own text ("≥0.05 typical, but genuinely lower for H3K27me3") still implies a rough expectation an order of magnitude above what's seen here; flagged as a real caveat, not scored pass/fail |
-| NSC | 1.111 | 1.023 | TF band ≥1.10 pass — **explicitly not meaningful for broad marks** per §3.5 | Reported, not banded |
-| RSC | 0.799 | 1.962 | TF band ≥1.0 pass — **explicitly not meaningful for broad marks** per §3.5 | Reported, not banded |
-| Input present, matched per replicate | yes | yes | present ≥ ChIP depth for broad marks | REP1 Input 2.9M reads (~ChIP depth); REP2 Input depth not directly compared here — see Known gaps |
+| Peak count (broad, MACS3) | 193 | 651 | — (no band stated for broad marks) | Reported |
+| FRiP (broad histone) | 0.477% | 0.105% | TF band (≥0.05) explicitly does not apply to broad marks per §3.5 | Low for both, REP2 markedly lower — consistent with the fingerprint/overlap findings below, not scored pass/fail on its own |
+| NSC / RSC | 1.111 / 0.799 | 1.023 / 1.962 | explicitly not meaningful for broad marks per §3.5 | Reported, not banded |
+| **Fingerprint AUC, ChIP vs. own Input** | ChIP 0.162 vs Input 0.238 (gap 0.076) | ChIP 0.261 vs Input 0.270 (gap 0.009) | §3.5: "input near diagonal (AUC≈0.5), ChIP strongly bowed (AUC well below 0.5)" — a bigger ChIP-vs-Input AUC gap is the enrichment signal | **REP1 shows the expected pattern. REP2's ChIP is barely distinguishable from its own Input** — computed directly from `deepTools/plotFingerprint/*.qcmetrics.txt`, not eyeballed from the plot |
+| **Replicate peak overlap (REP1 ∩ REP2)** | 0 / 193 REP1 peaks overlap a REP2 peak | 0 / 651 REP2 peaks overlap a REP1 peak | §3.5: "For broad marks use overlap fraction" (no numeric band restated, but 0% is far outside any reasonable reading of it) | **0% in both directions** — computed with `bedtools intersect -u` (via the cached `bedtools:2.30.0` container), cross-checked with a self-intersect control (REP1 vs REP1 correctly returns all 193) to confirm the tool and coordinate system are working, not silently broken |
+| Input present, matched per replicate | yes, 2.9M reads (~ChIP depth) | yes | present ≥ ChIP depth for broad marks | REP1 comparison done; REP2 Input depth not separately checked against REP2 ChIP depth |
 
-Thresholds applied: `skills/bioinfo-analyze/references/qc-interpretation.md` §3.5. The FRiP and
-peak-count gap between REP1 (193 peaks, 0.477% FRiP) and REP2 (651 peaks, 0.105% FRiP) is itself
-notable — REP2 has more peaks but *lower* FRiP, meaning REP2's called peaks capture proportionally
-fewer of its reads than REP1's, despite REP2 having ~2.7× the raw read depth (8.4M vs 3.2M). This
-pattern (more peaks, lower FRiP, more depth) is consistent with REP2 picking up more
-background/diffuse signal rather than a cleaner enrichment — worth a closer look before trusting
-REP2's peak set as strongly as REP1's, but this report does not resolve which replicate is "more
-correct" biologically.
+Thresholds applied: `skills/bioinfo-analyze/references/qc-interpretation.md` §3.5. Reading the
+three findings together: REP1 has real, if modest, enrichment (fingerprint gap, lower FRiP-context
+peak count) and REP2's peaks are called from a ChIP sample whose read-distribution is nearly
+identical to its own Input's — weak or absent real enrichment — which is exactly the scenario
+where a peak caller still produces peaks (651 of them, MACS3 does not know to refuse) that are
+mostly background, not signal. Zero peak overlap between two supposed biological replicates of the
+same mark and condition is the direct, measurable consequence: they are not measuring the same
+thing. **Do not treat REP2's 651 peaks as validated H3K27me3 sites, and do not average or pool
+REP1/REP2 for a consensus call without addressing this first** — that is exactly what
+`--min_reps_consensus 1` (this run's bounded choice) would otherwise let happen silently.
 
 **Fingerprint plots** (`deeptools plotFingerprint`, per-sample SVG/PNG under
 `results/bowtie2/merged_library/deeptools/plotfingerprint/`) were generated but not visually
@@ -73,18 +78,20 @@ look at.
   as its background child — a recurring failure mode in this session (also hit on scrnaseq).
   Tracked and being fixed separately (repo-level fix to `agents/bioinfo-tech.md`, not part of
   this run's own scope). This run's data is intact — resumed cleanly from cache, 0 failures.
-- Fingerprint plots generated but not inspected (see QC verdict) — worth a look before trusting
-  the low-FRiP samples' enrichment quality.
 - REP2's Input depth was not directly compared against its ChIP depth in this handoff — the
-  §3.5 "Input ≥ ChIP depth for broad marks" check was only done qualitatively for REP1.
-- No IDR / peak-overlap reproducibility check between REP1 and REP2 beyond what the pipeline's
-  own consensus-peak step does at `--min_reps_consensus 1` — worth a dedicated look given the
-  FRiP/peak-count divergence noted above.
+  §3.5 "Input ≥ ChIP depth for broad marks" check was only done for REP1.
+- No IDR analysis (not appropriate for a broad mark per §3.5's own guidance) — the overlap-fraction
+  check above is the one this doc says to use instead, and it was done.
 
 ## Next step for you
-Given the low FRiP and the REP1/REP2 divergence, this dataset is usable to confirm the pipeline
-mechanics work (it does — clean alignment, correct control pairing, no crashes) but I would not
-treat either replicate's peak calls as strong evidence of real H3K27me3 enrichment without: (1)
-actually looking at the fingerprint plots, and (2) checking whether the low FRiP is a depth
-artifact (both samples are shallow for ChIP-seq) or reflects the biology/library prep. Your call
-on which, not this report's.
+This run is solid evidence the pipeline mechanics work on this host (clean alignment, correct
+control pairing, no crashes) — use it for that. It is not evidence of a reliable H3K27me3 profile
+for this cell line: REP1's peaks carry a real, if modest, enrichment signal; REP2's do not look
+distinguishable from background by fingerprint, and the two replicates share zero peaks. Whether
+that is depth (both are shallow for ChIP-seq, REP1 especially), a REP2-specific library problem,
+or a genuine difference between the two biological samples is not something this report resolves —
+the mechanism (weak enrichment → mostly-background peak calls → no overlap with a real-signal
+replicate) is established, the cause is not. If this mark matters for real analysis, the
+recommendation is either deeper sequencing on both replicates before re-judging, or an appropriate
+positive control (a well-characterized H3K27me3 antibody validation) to check whether REP2's
+weak fingerprint is a ChIP failure specifically.
