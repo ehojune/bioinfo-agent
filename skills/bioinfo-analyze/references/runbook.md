@@ -348,12 +348,29 @@ mkdir -p "$NXFDIR"                                 # cmd.sh creates it too, but 
 # bootstrap/lib/host-env.sh already treats as the environment contract (BIOINFO_*, NXF_*,
 # JAVA_HOME) directly from this shell's current exports -- complete by construction, no list to
 # keep in sync as new variables are added upstream.
+declare -A _te_seen=()
 tmux_env_args=()
 while IFS= read -r _te_var; do
   case "$_te_var" in
-    BIOINFO_*|NXF_*|JAVA_HOME) tmux_env_args+=(-e "$_te_var=${!_te_var}") ;;
+    BIOINFO_*|NXF_*|JAVA_HOME) tmux_env_args+=(-e "$_te_var=${!_te_var}"); _te_seen[$_te_var]=1 ;;
   esac
 done < <(compgen -v)
+
+# `-e VAR=value` above only OVERRIDES names this shell still has set. A name the server's
+# global environment holds but this shell does NOT (env.sh explicitly `unset NXF_OFFLINE`,
+# or an operator dropped an old NXF_WORKROOT) gets no -e flag at all -- tmux inherits the
+# server's global env first and applies -e on top of it, so the omitted stale value survives
+# untouched and a run can silently start offline or under the wrong work root. Find those by
+# name against the SAME contract and drop them from the server's global environment before the
+# session inherits it. `show-environment -g` errors harmlessly (no server started) when none is
+# running yet, which is the common case for a first run.
+while IFS='=' read -r _te_name _te_rest; do
+  _te_name="${_te_name#-}"
+  case "$_te_name" in
+    BIOINFO_*|NXF_*|JAVA_HOME)
+      [ -n "${_te_seen[$_te_name]:-}" ] || tmux set-environment -g -u "$_te_name" ;;
+  esac
+done < <(tmux show-environment -g 2>/dev/null)
 
 tmux new-session -d -s "$TRUNID" "${tmux_env_args[@]}" "bash '$RUNDIR/cmd.sh'"
 
