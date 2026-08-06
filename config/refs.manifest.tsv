@@ -65,6 +65,16 @@ genomes/R64-1-1/gtf/genes.gtf.gz	fetch	https://ftp.ensembl.org/pub/release-116/g
 genomes/R64-1-1/index/star/	build	nf-core/rnaseq --save_reference	first rnaseq run at this build; genome is tiny (~12 Mb), build is minutes not hours
 genomes/R64-1-1/index/salmon/	build	nf-core/rnaseq --save_reference
 
+# ---------------------------------------------------------------- E. coli K12 MG1655 (cutandrun spike-in)
+# Added 2026-08-06 for the first nf-core/cutandrun run on this host
+# (20260806-cutandrun-hpsc-h3k27me3-smoke). NCBI RefSeq GCF_000005845.2 (ASM584v2),
+# a newer/patched assembly of the same strain nf-core/cutandrun's own igenomes.config
+# points 'K12-MG1655' at (an old 2001-10-15 NCBI build under an AWS iGenomes path we
+# do not have mirrored locally) -- fine for spike-in read recruitment, where exact
+# patch version does not matter. Single contig, NC_000913.3.
+genomes/ECOLI_K12/fasta/genome.fa	fetch	https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/005/845/GCF_000005845.2_ASM584v2/GCF_000005845.2_ASM584v2_genomic.fna.gz	gunzip'd on arrival; RefSeq ASM584v2	53bb6a51b6e92139ced1e38f74b7938781027c52200922ff03718c2237d23bb4
+genomes/ECOLI_K12/index/bowtie2/	build	nf-core/cutandrun --save_reference (or bowtie2-build)	spike-in alignment; genome is 4.6 Mb, build is seconds not minutes
+
 # ---------------------------------------------------------------- Korean reference
 genomes/KOREF1/fasta/genome.fa	link	/mnt/d/Research/references/KOREF1-Gp-TTAGGA.fa	Korean reference assembly
 genomes/KOREF1/fasta/chrY.fa	link	/mnt/d/Research/references/KOREF1-Gp-TTAGGA.chrY.fa
