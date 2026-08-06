@@ -109,9 +109,16 @@ Every `build` and `fetch` row in the manifest is a cost paid before the run, not
   and HaplotypeCaller need it.
 - No STAR, salmon or bismark index exists, so the first rnaseq/methylseq run pays the build (~1 h
   each; the STAR build wants ~40 GB RAM, which is the entire Nextflow pool).
-- `KOREF1` is FASTA only — no `.fai`, no `.dict`, no BWA index, and no manifest rows for them.
-- `config/genomes.config` names a `bowtie2` index path for atacseq/chipseq/cutandrun that the
-  manifest does not carry. Add the row before promising one of those runs.
+- `KOREF1` is FASTA only on disk — no `.fai`, no `.dict`, no BWA index. The manifest *does* carry
+  all three as `build` rows, so nothing needs adding; they just have to be produced (the BWA index
+  is ~1.5 h) before anything runs end to end on that build.
+
+Re-verify this list with `bash bootstrap/04-refs.sh --dry-run` rather than trusting it on sight.
+It has gone stale before in the direction that costs the most: claiming a row is missing months
+after it was added, which sends the reader off to add a duplicate. Two entries that used to sit
+here — the `bowtie2` index for atacseq/chipseq/cutandrun, and `genomes/GRCh38/bed/blacklist.bed` —
+were both resolved by 2026-08-05 and are gone from this list. `pipeline-selection.md` section 9
+carries the same warning for the same reason.
 
 Flag whichever of these a request touches in the run plan and in the estimate, before the run — do
 not discover it twelve hours in.

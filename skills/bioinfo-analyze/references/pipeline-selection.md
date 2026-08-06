@@ -896,15 +896,17 @@ list as missing were re-checked against the manifest directly and turned out not
 `genomes/GRCh38/index/bowtie2/` has had a `build`-mode manifest row from day one (it was never
 missing — only the index *file* was, which the first atacseq run has since built and promoted into
 the store); `genomes/GRCh38/bed/blacklist.bed` genuinely had no row and was fetched and added this
-run (PR #10). Both are removed from the table below. If you are reading this file at a much later
-date, re-verify with `bash bootstrap/04-refs.sh --dry-run` rather than trusting this table on
-sight — this stale-doc drift is exactly why: the row can look missing here for months after the
-underlying gap was actually fixed, and the fastest way to know is to ask the filesystem.
+run (PR #10). `genomes/GRCh38/index/bwameth/` was removed from the table for the same reason —
+it got its `build` row on 2026-08-05, exactly as section 4 of this file already said, and the
+table went on listing it as a missing row anyway. All three are gone from the table below. If you
+are reading this file at a much later date, re-verify with `bash bootstrap/04-refs.sh --dry-run`
+rather than trusting this table on sight — this stale-doc drift is exactly why: the row can look
+missing here for months after the underlying gap was actually fixed, and the fastest way to know
+is to ask the filesystem.
 
 | Standard path | Mode | Needed by | Note |
 |---|---|---|---|
 | `genomes/GRCh38/index/bwa/` | build | chipseq (`--aligner bwa`), methylseq bwameth | the existing BWA index is on `GRCh38gatk`, a different FASTA |
-| `genomes/GRCh38/index/bwameth/` | build | methylseq `--aligner bwameth` | `bwameth.py index` |
 | `genomes/ECOLI_K12/fasta/genome.fa` + `index/bowtie2/` | fetch/build | cutandrun spike-in | otherwise the pipeline downloads it per run |
 | `genomes/GRCh38/fasta/genome.dict` | build | any GATK-adjacent step on the UCSC build | already a `build` row; still absent |
 | cutandrun's own GRCh38 blacklist | none — pipeline-bundled, not a store asset | cutandrun `--blacklist` | **not** the atacseq/chipseq ENCODE blacklist above — nf-core/cutandrun 3.2.2 bundles a different, protocol-specific region set at `assets/blacklists/GRCh38-blacklist.bed`. Add a separate manifest row only if it needs to be store-resident; do not point cutandrun at `genomes/GRCh38/bed/blacklist.bed` |
