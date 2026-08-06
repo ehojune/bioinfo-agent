@@ -183,10 +183,12 @@ Hand long runs to the agent — `Tell the bioinfo-tech agent to run sarek`. `nex
 of thousands of log lines; run inside a subagent, that traffic is digested there and only the
 conclusion comes back.
 
-> **A long run needs its window left open.** WSL shuts the distro down when the last session
-> closes, so a job pushed into the background (`nohup … &`) disappears without writing a single log
-> line. Leave the session open, or start it under `tmux`. Details in
-> [runbook.md](skills/bioinfo-analyze/references/runbook.md) section 5.
+> **A long run must always launch under `tmux` — leaving the window open is not enough on its
+> own.** WSL shuts the distro down when the last session closes, so a job pushed into the
+> background (`nohup … &`) disappears without writing a single log line; separately, an agent that
+> backgrounds Nextflow inside its own turn and waits for it has been measured losing the run the
+> moment its turn ends, even with the session still open. Only `tmux`'s own server process survives
+> both. Details in [runbook.md](skills/bioinfo-analyze/references/runbook.md) section 5.
 
 Useful to give it: the absolute data path, sample count and format, species and genome build, **the
 actual question** ("find rare variants" vs "expression differences" is what decides the pipeline),

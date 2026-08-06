@@ -15,7 +15,7 @@ Docker **engine** inside the distro, distro ext4 on `D:\wsl\ubuntu-24.04\ext4.vh
 3. Write `samplesheet.csv`, `params.yaml`, `cmd.sh` into `$RUNDIR`.
 4. Preflight. Any FAIL is a hard stop.
 5. `-preview`, then `-stub-run`. Both must be clean.
-6. Launch on ext4 with reports and `-resume`, in a session you keep alive (or under `tmux`).
+6. Launch on ext4 with reports and `-resume`, always through `tmux` (mandatory, not optional).
 7. Monitor the trace, not the terminal.
 8. On completion: read MultiQC, rsync results out to `/mnt/d`, write the handoff.
 9. Leave the work dir alone for at least 7 days.
@@ -308,9 +308,18 @@ RUNDIR=/mnt/d/bioinfo-agent/runs/$RUNID
 # leaving the guard and the stop command reading a file that does not exist.
 NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID
 
+# tmux(1) documents that a session name should avoid ':' and '.' -- both have target-syntax
+# meaning ('.' separates session.window, ':' separates session:window) -- and a RUNID legitimately
+# contains '.' (this file's own pkill examples use "study.v2"). Passing $RUNID straight to
+# -s/-t risks tmux silently treating part of it as a window reference instead of the literal
+# name, after which `tmux attach`/`capture-pane` using the same raw $RUNID can miss the session
+# they just created. Derive a tmux-safe alias and use ONLY that for tmux's own -s/-t; $RUNID
+# keeps naming the filesystem paths and the pid-file/pgrep matching below, which take it literally.
+TRUNID=$(printf '%s' "$RUNID" | tr -c 'A-Za-z0-9_-' '_')
+
 mkdir -p "$NXFDIR"                                 # cmd.sh creates it too, but the pid write below
                                                    # races the session start; do not depend on it
-tmux new-session -d -s "$RUNID" "bash '$RUNDIR/cmd.sh'"
+tmux new-session -d -s "$TRUNID" "bash '$RUNDIR/cmd.sh'"
 
 # Record the live pid. NOT optional: hooks/guard-workdir.sh reads this file to refuse
 # deleting the work directory of a running run. Without it the guard falls through to the
@@ -340,7 +349,7 @@ else
 fi
 
 tmux ls                                            # confirm it is there
-tmux attach -t "$RUNID"                            # watch;  Ctrl-b d to leave it running
+tmux attach -t "$TRUNID"                           # watch;  Ctrl-b d to leave it running
 ```
 
 Notes on the shape:
@@ -364,8 +373,9 @@ Notes on the shape:
   `wsl -d <distro> -- bash …` returns, WSL tears down the distro and the job dies with it —
   measured here: both `nohup … &` and `setsid nohup … &` were gone within seconds, with no
   log written and no process left. It also does not survive `wsl --shutdown`, Windows sleep,
-  or a reboot. Either keep the launching session alive for the whole run, or run under `tmux`
-  (installed by `bootstrap/01-wsl-base.sh`) inside a session that stays open, so you can re-attach.
+  or a reboot. Run under `tmux` (installed by `bootstrap/01-wsl-base.sh`) so you can re-attach —
+  this is section 5's mandatory launch method, not an alternative to keeping a session open; see
+  the next bullet for why "just keep the session open" is not sufficient on its own either.
   A run launched fire-and-forget from Windows is a run you have silently lost.
 - **A SEPARATE failure mode, specific to an agent driving this runbook: starting `nextflow run`
   as your own backgrounded tool call, then separately polling or waiting for it, is not safe
