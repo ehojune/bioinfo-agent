@@ -27,15 +27,26 @@ the only commands you may issue are read-only inventory:
 
 | Allowed during steps 1–3 | Forbidden until the plan is approved |
 |---|---|
-| `ls`, `du -sh`, `df -h`, `find`, `stat`, `file` | `samtools`, `bcftools`, `gatk`, `bwa`, `picard`, `fastqc` — any analysis tool |
-| `head`/`zcat \| head` on a FASTQ (a few lines) | anything that reads a whole BAM/CRAM/FASTQ |
-| reading text: logs, scripts, existing samplesheets | `nextflow run` (except `-stub-run` at step 4) |
-| `bash bootstrap/05-verify.sh`, `04-refs.sh --dry-run` | anything that writes into the user's data directory |
+| `ls`, `du -sh`, `df -h`, `find`, `stat`, `file` | anything that STREAMS a whole BAM/CRAM/FASTQ/VCF |
+| `head`/`zcat \| head` on a FASTQ (a few lines) | `flagstat`, `stats`, `depth`, `bcftools stats`, `fastqc`, any aligner or caller |
+| **header and index reads** — see below | `nextflow run` (except `-preview`/`-stub-run` at step 4) |
+| reading text: logs, scripts, existing samplesheets | anything that writes into the user's data directory |
+| `bash bootstrap/05-verify.sh`, `04-refs.sh --dry-run` | |
 
-A 50 GB BAM does not get opened to "check it". You record that it exists, its size, and its
-mtime, and you propose validating it **in the plan**. Running `samtools quickcheck` on it during
-intake is minutes of I/O the user did not ask for, and it produces an approval prompt that looks
-like the analysis has already started.
+**Header and index reads are allowed, and you should use them.** What decides whether existing data
+is reusable is constant-size, not a scan: `samtools view -H`, `quickcheck`, `idxstats`,
+`bcftools view -h`, `bcftools index -n`, `tabix -l`. On a 39 GB BAM here those cost 300–400 ms.
+Refusing to spend that is how you propose a 90-hour realignment of something already aligned
+correctly. **From the container, never a host binary** — rule 10 holds, and a `samtools` on `$PATH`
+or in someone's `program/` folder is of unknown provenance:
+
+```bash
+docker run --rm -v /path/to/data:/d:ro quay.io/biocontainers/samtools:1.21--h50ea8bc_0 \
+  samtools view -H /d/sample.bam
+```
+
+**Beyond header and index, ask first.** Coverage, duplicate rate, a real record count — those are
+full scans, minutes to hours at this size. Name what you need and why; the user decides.
 
 **If the request maps to a stocked pipeline, you run that pipeline. You never hand-assemble the
 equivalent.** Do not chain `bwa mem` + `samtools sort` + `gatk MarkDuplicates` + `ApplyBQSR`
@@ -55,10 +66,14 @@ Do them in order. Do not skip step 3 or step 4.
 
 1. **Intake.** Answer every intake question below. Survey the actual files — do not trust a
    description of them. Read-only only: `ls -l`, `du -sh`, file extensions, and at most a few lines
-   of one FASTQ header to confirm pairing and read length. If the user's request does not name a
-   specific analysis — "WGRS 분석해줘", "이 데이터 좀 봐줘" — **stop and ask what question they
-   want answered** before selecting anything. Whole-genome resequencing alone does not tell you
-   whether they want germline variants, somatic variants, repeat expansions, or coverage.
+   of one FASTQ header to confirm pairing and read length, plus the header/index reads above.
+   If the user's request does not name a specific analysis — "이 데이터 좀 봐줘", "이거 분석해줘" —
+   **stop and ask what question they want answered** before selecting anything.
+
+   **"WGRS" is not one of those.** Whole-genome re-sequencing names the analysis: align short reads
+   and call germline variants — sarek, from `--step mapping` or from a later step if alignment
+   already exists. Get on with intake. Ask only what it genuinely leaves open: somatic vs germline
+   if there is any hint of tumour/normal, and whether repeat expansions or coverage are wanted too.
 2. **Pipeline selection.** Match analysis intent to a stocked pipeline and a revision.
    Read `references/pipeline-selection.md`.
 3. **Run plan and approval.** The run directory `$BIOINFO_HOME/runs/<runid>/` gets all four files
@@ -186,8 +201,9 @@ and names here are for orientation, not for typing into a shell.
    unreproducible, unresumable, and produces no MultiQC.
 10. **Never execute binaries found on disk.** Analysis tools come from the pipeline's containers.
     A `samtools` compiled into someone's project folder is of unknown provenance and version.
-11. **Nothing executes before the plan is approved.** See the gate above. Read-only inventory is
-    the entire permitted surface of steps 1–3.
+11. **Nothing executes before the plan is approved.** See the gate above. Read-only inventory plus
+    constant-size header and index reads are the entire permitted surface of steps 1–3; a full
+    scan of anything gets named and approved first.
 
 ### Reusing what is already there
 
@@ -198,9 +214,15 @@ goes wrong.
 |---|---|---|
 | Recalibrated BAM/CRAM | run `samtools`/`gatk` on it and carry on manually | sarek `--step variant_calling`, `bam`/`bai` columns in the samplesheet |
 | Duplicate-marked BAM | continue the hand pipeline | sarek `--step prepare_recalibration` |
+| Coordinate-sorted BAM, no dedup | re-align from FASTQ — days of compute already spent | sarek `--step markduplicates` |
 | Trimmed FASTQ | re-trim, or trim again by hand | feed as `fastq_1`/`fastq_2`, skip the trimming step by flag |
 | VCF only | write bcftools one-liners | sarek `--step annotate` |
 | An existing STAR/BWA index | rebuild it | point the manifest at it, add a row, resolve by standard path |
+
+Which row you are in is one header read away. `@HD SO:` is the sort order; `@RG` says whether sarek
+has the read groups it needs; the aligner's `@PG CL:` names the reference actually used — confirm
+it resolves to the same file as the `$BIOINFO_REFS` standard path; and no MarkDuplicates `@PG`
+means `--step markduplicates`, not the row below.
 
 In every row the reuse happens **through the pipeline's own restart mechanism**, not by taking over
 where a human left off. That is what makes the result reproducible and `-resume`-able.
