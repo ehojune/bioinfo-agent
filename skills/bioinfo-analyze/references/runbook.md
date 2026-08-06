@@ -348,11 +348,18 @@ mkdir -p "$NXFDIR"                                 # cmd.sh creates it too, but 
 # bootstrap/lib/host-env.sh already treats as the environment contract (BIOINFO_*, NXF_*,
 # JAVA_HOME) directly from this shell's current exports -- complete by construction, no list to
 # keep in sync as new variables are added upstream.
+#
+# PATH is added explicitly alongside that contract, not because host-env.sh treats it as part
+# of it, but because bootstrap/03-nextflow.sh's generated env.sh prepends $HOME/.local/bin to
+# it and cmd.sh calls `nextflow` bare, trusting PATH to resolve it -- exactly what
+# bin/preflight.sh just validated in THIS shell. `bash '$RUNDIR/cmd.sh'` is a non-login shell
+# and won't re-derive it, so a persistent server's older, PATH-less-prefix global environment
+# would otherwise fail the run with "nextflow: command not found" despite preflight passing.
 declare -A _te_seen=()
 tmux_env_args=()
 while IFS= read -r _te_var; do
   case "$_te_var" in
-    BIOINFO_*|NXF_*|JAVA_HOME) tmux_env_args+=(-e "$_te_var=${!_te_var}"); _te_seen[$_te_var]=1 ;;
+    BIOINFO_*|NXF_*|JAVA_HOME|PATH) tmux_env_args+=(-e "$_te_var=${!_te_var}"); _te_seen[$_te_var]=1 ;;
   esac
 done < <(compgen -v)
 
@@ -367,7 +374,7 @@ done < <(compgen -v)
 while IFS='=' read -r _te_name _te_rest; do
   _te_name="${_te_name#-}"
   case "$_te_name" in
-    BIOINFO_*|NXF_*|JAVA_HOME)
+    BIOINFO_*|NXF_*|JAVA_HOME|PATH)
       [ -n "${_te_seen[$_te_name]:-}" ] || tmux set-environment -g -u "$_te_name" ;;
   esac
 done < <(tmux show-environment -g 2>/dev/null)
