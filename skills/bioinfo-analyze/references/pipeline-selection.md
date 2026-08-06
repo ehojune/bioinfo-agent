@@ -476,6 +476,22 @@ see the atacseq §4.6 note on why `2.7e9` fails schema validation), `--blacklist
 store now carries at `genomes/GRCh38/bed/blacklist.bed` (§9). Not the same store asset as
 cutandrun's blacklist below; see the note on §4.8's row for why those two must not be conflated.
 
+**Do not use the compact `--genome <key>` form on this store — confirmed 2026-08-06 (chipseq
+2.1.0, run `20260806-chipseq-vsmc-h3k27me3-smoke`).** Unlike scrnaseq, `fasta`/`gtf`/
+`bowtie2_index`/`gene_bed` DO resolve correctly via `--genome GRCh38 --igenomes_ignore`. The
+failure is different: chipseq's `main.nf` calls `getGenomeAttribute()` for `bwa`, `bowtie2`,
+`chromap` AND `star` unconditionally, regardless of which one `--aligner` actually selects. This
+store's `genomes.config` declares `GRCh38.bwa` and `GRCh38.star` for completeness even though
+neither index is built for this FASTA, and nf-schema's `exists: true` validation checks every one
+of those four params that ends up non-empty — not just the one the chosen aligner needs — so the
+run aborts at parameter validation (`--bwa_index`/`--star_index` "does not exist") before any
+process starts, no matter which `--aligner` is passed. `--blacklist` is a separate, permanent gap
+either way: `genomes.config`'s GRCh38 block has no `blacklist` key, so the compact form never
+populates it. Use explicit `--fasta`/`--gtf`/`--bowtie2_index`/`--blacklist`/`--gene_bed` instead
+(`config/genomes.config` §3b has the full command and rationale). cutandrun shares the same
+bwa/bowtie2/star declaration pattern and has not been run on this host yet — assume the same trap
+applies there until proven otherwise.
+
 **Key outputs:** same shape as atacseq — per-sample peaks, consensus BED + count matrix, bigWigs,
 MultiQC with phantompeakqualtools metrics.
 
