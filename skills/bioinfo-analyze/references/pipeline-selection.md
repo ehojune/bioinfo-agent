@@ -515,6 +515,29 @@ Not for experiments with no IgG control if you intend to use SEACR's control mod
 **Minimum input:** `--input samplesheet.csv` — columns in `references/samplesheets.md`. This family
 uses `group`/`replicate`, **not** `sample`; copying an atacseq samplesheet across is the usual error.
 
+**Known-broken on this host's Nextflow version until patched — check before every run.**
+`modules/local/for_patch/trimgalore/main.nf` at 3.2.2 declares its optional outputs with the old
+trailing-modifier DSL2 syntax (`emit: html optional true`). Nextflow 26.04.6 (installed here)
+rejects this at script-compile time: `ERROR ~ Cannot invoke method optional() on null object`,
+reproduced in isolation with a 6-line minimal `.nf` script — this is a genuine engine/pipeline
+version-skew bug in the pipeline's own bundled code, not a params or samplesheet problem, and it
+blocks **every** invocation (`-preview`, `-stub-run`, and the real run alike), not just a
+misconfigured one. Confirmed 2026-08-06, run `20260806-cutandrun-hpsc-h3k27me3-smoke`. Fix (already
+applied to this host's `NXF_ASSETS` clone as of that run): change both `optional true` occurrences
+to the modern comma form, `, optional: true` — semantically identical, verified via `-preview`
+failing before and passing after. **This patch lives in the pipeline clone under `NXF_ASSETS`, not
+in this repo** — it is lost if the clone is ever deleted and re-pulled. Before the next cutandrun
+run: `grep -n 'optional true' $(find "$NXF_ASSETS" -path '*nf-core/cutandrun*' -name main.nf)`; if
+it still matches, reapply the same two-line edit (or check whether a newer cutandrun/Nextflow
+pairing has fixed it upstream first).
+
+**`-stub-run` is not a cheap gate for this pipeline.** `FASTQC_TRIMGALORE:TRIMGALORE` has no
+`stub:` block, so `-stub-run` silently falls back to running the *real* `trim_galore` on the
+*real*, full-size input fastqs (confirmed by watching multi-hundred-MB real trimmed outputs and
+trimming reports appear in the stub work dir) — the same class of issue the chipseq run hit with
+`GENOME_BLACKLIST_REGIONS`. Rely on `-preview` as the gate instead (must be a clean pass on its
+own), per the skill's explicit `-stub-run` **or** `-preview` allowance.
+
 **Parameters that matter here:**
 
 | param | value | why |
