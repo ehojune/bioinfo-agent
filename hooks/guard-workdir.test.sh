@@ -148,6 +148,14 @@ printf 'BIOINFO_WORK=/old/work\nBIOINFO_WORK=/bigdisk/work\n' > "$TMP/lastwins.e
 check deny  'rm -rf /bigdisk/work' BIOINFO_HOST_ENV="$TMP/lastwins.env"
 check allow 'rm -rf /old/work'     BIOINFO_HOST_ENV="$TMP/lastwins.env"
 
+section "host.env — the last ACCEPTED assignment wins"
+printf 'BIOINFO_WORK=/bigdisk/work\nBIOINFO_WORK=$(not-allowed)\n' > "$TMP/invalid-last.env"
+check deny 'rm -rf /bigdisk/work' BIOINFO_HOST_ENV="$TMP/invalid-last.env"
+printf 'BIOINFO_WORK=$(not-allowed)\nBIOINFO_WORK=/bigdisk/work\n' > "$TMP/valid-last.env"
+check deny 'rm -rf /bigdisk/work' BIOINFO_HOST_ENV="$TMP/valid-last.env"
+printf 'BIOINFO_WORK=/bigdisk/work\nBIOINFO_WORK=\n' > "$TMP/empty-last.env"
+check allow 'rm -rf /bigdisk/work' BIOINFO_HOST_ENV="$TMP/empty-last.env"
+
 section "host.env line forms — must match bootstrap/lib/host-env.sh exactly"
 i=0
 while IFS= read -r line; do
@@ -171,6 +179,28 @@ check deny  'rm -rf "/big disk/work/nxf/demo/work"'  BIOINFO_HOST_ENV="$TMP/spac
 check deny  "rm -rf '/big disk/work/nxf/demo/work'"  BIOINFO_HOST_ENV="$TMP/space.env"
 check deny  'rm -rf /big\ disk/work'                 BIOINFO_HOST_ENV="$TMP/space.env"
 check allow 'rm -rf /big\ disk/workspace'            BIOINFO_HOST_ENV="$TMP/space.env"
+
+section "escaped space inside a quoted inner command — the composed WSL form"
+check deny  "wsl -d Ubuntu -- bash -lc 'rm -rf /big\\ disk/work/nxf/demo/work'" BIOINFO_HOST_ENV="$TMP/space.env"
+check deny  'wsl -d Ubuntu -- bash -lc "rm -rf /big\ disk/work/nxf/demo/work"'  BIOINFO_HOST_ENV="$TMP/space.env"
+check allow "wsl -d Ubuntu -- bash -lc 'ls /big\\ disk/work'"                   BIOINFO_HOST_ENV="$TMP/space.env"
+
+section "an inherited root must not suppress host.env — protect both"
+# load_host_env exports unconditionally, so after a host move the FILE holds the live root while
+# a stale shell still exports the dead one. Guessing a winner risks guarding only the dead tree.
+printf 'BIOINFO_WORK=/bigdisk/work\n' > "$TMP/moved.env"
+check deny 'rm -rf /bigdisk/work'          BIOINFO_HOST_ENV="$TMP/moved.env" BIOINFO_WORK=/old/work
+check deny 'rm -rf /old/work'              BIOINFO_HOST_ENV="$TMP/moved.env" BIOINFO_WORK=/old/work
+check deny 'rm -rf /bigdisk/work/nxf/r/work' BIOINFO_HOST_ENV="$TMP/moved.env" BIOINFO_WORK=/old/work
+check deny 'rm -rf /old/work/nxf/r/work'     BIOINFO_HOST_ENV="$TMP/moved.env" BIOINFO_WORK=/old/work
+check allow 'rm -rf /unrelated/work'         BIOINFO_HOST_ENV="$TMP/moved.env" BIOINFO_WORK=/old/work
+
+section "a root containing an ERE metacharacter"
+printf 'BIOINFO_WORK=/ref+store/work\n' > "$TMP/meta.env"
+check deny  'rm -rf /ref+store/work'            BIOINFO_HOST_ENV="$TMP/meta.env"
+check deny  'rm -rf /ref+store/work/nxf/r/work' BIOINFO_HOST_ENV="$TMP/meta.env"
+check allow 'rm -rf /refstore/work'             BIOINFO_HOST_ENV="$TMP/meta.env"
+check allow 'rm -rf /reffff+store/work'         BIOINFO_HOST_ENV="$TMP/meta.env"
 
 section "runbook section 9 — the reclaim must become possible, not stay blocked forever"
 W="$TMP/fakework"; mkdir -p "$W/nxf/testrun/work"

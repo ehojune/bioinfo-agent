@@ -41,7 +41,7 @@
 # Protocol: stdin is the PreToolUse JSON; exit 2 with a reason on stderr blocks the call.
 #
 # TESTS: hooks/guard-workdir.test.sh. Run it after every edit to this file — `bash
-# hooks/guard-workdir.test.sh`, 68 allow/deny cases, no network, nothing outside a temp dir.
+# hooks/guard-workdir.test.sh`, 83 allow/deny cases, no network, nothing outside a temp dir.
 # Every case in it is a hole this hook actually had.
 
 set -uo pipefail
@@ -51,10 +51,15 @@ set -uo pipefail
 # goes into the regex and the equality tests and matches nothing: with NXF_WORKROOT=/scratch/nxf/
 # a plain `rm -rf /scratch/nxf/run/work` exited 0 and deleted a live run unchecked. Collapse
 # repeats and trim the tail, keeping `/` itself.
-norm_root() {
-  local v; v="$(printf '%s' "$1" | sed 's#//*#/#g')"
+#
+# Pure shell, no fork. Everything in the startup path of this file is written that way: it runs
+# once per Bash call in the session, and on Git Bash a process spawn costs tens of milliseconds.
+NORM=""
+norm_root() {         # result in $NORM rather than stdout: a command substitution is a fork
+  local v="$1"
+  while case "$v" in *//*) true ;; *) false ;; esac; do v="${v//\/\//\/}"; done
   while [ "$v" != "/" ] && [ "${v%/}" != "$v" ]; do v="${v%/}"; done
-  printf '%s' "$v"
+  NORM="$v"
 }
 # READ THE CONFIGURED ROOTS OFF DISK WHEN THE ENVIRONMENT DOES NOT CARRY THEM.
 # hooks.json starts this script on the WINDOWS side. The distro's ~/.config/bioinfo/env.sh has
@@ -76,23 +81,31 @@ norm_root() {
 # there, `rm -rf /bigdisk/work` -- the entire configured run tree -- was allowed, since it
 # matches neither the /work defaults nor the /nxf shape. So try the places it can actually be,
 # nearest-known first. (Caught in review of PR #18.)
-_selfdir="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd || printf '')"
-HOSTENV=""
-for _cand in \
-  "${BIOINFO_HOST_ENV:-}" \
-  "${BIOINFO_HOME:-/mnt/d/bioinfo-agent}/config/host.env" \
-  "${CLAUDE_PROJECT_DIR:-}/config/host.env" \
-  "${CLAUDE_PLUGIN_ROOT:-}/config/host.env" \
-  "${_selfdir:-}/config/host.env" \
-  "${HOME:-}/bioinfo-agent/config/host.env"
-do
-  case "$_cand" in ''|/config/host.env) continue ;; esac   # the variable was empty
-  # A Windows-side shell sees D: as /d, not /mnt/d; host.env.example writes the WSL form.
-  for _p in "$_cand" "$(printf '%s' "$_cand" | sed -E 's#^/mnt/([a-z])/#/\1/#')"; do
-    [ -r "$_p" ] && { HOSTENV="$_p"; break; }
+#
+# LAZILY, from init_roots. Only section 5 needs any of this, and section 5 only runs for a
+# recursive rm. Doing the discovery eagerly put it in front of EVERY Bash call in the session:
+# measured on Git Bash, the hook went from 285 ms to 1111 ms per invocation, nearly all of it
+# spent finding roots for commands that could never reach the check they are for.
+HOSTENV=""; ROOTS_READY=0; WORK_ROOTS=""; NXF_ROOTS=""; WORK_ROOT=""; NXF_ROOT=""
+find_hostenv() {
+  local _selfdir _cand _alt _p
+  _selfdir="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd || printf '')"
+  for _cand in \
+    "${BIOINFO_HOST_ENV:-}" \
+    "${BIOINFO_HOME:-/mnt/d/bioinfo-agent}/config/host.env" \
+    "${CLAUDE_PROJECT_DIR:-}/config/host.env" \
+    "${CLAUDE_PLUGIN_ROOT:-}/config/host.env" \
+    "${_selfdir:-}/config/host.env" \
+    "${HOME:-}/bioinfo-agent/config/host.env"
+  do
+    case "$_cand" in ''|/config/host.env) continue ;; esac   # the variable was empty
+    # A Windows-side shell sees D: as /d, not /mnt/d; host.env.example writes the WSL form.
+    case "$_cand" in /mnt/?/*) _alt="/${_cand#/mnt/}" ;; *) _alt="" ;; esac
+    for _p in "$_cand" "$_alt"; do
+      [ -n "$_p" ] && [ -r "$_p" ] && { HOSTENV="$_p"; return 0; }
+    done
   done
-  [ -n "$HOSTENV" ] && break
-done
+}
 # SAME ACCEPTANCE AS bootstrap/lib/host-env.sh, which is the canonical reader for this file.
 # It strips an optional `export ` prefix and whitespace around the key, and takes the value
 # literally: quoted to the matching quote, otherwise up to the first space or '#'. A one-line
@@ -102,34 +115,91 @@ done
 # readers of one file must not disagree about what the file says. (Caught in review of PR #18.)
 hostenv_get() {
   [ -n "$HOSTENV" ] && [ -r "$HOSTENV" ] || return 0
-  local _v
-  # tail, not head. load_host_env reads the WHOLE file and exports on every match, so a later
-  # line for the same key wins. An operator who leaves BIOINFO_WORK=/old/work in place and
-  # appends the new value runs under the new one, and taking the first match here made the guard
-  # protect a root nothing uses. (Caught in review of PR #18.)
-  _v="$(sed -n -E "s/^[[:space:]]*(export[[:space:]]+)?$1[[:space:]]*=//p" "$HOSTENV" | tail -1)"
-  _v="${_v%$'\r'}"                                    # tolerate a CRLF checkout
-  _v="${_v#"${_v%%[![:space:]]*}"}"                   # leading whitespace off the value
-  case "$_v" in
-    '"'*) _v="${_v#\"}"; _v="${_v%%\"*}" ;;
-    "'"*) _v="${_v#\'}"; _v="${_v%%\'*}" ;;
-    *)    _v="${_v%%#*}"                              # unquoted: drop a trailing comment,
-          _v="${_v%"${_v##*[![:space:]]}"}"
-          case "$_v" in *[[:space:]]*) _v="${_v%%[[:space:]]*}" ;; esac ;;   # end at first space
-  esac
-  printf '%s' "$_v"
-}
-: "${BIOINFO_WORK:=$(hostenv_get BIOINFO_WORK)}"
-: "${NXF_WORKROOT:=$(hostenv_get NXF_WORKROOT)}"
+  local _want="$1" _line _key _v _out=""
+  # load_host_env applies the last ACCEPTED assignment, not simply the last matching line.
+  # Keep the same value parser and reject list so a later invalid line cannot hide a valid root.
+  while IFS= read -r _line || [ -n "$_line" ]; do
+    _line="${_line%$'\r'}"
+    case "$_line" in
+      ''|'#'*) continue ;;
+      *'='*)   ;;
+      *)       continue ;;
+    esac
 
-WORK_ROOT="$(norm_root "${BIOINFO_WORK:-/work}")"
-# Run directories live under this, one per run id. SAME DERIVATION as bin/preflight.sh:9,
-# every cmd.sh, and every NXFDIR= line in references/runbook.md. Hardcoding "$WORK_ROOT/nxf"
-# here meant that on a host which sets NXF_WORKROOT elsewhere -- which runbook.md section 2
-# tells the operator to export -- this hook matched nothing, and a live run's work directory
-# was deletable while the identical command against the default root was blocked.
-NXF_ROOT="$(norm_root "${NXF_WORKROOT:-${WORK_ROOT}/nxf}")"
+    _key="${_line%%=*}"
+    _v="${_line#*=}"
+    _key="${_key#"${_key%%[![:space:]]*}"}"
+    _key="${_key%"${_key##*[![:space:]]}"}"
+    _key="${_key#export }"
+    _key="${_key#"${_key%%[![:space:]]*}"}"
+    [ "$_key" = "$_want" ] || continue
+
+    _v="${_v#"${_v%%[![:space:]]*}"}"
+    case "$_v" in
+      '"'*) _v="${_v#\"}"; _v="${_v%%\"*}" ;;
+      "'"*) _v="${_v#\'}"; _v="${_v%%\'*}" ;;
+      *)    _v="${_v%%#*}"
+            _v="${_v%"${_v##*[![:space:]]}"}"
+            case "$_v" in *[[:space:]]*) _v="${_v%%[[:space:]]*}" ;; esac ;;
+    esac
+    case "$_v" in *'$('*|*'`'*|*';'*|*'|'*|*'&'*|*'>'*|*'<'*|*$'\n'*) continue ;; esac
+    _out="$_v"
+  done < "$HOSTENV"
+  printf '%s' "$_out"
+}
+# PROTECT EVERY ROOT EITHER SOURCE NAMES, not whichever one wins a precedence fight.
+# `${BIOINFO_WORK:=$(hostenv_get ...)}` meant an inherited value suppressed the file, and the
+# two disagree in exactly the situation that matters: load_host_env exports unconditionally
+# (host-env.sh line 80), so after a host move the FILE holds the live root while a shell that
+# still has the old one exported hands this hook the dead one. It then guarded /old/work while
+# runs filled /bigdisk/work, and `rm -rf /bigdisk/work` exited 0. (Caught in review of PR #18.)
+#
+# Picking a winner is the wrong shape for a guard. Deleting a root that is no longer in use is
+# harmless to refuse; failing to guard one that is in use is the whole failure mode. So collect
+# both readings plus the built-in default and protect the union. WORK_ROOT / NXF_ROOT stay as
+# the single values quoted in messages.
+NL='
+'
+_addroot() {          # $1 = WORK|NXF, $2 = raw value. Deduping append, no subshell.
+  norm_root "$2"; [ -n "$NORM" ] || return 0
+  if [ "$1" = WORK ]; then
+    case "$NL$WORK_ROOTS" in *"$NL$NORM$NL"*) return 0 ;; esac
+    WORK_ROOTS="$WORK_ROOTS$NORM$NL"
+  else
+    case "$NL$NXF_ROOTS" in *"$NL$NORM$NL"*) return 0 ;; esac
+    NXF_ROOTS="$NXF_ROOTS$NORM$NL"
+  fi
+}
+init_roots() {
+  [ "$ROOTS_READY" -eq 1 ] && return 0
+  ROOTS_READY=1
+  local _w
+  find_hostenv
+  _addroot WORK "${BIOINFO_WORK:-/work}"
+  _addroot WORK "$(hostenv_get BIOINFO_WORK)"
+  _addroot WORK /work
+  _addroot NXF  "${NXF_WORKROOT:-}"
+  _addroot NXF  "$(hostenv_get NXF_WORKROOT)"
+  # Run directories live one per run id under <root>/nxf. SAME DERIVATION as bin/preflight.sh,
+  # every cmd.sh, and every NXFDIR= line in references/runbook.md — and it is the derivation
+  # that applies whenever NXF_WORKROOT is not set at all, so it must hold for every work root.
+  while IFS= read -r _w; do [ -n "$_w" ] && _addroot NXF "$_w/nxf"; done <<EOF
+$WORK_ROOTS
+EOF
+  norm_root "${BIOINFO_WORK:-/work}";              WORK_ROOT="$NORM"
+  norm_root "${NXF_WORKROOT:-${WORK_ROOT}/nxf}";   NXF_ROOT="$NORM"
+}
 HOLD_DAYS="${BIOINFO_WORKDIR_HOLD_DAYS:-7}"
+
+# true when $1 is exactly one of the roots, i.e. a whole-tree wipe rather than one run
+is_root() {
+  local _t="$1" _r
+  while IFS= read -r _r; do [ -n "$_r" ] && [ "$_t" = "$_r" ] && return 0; done <<EOF
+$WORK_ROOTS
+$NXF_ROOTS
+EOF
+  return 1
+}
 
 deny() { printf 'BLOCKED by bioinfo guard: %s\n' "$1" >&2; exit 2; }
 allow() { exit 0; }
@@ -250,15 +320,21 @@ fi
 # Only fires when a target genuinely sits under the work root; unrelated rm is none of our business.
 printf '%s' "$CMD" | grep -qE "$RECURSIVE" || allow
 
+# Past this line the command really is a recursive rm, so it is worth learning where the work
+# roots are. Everything above answered without needing to know.
+init_roots
+
 esc() { printf '%s' "$1" | sed 's/[][\.*^$+?(){}|/]/\\&/g'; }
-esc_root="$(esc "$WORK_ROOT")"
-esc_nxf="$(esc "$NXF_ROOT")"
-# Roots worth scanning for. The bare literals stay in the alternation because hooks.json starts
-# this on the Windows side, where neither BIOINFO_WORK nor NXF_WORKROOT is usually inherited and
-# the defaults are all this has to go on. Duplicates in the alternation are harmless.
-ROOT_ALT="${esc_nxf}|${esc_root}|/work/nxf|/work"
-# The run-id-bearing roots only — /work on its own has no run id under it.
-NXF_ALT="${esc_nxf}|/work/nxf"
+# alternation over every root either source named, longest first so the run-bearing
+# <root>/nxf wins over its own <root> prefix
+alt_of() { local _r _o=""; while IFS= read -r _r; do
+    [ -n "$_r" ] && _o="$_o|$(esc "$_r")"
+  done; printf '%s' "${_o#|}"; }
+# Roots worth scanning for: every value the environment or host.env named, plus the built-in
+# default, which WORK_ROOTS already carries. Duplicates are impossible (sort -u) and harmless.
+ROOT_ALT="$(printf '%s\n%s\n' "$NXF_ROOTS" "$WORK_ROOTS" | alt_of)"
+# The run-id-bearing roots only — a bare work root has no run id directly under it.
+NXF_ALT="$(printf '%s\n' "$NXF_ROOTS" | alt_of)"
 
 # UNEXPANDED VARIABLE IN THE TARGET.
 # This hook sees the command TEXT, before the caller's shell expands anything. So
@@ -334,9 +410,33 @@ fi
 # on its space destroys it. Nothing in the command text says which one a given quote is. So
 # produce both streams and match against the union: this decides one bit, and an extra candidate
 # token can only make the guard stricter, which is the safe direction for a delete.
+#
+#   stream 1  quotes dropped, BACKSLASH-escaped whitespace held as part of the word.
+#             Covers the inner-command form, and the composition of the two that a first
+#             attempt at this missed entirely:
+#               wsl -d Ubuntu -- bash -lc 'rm -rf /big\ disk/work/nxf/demo/work'
+#             where the quote is a command wrapper but the space inside it belongs to the path.
+#   stream 2  quoted spans held as one word. Covers "/big disk/work/nxf/demo/work".
+#
+# What neither covers is a quote nested inside a quote -- bash -lc '... "/big disk/..." ...'.
+# Parsing that correctly means being a shell, which this is not; see WHAT IT DOES NOT DO.
 SEP="$(printf '\001')"
 NXF_SHAPE='^/.*/nxf(/[^/]+.*)?$'
-targets="$( { printf '%s' "$CMD" | tr -d '"\047' | tr -s '[:space:]' '\n'
+targets="$( { printf '%s' "$CMD" \
+  | awk -v S="$SEP" '{
+      out=""; n=length($0)
+      for (i=1; i<=n; i++) {
+        c = substr($0,i,1)
+        if (c=="\\" && i<n) {
+          nx = substr($0,i+1,1)
+          if (nx==" " || nx=="\t") { out = out S; i++; continue }
+          out = out c; continue
+        }
+        if (c=="\"" || c=="\047") continue
+        out = out c
+      }
+      print out
+    }' | tr -s '[:space:]' '\n' | sed "s/${SEP}/ /g"
               printf '%s' "$CMD" \
   | awk -v S="$SEP" '{
       out=""; q=""; n=length($0)
@@ -366,8 +466,7 @@ while IFS= read -r t; do
 
   # Refuse to wipe the whole work root regardless of run state. The */nxf case covers a root
   # this process could not learn: it is still somebody's run tree, whoever configured it.
-  if [ "$t" = "$WORK_ROOT" ] || [ "$t" = "/work" ] || [ "$t" = "$NXF_ROOT" ] || [ "$t" = "/work/nxf" ] \
-     || case "$t" in */nxf) true ;; *) false ;; esac; then
+  if is_root "$t" || case "$t" in */nxf) true ;; *) false ;; esac; then
     deny "that target is the entire work root ($t), not one run. Every run's -resume cache lives
       under it. Delete a single finished run directory instead."
   fi

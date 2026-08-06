@@ -52,7 +52,7 @@ no guard.
 bash hooks/guard-workdir.test.sh
 ```
 
-68 cases, allow/deny only, hermetic. The hook is ~300 lines of regex whose whole output is one
+83 cases, allow/deny only, hermetic. The hook is ~300 lines of regex whose whole output is one
 bit, which makes it the easiest thing here to break without noticing: six consecutive rounds of
 review on PR #18 each found a real hole, and three of those were introduced by the fix before
 them. The suite is that history kept. It asserts exit codes and never message wording, because

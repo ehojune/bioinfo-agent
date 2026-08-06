@@ -223,6 +223,14 @@ refsrc=""
 if [ -f "$RUNDIR/params.yaml" ]; then refsrc="$refsrc $RUNDIR/params.yaml"; fi
 if [ -f "$RUNDIR/cmd.sh" ];      then refsrc="$refsrc $RUNDIR/cmd.sh"; fi
 if [ -n "$refsrc" ]; then
+  # $REFS is a filesystem path, and below it goes into a sed REPLACEMENT and a grep -E PATTERN,
+  # which read it as neither. An absolute root may legally contain regex metacharacters --
+  # /ref+store is a valid directory name -- and unescaped the '+' became a quantifier: the
+  # pattern matched nothing, so a missing reference was downgraded to the "nothing from the
+  # store" warning instead of failing. Escape once per destination, before the loop, because
+  # the process substitution that feeds it is expanded first. (Caught in review of PR #18.)
+  REFS_RE="$(printf '%s' "$REFS" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
+  REFS_SED="$(printf '%s' "$REFS" | sed 's/[\\&#]/\\&/g')"
   nref=0
   while read -r p; do
     [ -n "$p" ] || continue
@@ -242,8 +250,8 @@ if [ -n "$refsrc" ]; then
     fi
   # word-split $refsrc deliberately: these are run-dir paths this script just built.
   done < <(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' $refsrc \
-           | sed -E "s#\\\$\\{?(BIOINFO_)?REFS\\}?/#${REFS}/#g" \
-           | grep -oE "(^|[^A-Za-z0-9_./-])${REFS}[^\"' ]*" | sed -E 's#^[^/]*(/.*)#\1#' | sed 's/[,:]$//' | sort -u)
+           | sed -E "s#\\\$\\{?(BIOINFO_)?REFS\\}?/#${REFS_SED}/#g" \
+           | grep -oE "(^|[^A-Za-z0-9_./-])${REFS_RE}[^\"' ]*" | sed -E 's#^[^/]*(/.*)#\1#' | sed 's/[,:]$//' | sort -u)
   [ "$nref" -gt 0 ] || note "no $REFS path appears in params.yaml/cmd.sh outside comments — this run references nothing from the store"
 else
   note "neither params.yaml nor cmd.sh present; reference paths not checked"
