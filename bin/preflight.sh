@@ -43,7 +43,7 @@ fi
 
 echo "== filesystems =="
 case "$WORKDIR" in
-  /mnt/*) bad "work dir is on drvfs: $WORKDIR — must be ext4, refusing" ;;
+  /mnt/*) bad "work dir is on drvfs: $WORKDIR — must be ext4, refusing. drvfs has no FIFOs; STAR dies there before reading anything (runbook.md section 1)" ;;
   *)      ok "work dir on ext4: $WORKDIR" ;;
 esac
 [ -d "$WORKROOT" ] || note "$WORKROOT does not exist yet — free space measured on $(upto "$WORKDIR")"
