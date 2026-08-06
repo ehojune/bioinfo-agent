@@ -315,7 +315,14 @@ NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID
 # name, after which `tmux attach`/`capture-pane` using the same raw $RUNID can miss the session
 # they just created. Derive a tmux-safe alias and use ONLY that for tmux's own -s/-t; $RUNID
 # keeps naming the filesystem paths and the pid-file/pgrep matching below, which take it literally.
-TRUNID=$(printf '%s' "$RUNID" | tr -c 'A-Za-z0-9_-' '_')
+#
+# The substitution alone is not injective: "study.v2" and "study_v2" both sanitise to the same
+# string, and this recipe has no `set -e` to stop a second launch that silently collided with the
+# first's session name -- it would run straight through pid detection and attach to the WRONG
+# run's session without any error. The md5 suffix is taken from the ORIGINAL (pre-substitution)
+# $RUNID specifically so two inputs that collide after substitution almost certainly do not
+# collide after hashing.
+TRUNID="$(printf '%s' "$RUNID" | tr -c 'A-Za-z0-9_-' '_')_$(printf '%s' "$RUNID" | md5sum | cut -c1-8)"
 
 mkdir -p "$NXFDIR"                                 # cmd.sh creates it too, but the pid write below
                                                    # races the session start; do not depend on it

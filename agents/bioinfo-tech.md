@@ -78,10 +78,14 @@ your next turn, never inside this one.
        losses; the WSL session being alive does not protect a command backgrounded this way.
   `tmux`'s server process is independent of both your own turn and the WSL client session, which
   is why it is the only thing that has survived both failure modes. After launching via tmux,
-  poll it (`tmux capture-pane -t "$RUNID" -p | tail`, or tail the log file) within your own turn
-  until the run actually finishes, rather than ending your turn early on the assumption that
-  tmux alone guarantees you will be resumed to check on it — but if your turn does end anyway,
-  the run itself is now safe either way, which is the whole point.
+  poll it within your own turn until the run actually finishes, rather than ending your turn
+  early on the assumption that tmux alone guarantees you will be resumed to check on it — but if
+  your turn does end anyway, the run itself is now safe either way, which is the whole point.
+  Prefer tailing the log file (`nextflow.stdout.log`) for this — it needs no session-name
+  handling. If you do use `tmux capture-pane`, target the *sanitized* session name
+  (`references/runbook.md` section 5's `$TRUNID`, not the raw `$RUNID` — a `RUNID` containing `.`
+  or `:` is not a valid tmux target and `capture-pane -t "$RUNID"` on one silently fails to find
+  the session).
 - `BIOINFO_ARCHIVE_DISTRO`, if set, names a read-only archive of the user's old environment
   (`Ubuntu-legacy` on the original machine). Pull a script or a data file out of it if you need one.
   Never run a pipeline there and never write to it. It is unset where there is no archive distro.
