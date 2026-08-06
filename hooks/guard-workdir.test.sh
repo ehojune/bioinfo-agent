@@ -280,6 +280,16 @@ check allow 'rm -rf "/foo/a\&b/workspace"'         BIOINFO_WORK='/foo/a\&b/work'
 # and outside quotes the same two characters ARE an escape, so this root has no backslash
 check deny  'rm -rf /foo/a\&b/work'                BIOINFO_WORK='/foo/a&b/work'
 
+section "\$'…' and \$\"…\" are quote introducers, not expansions"
+# bash resolves $'/work' to /work. Leaving the $ attached made the token read $/work.
+check deny  "rm -rf \$'/work'"
+check deny  "rm -rf \$'/work/nxf/r/work'"
+check deny  'rm -rf $"/work"'
+check allow "rm -rf \$'/workspace/tmp'"
+# and a real expansion must stay an unexpanded variable, not be read as a quote
+check deny  'rm -rf $NXFDIR/work'
+check allow 'rm -rf $HOME/tmp'
+
 section "runbook section 9 — the reclaim must become possible, not stay blocked forever"
 W="$TMP/fakework"; mkdir -p "$W/nxf/testrun/work"
 check deny  "rm -rf $W/nxf/testrun/work" BIOINFO_WORK="$W"          # no handoff yet

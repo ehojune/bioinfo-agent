@@ -314,6 +314,12 @@ shell_prepass() {     # pure shell; gated below so a command with no backslash n
     # pathname and deletes it. Writing a path with a special character in quotes is what a
     # person actually does; the backslash form is the rarer one. (Caught in review of PR #18.)
     if [ -z "$q" ]; then
+      # $'…' and $"…" are quote introducers, not expansions. bash resolves $'/work' to /work,
+      # and leaving the $ attached made the token read $'/work' -> $/work, matching no root.
+      # Only when a quote follows immediately: $NXFDIR is a variable and must stay one.
+      if [ "$c" = '$' ] && [ $((i+1)) -lt "$n" ]; then
+        case "${s:i+1:1}" in '"'|"'") i=$((i+1)); continue ;; esac
+      fi
       case "$c" in '"'|"'") q="$c"; out="$out$c"; i=$((i+1)); continue ;; esac
     elif [ "$c" = "$q" ]; then
       q=""; out="$out$c"; i=$((i+1)); continue
@@ -520,8 +526,11 @@ fi
 #             where the quote is a command wrapper but the space inside it belongs to the path.
 #   stream 2  quoted spans held as one word. Covers "/big disk/work/nxf/demo/work".
 #
-# What neither covers is a quote nested inside a quote -- bash -lc '... "/big disk/..." ...'.
-# Parsing that correctly means being a shell, which this is not; see WHAT IT DOES NOT DO.
+# Both streams also drop the $ of a $'…' / $"…" word, which bash resolves away entirely.
+#
+# What neither covers is a quote nested inside a quote -- bash -lc '... "/big disk/..." ...' --
+# nor the escape DECODING inside $'…', where bash turns \x2f and \t into real characters. Doing
+# either properly means being a shell, which this is not; see WHAT IT DOES NOT DO.
 SEP="$(printf '\001')"
 # The prefix is OPTIONAL. `^/.*/nxf` demanded a nonempty component before /nxf, so a top-level
 # root -- NXF_WORKROOT=/nxf, perfectly valid and, being inside the distro, invisible to a
@@ -542,6 +551,8 @@ targets="$( { printf '%s' "$CMD" \
           # there the backslash is carrying word-joining, not just quoting the character.
           out = out nx; i++; continue
         }
+        # $ immediately before a quote introduces $'…' / $"…"; drop it, keep $VAR intact
+        if (c=="$" && i<n) { nq = substr($0,i+1,1); if (nq=="\"" || nq=="\047") continue }
         if (c=="\"" || c=="\047") continue
         out = out c
       }
@@ -557,6 +568,7 @@ targets="$( { printf '%s' "$CMD" \
           if (nx==" " || nx=="\t") { out = out S; i++; continue }
           out = out nx; i++; continue          # same as stream 1: the shell drops it
         }
+        if (q=="" && c=="$" && i<n) { nq = substr($0,i+1,1); if (nq=="\"" || nq=="\047") continue }
         if (q=="") { if (c=="\"" || c=="\047") { q=c; continue } }
         else {
           if (c==q) { q=""; continue }
