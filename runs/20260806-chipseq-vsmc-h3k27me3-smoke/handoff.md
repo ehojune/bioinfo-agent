@@ -24,6 +24,17 @@ delete, `-resume` depends on it
 
 ## QC verdict
 
+**0 of 4 samples pass; 1 warn; 3 fail.** (Required verdict-line format,
+`qc-interpretation.md` §7 — the narrative version below explains the mechanism; this line is the
+formal tally a reader can act on without parsing prose.)
+
+| Sample | Role | Deciding metric | Final verdict |
+|---|---|---|---|
+| VSMC_WT_Input_REP1 | Input control | Fingerprint AUC 0.238 (band: pass ≈0.5, fail if strongly bowed) | **FAIL** |
+| VSMC_WT_Input_REP2 | Input control | Fingerprint AUC 0.270 (same band) | **FAIL** |
+| VSMC_WT_H3K27me3_REP1 | ChIP | Mechanics clean, ChIP-vs-own-Input AUC gap points the right way, but the Input side of that comparison fails its own band (row above) — the comparison this sample's enrichment claim depends on is not valid | **WARN** — cannot be confirmed, not itself showing a failure signature |
+| VSMC_WT_H3K27me3_REP2 | ChIP | ChIP AUC (0.261) nearly identical to its own Input's (0.270) — no enrichment shown independent of the Input-quality problem; 0% peak overlap with REP1 | **FAIL** |
+
 **Pipeline mechanics: PASS** — alignment, duplication and control pairing ran cleanly, no crashes,
 correct broad-mark settings. **QC signal: FAIL, at the control level, which undercuts everything
 downstream of it.** This verdict has been revised twice on Codex review (PR #16), each time by
