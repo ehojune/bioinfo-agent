@@ -334,19 +334,28 @@ mkdir -p "$NXFDIR"                                 # cmd.sh creates it too, but 
 # re-sourced a refreshed ~/.config/bioinfo/env.sh, the new session would silently NOT see that:
 # `bash '$RUNDIR/cmd.sh'` is a non-login shell and does not source it either. cmd.sh would then
 # derive NXFDIR from a stale or default root -- different from the one bin/preflight.sh just
-# checked disk space and ext4-ness against in THIS shell, moments ago. `-e VAR=value` (tmux
-# >=3.2) sets the environment for the new session explicitly, overriding whatever the server's
-# own global environment holds; empty values here still trigger cmd.sh's own `${VAR:-default}`
-# fallbacks correctly, so an unset variable in this shell does not become a forced-empty one.
-tmux new-session -d -s "$TRUNID" \
-  -e "BIOINFO_HOME=${BIOINFO_HOME:-}" \
-  -e "BIOINFO_REFS=${BIOINFO_REFS:-}" \
-  -e "BIOINFO_WORK=${BIOINFO_WORK:-}" \
-  -e "NXF_WORKROOT=${NXF_WORKROOT:-}" \
-  -e "NXF_ASSETS=${NXF_ASSETS:-}" \
-  -e "NXF_OPTS=${NXF_OPTS:-}" \
-  -e "NXF_ANSI_LOG=${NXF_ANSI_LOG:-}" \
-  "bash '$RUNDIR/cmd.sh'"
+# checked disk space and ext4-ness against in THIS shell, moments ago.
+#
+# `-e VAR=value` (tmux >=3.2) sets the environment for the new session, overriding the server's
+# stale global one. A HARDCODED list of `-e` flags here (an earlier version of this fix had one)
+# is a maintenance trap: bootstrap/03-nextflow.sh's generated env.sh alone carries 12+ NXF_*/
+# BIOINFO_* variables (NXF_HOME, NXF_WORK, NXF_TEMP, both container-cache dirs,
+# NXF_SYNTAX_PARSER, ...), config/local.config separately reads BIOINFO_MAX_CPUS/MAX_MEMORY/
+# MAX_TIME as scheduler ceilings, and NEITHER source is complete on its own -- host.env and
+# ~/.bashrc contribute the rest. A short list silently omits whichever of these the list's
+# author did not think of; a stale MAX_MEMORY can overcommit the current VM, a stale cache path
+# can write to the wrong disk. Instead, capture and forward the SAME name-shaped set
+# bootstrap/lib/host-env.sh already treats as the environment contract (BIOINFO_*, NXF_*,
+# JAVA_HOME) directly from this shell's current exports -- complete by construction, no list to
+# keep in sync as new variables are added upstream.
+tmux_env_args=()
+while IFS= read -r _te_var; do
+  case "$_te_var" in
+    BIOINFO_*|NXF_*|JAVA_HOME) tmux_env_args+=(-e "$_te_var=${!_te_var}") ;;
+  esac
+done < <(compgen -v)
+
+tmux new-session -d -s "$TRUNID" "${tmux_env_args[@]}" "bash '$RUNDIR/cmd.sh'"
 
 # Record the live pid. NOT optional: hooks/guard-workdir.sh reads this file to refuse
 # deleting the work directory of a running run. Without it the guard falls through to the
