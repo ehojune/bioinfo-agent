@@ -67,8 +67,8 @@ done
 log "target layout"
 info "BIOINFO_HOME  = $BIOINFO_HOME_V   (repo; drvfs is fine, it is only text)"
 info "BIOINFO_REFS  = $BIOINFO_REFS_V"
-info "BIOINFO_RUNS  = $BIOINFO_RUNS_V"
-info "BIOINFO_RUNLOG= $BIOINFO_RUNLOG_V   (text only; drvfs on purpose)"
+info "BIOINFO_RUNS  = $BIOINFO_RUNS_V   (legacy reserve; not an active --outdir)"
+info "BIOINFO_RUNLOG= $BIOINFO_RUNLOG_V   (run record + copied deliverables; drvfs on purpose)"
 info "NXF_HOME      = $NXF_HOME_V"
 info "NXF_ASSETS    = $NXF_ASSETS_V"
 info "NXF_WORK      = $NXF_WORK_V"
@@ -259,9 +259,10 @@ export BIOINFO_REFS="$BIOINFO_REFS_V"
 # expands to nothing and -work-dir becomes /<run-id>, i.e. a write attempt at /.
 export BIOINFO_WORK="$WORK_ROOT"
 
-# Pipeline outdirs (ext4) and the human-readable run record (NTFS, text only). The
-# launch commands in config/local.config compose paths from both, so both must exist
-# in the environment or those commands write to /<run-id>.
+# Legacy ext4 results root, retained for existing host.env files. Active --outdir
+# lives under \${NXF_WORKROOT:-\${BIOINFO_WORK:-/work}/nxf}/<run-id>/results;
+# never compose a launch path from BIOINFO_RUNS. BIOINFO_RUNLOG holds the run
+# record and copied deliverables.
 export BIOINFO_RUNS="$BIOINFO_RUNS_V"
 export BIOINFO_RUNLOG="$BIOINFO_RUNLOG_V"
 

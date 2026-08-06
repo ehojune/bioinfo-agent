@@ -891,20 +891,22 @@ Selecting a pipeline surfaces references the manifest does not yet carry. These 
 not missing files — fix `config/refs.manifest.tsv` and re-run `bootstrap/04-refs.sh` rather than
 hand-placing anything under `/refs`.
 
-**As of 2026-08-05 (run `20260805-atacseq-gbr-lcl-smoke`)**, two of the rows this section used to
-list as missing were re-checked against the manifest directly and turned out not to both be gaps:
-`genomes/GRCh38/index/bowtie2/` has had a `build`-mode manifest row from day one (it was never
-missing — only the index *file* was, which the first atacseq run has since built and promoted into
-the store); `genomes/GRCh38/bed/blacklist.bed` genuinely had no row and was fetched and added this
-run (PR #10). Both are removed from the table below. If you are reading this file at a much later
-date, re-verify with `bash bootstrap/04-refs.sh --dry-run` rather than trusting this table on
-sight — this stale-doc drift is exactly why: the row can look missing here for months after the
-underlying gap was actually fixed, and the fastest way to know is to ask the filesystem.
+**This table is about rows only.** Three entries have been removed from it because their rows do
+exist: `genomes/GRCh38/index/bowtie2/` and `genomes/GRCh38/index/bwameth/` have had `build` rows
+(bowtie2 from day one, bwameth added 2026-08-05, exactly as section 4 of this file already said),
+and `genomes/GRCh38/bed/blacklist.bed` got its `fetch` row in PR #10.
+
+**A row is not a file, and for all three the file is still absent.** Checked against
+`bash bootstrap/04-refs.sh --dry-run` on 2026-08-06: bowtie2 `NOT BUILT`, bwameth `NOT BUILT`,
+blacklist `MISSING`. `/refs/genomes/GRCh38/index/` is an empty directory. An earlier revision of
+this paragraph claimed the first atacseq run "has since built and promoted [the bowtie2 index]
+into the store" — it had not, and a chipseq preflight failed on exactly that path. The file-level
+list lives in `references/reference-store.md`; quote that one when you write a run plan, and run
+the dry-run rather than trusting either table on sight.
 
 | Standard path | Mode | Needed by | Note |
 |---|---|---|---|
 | `genomes/GRCh38/index/bwa/` | build | chipseq (`--aligner bwa`), methylseq bwameth | the existing BWA index is on `GRCh38gatk`, a different FASTA |
-| `genomes/GRCh38/index/bwameth/` | build | methylseq `--aligner bwameth` | `bwameth.py index` |
 | `genomes/ECOLI_K12/fasta/genome.fa` + `index/bowtie2/` | fetch/build | cutandrun spike-in | otherwise the pipeline downloads it per run |
 | `genomes/GRCh38/fasta/genome.dict` | build | any GATK-adjacent step on the UCSC build | already a `build` row; still absent |
 | cutandrun's own GRCh38 blacklist | none — pipeline-bundled, not a store asset | cutandrun `--blacklist` | **not** the atacseq/chipseq ENCODE blacklist above — nf-core/cutandrun 3.2.2 bundles a different, protocol-specific region set at `assets/blacklists/GRCh38-blacklist.bed`. Add a separate manifest row only if it needs to be store-resident; do not point cutandrun at `genomes/GRCh38/bed/blacklist.bed` |

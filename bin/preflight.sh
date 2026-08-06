@@ -10,6 +10,7 @@ WORKROOT="${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}"
 WORKDIR="$WORKROOT/$RUNID/work"
 REFS="${BIOINFO_REFS:-/refs}"
 TSV="$(cd "$(dirname "$0")/.." && pwd)/config/pipelines.tsv"
+MANIFEST="$(cd "$(dirname "$0")/.." && pwd)/config/refs.manifest.tsv"
 
 fail=0; warn=0
 ok()   { printf '  OK    %s\n' "$*"; }
@@ -71,13 +72,49 @@ REV=""; PIPE=""
 if [ -f "$RUNDIR/cmd.sh" ]; then
   if grep -qE '(^| )-r +"?\$?\{?[0-9A-Za-z._-]+\}?"?' "$RUNDIR/cmd.sh" && ! grep -qE '(^| )-r +"?\$?\{?(dev|master|main)\}?"?( |$)' "$RUNDIR/cmd.sh"; then
     REV="$(grep -oE '(^| )-r +"?\$?\{?[0-9A-Za-z._-]+\}?"?' "$RUNDIR/cmd.sh" | head -1 | tr -d ' "${}' | sed 's/^-r//')"
-    if grep -qE "^[[:space:]]*${REV}=" "$RUNDIR/cmd.sh"; then   # -r $REV — resolve the assignment
-      # sed strips a trailing comment first: the cmd.sh template writes
+    # The guard needs the same `export` tolerance as the resolver below. Teaching only the
+    # resolver left a cmd.sh whose ONLY assignment is `export REV=2.1.0` skipping this block
+    # entirely, so REV stayed the variable NAME and preflight announced `pinned in cmd.sh: REV`.
+    # Caught by testing the case rather than by reading the patch.
+    if grep -qE "^[[:space:]]*(export[[:space:]]+)?${REV}=" "$RUNDIR/cmd.sh"; then
+      # THE LAST ASSIGNMENT BEFORE THE INVOCATION, not the first in the file. bash uses the value
+      # in effect when the line runs, so
+      #   REV=3.18.0
+      #   REV=dev        # left over from a debugging session
+      #   nextflow run ... -r "$REV"
+      # runs dev while `head -1` reported 3.18.0 -- and then the stocked-set check below compared
+      # 3.18.0 against the pin and passed. Both gates cleared a run that was on a floating branch.
+      # Exactly the mistake the host.env reader had, on the other side of the same script; I fixed
+      # it there and left it here. (Caught in review of PR #18.)
+      #
+      # The trailing comment is stripped first: the template writes
       #   REV=3.18.0        # from config/pipelines.tsv
       # and `tr -d ' '` alone would glue the comment onto the revision.
-      REV="$(grep -E "^[[:space:]]*${REV}=" "$RUNDIR/cmd.sh" | head -1 | cut -d= -f2- | sed 's/#.*$//' | tr -d '\047" ')"
+      # `export REV=dev` is an assignment too, and skipping it read the value bash discarded.
+      # bootstrap/lib/host-env.sh strips the same prefix; I aligned this reader with that one on
+      # "last wins" and did not carry the `export` half across. Unlike host.env, whitespace
+      # around `=` is NOT accepted here: `REV = dev` is a command in a shell script, not an
+      # assignment, so treating it as one would invent a pin bash never sets.
+      _rl="$(grep -nE '(^| )-r +' "$RUNDIR/cmd.sh" | head -1 | cut -d: -f1)"
+      REV="$(awk -v v="$REV" -v L="${_rl:-0}" '
+               L>0 && NR>=L { exit }
+               { s=$0
+                 sub(/^[[:space:]]+/, "", s)
+                 sub(/^export[[:space:]]+/, "", s)
+                 sub(/^[[:space:]]+/, "", s)
+                 if (index(s, v "=")==1) line=s }
+               END { print line }' "$RUNDIR/cmd.sh" \
+             | cut -d= -f2- | sed 's/#.*$//' | tr -d '\047" ')"
     fi
-    ok "revision pinned in cmd.sh: $REV"
+    # Re-test AFTER resolving. The check above reads the command line as text, so
+    # `-r "$REV"` with `REV=dev` assigned two lines up passes it: the literal string
+    # "dev" never appears next to -r. Every shipped cmd.sh uses exactly that indirect
+    # form, which made the floating-branch gate unreachable for the template the repo
+    # tells you to copy.
+    case "$REV" in
+      dev|master|main) bad "cmd.sh resolves -r to the floating branch '$REV'. Pin an exact release tag." ;;
+      *)               ok "revision pinned in cmd.sh: $REV" ;;
+    esac
   else
     bad "cmd.sh has no -r revision pin, or pins a floating branch (dev/master/main)"
   fi
@@ -100,7 +137,11 @@ else
   elif [ "$pin" = "$REV" ]; then
     ok "nf-core/$PIPE -r $REV matches the pin in $TSV"
   else
-    note "nf-core/$PIPE -r ${REV:-none} disagrees with the pin $pin in $TSV"
+    # FAIL, not warn. config/pipelines.tsv, references/new-pipeline.md and SKILL.md all
+    # tell the reader this gate "refuses" a disagreeing -r; a warning that still exits 0
+    # made a passing preflight mean nothing about the pin. Deviating from the pin is a
+    # procurement decision -- change the row, do not talk past it.
+    bad "nf-core/$PIPE -r ${REV:-none} disagrees with the pin $pin in $TSV. Change the row or the -r; do not launch on a pin nobody approved."
   fi
 fi
 
@@ -153,22 +194,100 @@ fi
 
 echo "== references =="
 if [ -d "$REFS" ]; then ok "refs root $REFS"; else bad "refs root $REFS absent — run bootstrap/04-refs.sh"; fi
-PF="$RUNDIR/params.yaml"
-if [ -f "$PF" ]; then
+
+manifest_has() {
+  local rel="$1"
+  [ -f "$MANIFEST" ] && awk -F'\t' -v r="$rel" '/^#/{next} $1==r||$1==r"/"{f=1} END{exit !f}' "$MANIFEST"
+}
+
+# 04-refs.sh derives three build-named aliases from canonical manifest rows. The aliases
+# deliberately have no rows of their own; adding one transfers ownership away from the alias
+# mechanism. Print the canonical row when a missing path is one of those generated aliases.
+generated_alias_source() {
+  local rel="$1" top build kind file extra canonical=""
+  IFS=/ read -r top build kind file extra <<EOF
+$rel
+EOF
+  [ "$top" = genomes ] && [ -n "$build" ] && [ -z "${extra:-}" ] || return 1
+  case "$kind/$file" in
+    "fasta/$build.fa")      canonical="genomes/$build/fasta/genome.fa" ;;
+    "fasta/$build.fa.fai")  canonical="genomes/$build/fasta/genome.fa.fai" ;;
+    "gtf/$build.gtf.gz")    canonical="genomes/$build/gtf/genes.gtf.gz" ;;
+    *) return 1 ;;
+  esac
+  manifest_has "$canonical" || return 1
+  printf '%s' "$canonical"
+}
+
+# BOTH files, not params.yaml alone. A run that passes its references as --fasta/--gtf
+# on the command line has no params.yaml at all (runs/20260804-rnaseq-scer-verify is one),
+# and this block used to skip it while printing "checked via cmd.sh instead" -- a check
+# that did not exist anywhere in this script. Scan whichever of the two are present.
+#
+# COMMENTS ARE STRIPPED FIRST. A run record explains itself in prose, and that prose
+# names reference paths that are deliberately NOT arguments. runs/20260804-rnaseq-scer-verify
+# is the case that proves it: it passes --star_index false ON PURPOSE and its comment says why,
+# quoting '/refs/genomes/R64-1-1/index/star' as the directory that does not exist. Scanning the
+# comment turns a correct run into "ref MISSING" and fails preflight. Both # forms go: a line
+# that is only a comment, and a trailing comment after real content. (Caught in review of PR #18.)
+#
+# What survives that is then anchored on a real path boundary: the char immediately before REFS
+# must be start-of-line, whitespace, or a quote -- never a path/word character. Without this,
+# prose like "config/refs.manifest.tsv" is misread as the path /refs.manifest.tsv, because it
+# contains "/refs.manifest.tsv" as a raw substring. Found live on run
+# 20260805-atacseq-gbr-lcl-smoke: a comment citing the manifest file by its repo-relative path
+# failed preflight with "ref MISSING: /refs.manifest.tsv" -- a real file, just not the one meant.
+#
+# REFERENCE-ROOT VARIABLES ARE EXPANDED BEFORE MATCHING. This script reads cmd.sh as TEXT, so
+# a reference written the way config/genomes.config's own examples write it --
+#   --fasta $BIOINFO_REFS/genomes/GRCh38/fasta/GRCh38.fa
+# -- contains no literal "/refs" and was invisible here. The run then passed the reference gate
+# with a warning while pointing at a file that may not exist. Copying the documented form is
+# exactly what a new run does, so this was the common case, not the exotic one. Rewrite the four
+# spellings of the two reference roots to their value first. The trailing "/" in the pattern is
+# required so $REFSOMETHING is left alone; a bare $BIOINFO_REFS with nothing after it names the
+# root, which the check above already covers. (Caught in review of PR #18.)
+# AN ARRAY, not a space-joined string. The string form word-split on the caller's own path:
+# with BIOINFO_RUNLOG under something like /mnt/c/Users/Jane Doe/... -- an ordinary Windows home
+# -- sed received "/tmp/run", "dir", "with", "spaces/...' as four operands, read none of them,
+# and left nref at 0. The gate then reported "this run references nothing from the store" and
+# passed, so a missing reference sailed through on a legitimately configured host.
+# (Caught in review of PR #18.)
+refsrc=()
+if [ -f "$RUNDIR/params.yaml" ]; then refsrc+=("$RUNDIR/params.yaml"); fi
+if [ -f "$RUNDIR/cmd.sh" ];      then refsrc+=("$RUNDIR/cmd.sh"); fi
+if [ "${#refsrc[@]}" -gt 0 ]; then
+  # $REFS is a filesystem path, and below it goes into a sed REPLACEMENT and a grep -E PATTERN,
+  # which read it as neither. An absolute root may legally contain regex metacharacters --
+  # /ref+store is a valid directory name -- and unescaped the '+' became a quantifier: the
+  # pattern matched nothing, so a missing reference was downgraded to the "nothing from the
+  # store" warning instead of failing. Escape once per destination, before the loop, because
+  # the process substitution that feeds it is expanded first. (Caught in review of PR #18.)
+  REFS_RE="$(printf '%s' "$REFS" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
+  REFS_SED="$(printf '%s' "$REFS" | sed 's/[\\&#]/\\&/g')"
+  nref=0
   while read -r p; do
+    [ -n "$p" ] || continue
+    nref=$((nref+1))
     if [ -e "$p" ]; then ok "ref resolves: $p"
-    else bad "ref MISSING: $p — add a manifest row and re-run bootstrap/04-refs.sh"; fi
-  # Anchored on a real path boundary: the char immediately before REFS must be
-  # start-of-line, whitespace, or a quote -- never a path/word character. Without
-  # this, prose like "config/refs.manifest.tsv" in a params.yaml comment (a very
-  # natural thing to write) is misread as the path /refs.manifest.tsv, because
-  # "config/refs.manifest.tsv" contains "/refs.manifest.tsv" as a raw substring.
-  # Found live on run 20260805-atacseq-gbr-lcl-smoke: a comment citing the
-  # manifest file by its repo-relative path failed preflight with
-  # "ref MISSING: /refs.manifest.tsv" -- a real file, just not the one meant.
-  done < <(grep -oE "(^|[^A-Za-z0-9_./-])${REFS}[^\"' ]*" "$PF" | sed -E 's#^[^/]*(/.*)#\1#' | sed 's/[,:]$//' | sort -u)
+    # A MISSING ROW AND A MISSING FILE NEED DIFFERENT WORK, and telling everyone to "add a
+    # manifest row" sends half of them to add a duplicate of a row that is already there.
+    # That confusion is not hypothetical: it is what put genomes/GRCh38/index/bowtie2/ on
+    # reference-store.md's missing-rows list for months while the row existed and the index
+    # did not. Ask the manifest which case this is.
+    elif alias_source="$(generated_alias_source "${p#"$REFS"/}" || true)" && [ -n "$alias_source" ]; then
+      bad "ref MISSING: $p — this is a generated alias of manifest row $alias_source. Do not add an alias row; run bootstrap/04-refs.sh. If it reports PENDING, materialize the canonical row first."
+    elif manifest_has "${p#"$REFS"/}"; then
+      bad "ref MISSING: $p — the manifest HAS this row; the file was never produced. Run bootstrap/04-refs.sh for a fetch row, or build it (references/reference-store.md)."
+    else
+      bad "ref MISSING: $p — and no row for it in config/refs.manifest.tsv. Add the row, then re-run bootstrap/04-refs.sh."
+    fi
+  done < <(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "${refsrc[@]}" \
+           | sed -E "s#\\\$\\{?(BIOINFO_)?REFS\\}?/#${REFS_SED}/#g" \
+           | grep -oE "(^|[^A-Za-z0-9_./-])${REFS_RE}[^\"' ]*" | sed -E 's#^[^/]*(/.*)#\1#' | sed 's/[,:]$//' | sort -u)
+  [ "$nref" -gt 0 ] || note "no $REFS path appears in params.yaml/cmd.sh outside comments — this run references nothing from the store"
 else
-  note "no params.yaml; reference paths not checked directly (checked via cmd.sh instead)"
+  note "neither params.yaml nor cmd.sh present; reference paths not checked"
 fi
 
 echo "== concurrency =="

@@ -71,8 +71,10 @@ Do them in order. Do not skip step 3 or step 4.
    `bash $BIOINFO_HOME/bin/preflight.sh <rundir> <est_work_gb>` — refs, disk ≥ 1.5× estimate, Docker, pin.
    `bash $BIOINFO_HOME/scripts/check-samplesheet.sh --deep --pipeline <pipeline> <samplesheet.csv>`
    — the input CSV. Without `--pipeline` the required-column gate is skipped.
-   Then `-stub-run` (or `-preview`) the real command with the real samplesheet. A stub run
-   that fails is a real failure — fix it, do not "try it for real and see".
+   Then `-preview`, then `-stub-run` — both, in that order, on the real command with the real
+   samplesheet. Neither substitutes for the other: `-preview` resolves params and the DAG without
+   running anything, `-stub-run` exercises the process wiring. A stub run that fails is a real
+   failure — fix it, do not "try it for real and see". `references/runbook.md` section 4.
 5. **Execution.** Launch from ext4, logging to file, always through `tmux` (`references/runbook.md`
    section 5) — not a bare foreground command, not `nohup … &`, and not your own backgrounded
    tool call that you separately wait for. All three have lost a real run on this host: `nohup`
@@ -137,11 +139,19 @@ and names here are for orientation, not for typing into a shell.
   `-resume` depends on), **container images, and index files must all be on ext4.** Only
   sequentially-read reference files may be symlinked out to `/mnt/d`.
 - **Paths**: repo `$BIOINFO_HOME` = `/mnt/d/bioinfo-agent`; references `$BIOINFO_REFS` = `/refs`;
-  work root `$BIOINFO_WORK` = `/work`; outdirs `$BIOINFO_RUNS` = `/runs`; run records
-  `$BIOINFO_RUNLOG` = `/mnt/d/bioinfo-agent/runs`. All five are exported by
-  `~/.config/bioinfo/env.sh`, which `bootstrap/03-nextflow.sh` generates. If any of them is empty,
+  work root `$BIOINFO_WORK` = `/work`; legacy reserve `$BIOINFO_RUNS` = `/runs`; run records
+  `$BIOINFO_RUNLOG` = `/mnt/d/bioinfo-agent/runs`. Bootstrap exports all five for compatibility,
+  but launch paths use the four active roots, never `BIOINFO_RUNS`. If an active root is empty,
   stop: every path built on it collapses to the filesystem root — `-work-dir $BIOINFO_WORK/<run-id>`
-  becomes `-work-dir /<run-id>`, and the same for an outdir or a run record.
+  becomes `-work-dir /<run-id>`, and the same for an outdir or a run record. `hooks/guard-workdir.sh`
+  blocks that shape, but only for `rm`; nothing stops a run from writing there.
+- **A run's own tree**: `NXFDIR=${NXF_WORKROOT:-$BIOINFO_WORK/nxf}/<runid>` — the same derivation
+  in `bin/preflight.sh`, in every `cmd.sh`, and in every `NXFDIR=` line of `references/runbook.md`.
+  `--outdir "$NXFDIR/results"`, `-work-dir "$NXFDIR/work"`, launch directory `$NXFDIR`. Results are
+  rsynced from there to the run record at the end (runbook section 8). **Do not point `--outdir` at
+  `$BIOINFO_RUNS`**: preflight sizes and gates the `$NXFDIR` tree, so an outdir anywhere else means
+  the disk check guarded one filesystem while the run filled another, and the completion step
+  copies an empty directory and reports it clean.
 - **References**: resolve *only* through `$BIOINFO_REFS` standard paths. If you are about to type
   `hg38.fa` or `Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta` into a command, stop — add the
   manifest row instead. Sarek uses build `GRCh38gatk`; RNA-seq and most else use `GRCh38`.

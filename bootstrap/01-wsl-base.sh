@@ -4,8 +4,8 @@
 #   wsl -d Ubuntu-24.04 -u root -- bash /mnt/d/bioinfo-agent/bootstrap/01-wsl-base.sh
 #
 # Writes /etc/wsl.conf, creates the pipeline user with passwordless sudo, installs the
-# base toolchain, and stakes out the ext4 roots everything else depends on (BIOINFO_REFS,
-# BIOINFO_WORK, BIOINFO_RUNS). Idempotent: re-running repairs drift, it does not duplicate.
+# base toolchain, and stakes out the ext4 roots (BIOINFO_REFS, BIOINFO_WORK, plus the
+# legacy BIOINFO_RUNS reserve). Idempotent: re-running repairs drift, it does not duplicate.
 # Read the PRIVILEGE GRANT block it prints — two of its changes are root-equivalent.
 #
 # CRLF: this repo lives on NTFS. If git checked the file out with CRLF, `./01-...sh`
@@ -202,10 +202,10 @@ fi
 #   $WORK_ROOT  — Nextflow work dirs and temp. Kept out of /home so that a runaway
 #                 pipeline fills a directory you can `du` in one place, and so home
 #                 stays small enough to `wsl --export` when migrating machines.
-#   $RUNS_ROOT  — pipeline outdirs, one subdirectory per run.
+#   $RUNS_ROOT  — legacy reserve, retained for existing host.env files; not an active outdir.
 # None may ever live under /mnt/* — drvfs is 5-10x slower and Nextflow's work dir is
-# nothing but small random reads and writes. BIOINFO_RUNLOG is the exception and is
-# deliberately absent here: it is text only, and lives in the repo on NTFS.
+# nothing but small random reads and writes. BIOINFO_RUNLOG is deliberately absent here:
+# its run records and copied deliverables live in the repo on NTFS for Windows access.
 log "ext4 roots"
 for d in "$REFS_ROOT" "$WORK_ROOT" "$RUNS_ROOT"; do
   case "$d" in

@@ -237,9 +237,11 @@ sections 1–3. Six files, all in this repo.
 ### `config/pipelines.tsv`
 
 **Stocking a pipeline means adding a row here.** One row: pipeline slug, the exact release tag,
-the `schema_checked` date, and a note. This file is the canonical home of the pin — no other file
-in the repo states a revision, and `bin/preflight.sh` refuses a `cmd.sh` whose `-r` disagrees with
-it. A pipeline without a row is not stocked.
+the `schema_checked` date, and a note. This file is the only *authority* on the pin, and
+`bin/preflight.sh` fails a `cmd.sh` whose `-r` disagrees with it. Revisions do appear elsewhere —
+inside runnable example commands in docs and configs, roughly 35 of them — but those are copies,
+not authorities: change a pin here and `grep -r` the old string. A pipeline without a row is not
+stocked.
 
 ### `references/pipeline-selection.md`
 

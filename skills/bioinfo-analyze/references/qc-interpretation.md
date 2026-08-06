@@ -271,8 +271,15 @@ Concretely:
 ```bash
 # rnaseq already produces this; read it rather than recomputing
 ls "$OUTDIR"/star_salmon/deseq2_qc/
-# and cross-tabulate design against every technical column before saying anything
-awk -F, 'NR>1{print $group"\t"$batch}' samplesheet.csv | sort | uniq -c
+# and cross-tabulate design against every technical column before saying anything.
+# Columns BY NAME from the header -- a samplesheet's column order is not fixed, and
+# bare `$group` in awk is the undefined variable group (= 0), i.e. $0, which prints
+# the whole row twice and looks like output.
+awk -F, -v a=group -v b=batch '
+  NR==1 { for (i=1;i<=NF;i++) h[$i]=i
+          if (!(a in h) || !(b in h)) { print "missing column: " a " or " b > "/dev/stderr"; exit 1 }
+          next }
+  { print $h[a] "\t" $h[b] }' samplesheet.csv | sort | uniq -c
 ```
 
 That cross-tabulation is the whole test. Three outcomes, three permitted statements:

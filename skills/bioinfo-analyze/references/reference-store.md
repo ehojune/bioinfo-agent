@@ -107,11 +107,28 @@ Every `build` and `fetch` row in the manifest is a cost paid before the run, not
   (`gatk CreateSequenceDictionary`), but sarek will not start without one.
 - The GATK bundle is `fetch`: dbsnp + known_indels ≈ several GB, gnomAD af-only more. Sarek's BQSR
   and HaplotypeCaller need it.
-- No STAR, salmon or bismark index exists, so the first rnaseq/methylseq run pays the build (~1 h
+- `$BIOINFO_REFS/genomes/GRCh38/index/` is **empty**. No STAR, salmon, bismark, bwameth or bowtie2
+  index exists, so the first rnaseq/methylseq/atacseq/chipseq/cutandrun run pays the build (~1 h
   each; the STAR build wants ~40 GB RAM, which is the entire Nextflow pool).
-- `KOREF1` is FASTA only — no `.fai`, no `.dict`, no BWA index, and no manifest rows for them.
-- `config/genomes.config` names a `bowtie2` index path for atacseq/chipseq/cutandrun that the
-  manifest does not carry. Add the row before promising one of those runs.
+- `genomes/GRCh38/bed/blacklist.bed` is a `fetch` row and the file is **not there** — only
+  `genes.bed` is in that directory. atacseq/chipseq `--blacklist` needs it. Not a manifest gap:
+  `bash bootstrap/04-refs.sh` fetches it.
+- `KOREF1` is FASTA only on disk — no `.fai`, no `.dict`, no BWA index. The manifest *does* carry
+  all three as `build` rows, so nothing needs adding; they just have to be produced (the BWA index
+  is ~1.5 h) before anything runs end to end on that build.
+
+**Row present ≠ file present, and this list has been wrong in both directions.** Ask the
+filesystem instead of reading:
+
+```bash
+bash bootstrap/04-refs.sh --dry-run     # OK / NOT BUILT / MISSING / STALE, per row
+```
+
+Verified against that command on 2026-08-06: 44 rows, 18 OK, 15 not built, 11 fetch-missing.
+Both `genomes/GRCh38/index/bowtie2/` and `genomes/GRCh38/bed/blacklist.bed` were listed here as
+manifest gaps long after their rows were added — but the rows are all they ever got, and the
+files are still absent today, which is why they are back on this list stated the other way round.
+`pipeline-selection.md` section 9 tracks the *rows*; this section tracks the *files*.
 
 Flag whichever of these a request touches in the run plan and in the estimate, before the run — do
 not discover it twelve hours in.
