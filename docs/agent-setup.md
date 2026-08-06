@@ -65,9 +65,9 @@ cd ~/bioinfo-agent
 cp config/host.env.example config/host.env
 ```
 
-Read the copy top to bottom and set every value to something real on this host — the five roots
-(`BIOINFO_HOME`, `BIOINFO_REFS`, `BIOINFO_WORK`, `BIOINFO_RUNS`, `BIOINFO_RUNLOG`), the identity
-block, and the ceilings. Bootstrap sources this file when it exists.
+Read the copy top to bottom and set every value to something real on this host — the active roots
+(`BIOINFO_HOME`, `BIOINFO_REFS`, `BIOINFO_WORK`, `BIOINFO_RUNLOG`), legacy `BIOINFO_RUNS` reserve,
+the identity block, and the ceilings. Bootstrap sources this file when it exists.
 
 ```bash
 set -a; . config/host.env; set +a
