@@ -37,7 +37,7 @@ formal tally a reader can act on without parsing prose.)
 
 **Pipeline mechanics: PASS** — alignment, duplication and control pairing ran cleanly, no crashes,
 correct broad-mark settings. **QC signal: FAIL, at the control level, which undercuts everything
-downstream of it.** This verdict has been revised four times on Codex review (PR #16), each time
+downstream of it.** This verdict has been revised five times on Codex review (PR #16), each time
 by actually running a check that had been asserted, hedged, or scored inconsistently instead of
 measured:
 
@@ -53,6 +53,13 @@ measured:
    §3.5 separately fails replicate peak recovery below 50%, and overlap is symmetric: 0% overlap
    with REP2 fails REP1 exactly as much as it fails REP2. Corrected to **0 of 4 pass; 0 warn; 4
    fail** — every sample now fails on at least one independently-measured mechanism.
+5. **This version**: the Input-depth row compared REP2's presence qualitatively ("yes") instead of
+   an actual post-filter number against REP2's ChIP depth, leaving §3.5's depth check formally
+   open for REP2. Read real numbers from `samtools_stats/*.mLb.clN.sorted.bam.flagstat`: Input
+   REP1 5.25M vs. ChIP REP1 2.36M, Input REP2 7.68M vs. ChIP REP2 7.34M — **both pass** the depth
+   check post-filter. This does not change the overall verdict (depth was never the failing
+   metric; fingerprint uniformity and peak overlap are), but it closes a gap that was previously
+   left as "not compared" rather than actually resolved.
 
 | Metric | REP1 | REP2 | Band (qc-interpretation.md §3.5) | Verdict |
 |---|---|---|---|---|
@@ -64,7 +71,7 @@ measured:
 | **Fingerprint AUC, Input** | 0.238 | 0.270 | pass = Input AUC ≈0.5 (near diagonal); **"input strongly bowed" is FAIL regardless of the ChIP track** | **FAIL, both** — neither control is clean enough to validate a ChIP-vs-Input comparison against |
 | Fingerprint AUC, ChIP | 0.162 | 0.261 | (only meaningful once Input passes, which neither does here) | Gap vs. own Input exists (0.076 / 0.009) but is **not interpretable** as enrichment while the Input itself fails |
 | **Replicate peak overlap (REP1 ∩ REP2)** | 0 / 193 REP1 peaks overlap a REP2 peak | 0 / 651 REP2 peaks overlap a REP1 peak | §3.5: recovery <50% is FAIL; "for broad marks use overlap fraction" in place of IDR | **FAIL, both, symmetric** — 0% in both directions, computed with `bedtools intersect -u` (cached `bedtools:2.30.0` container), cross-checked with a self-intersect control (REP1 vs REP1 correctly returns all 193) |
-| Input present, matched per replicate | yes, 2.9M reads (~ChIP depth) | yes | present ≥ ChIP depth for broad marks | Present, but "present" is not the same as "clean" — see Fingerprint row above |
+| Input ≥ ChIP depth (post-filter, `mLb.clN` flagstat) | Input 5.25M ≥ ChIP 2.36M | Input 7.68M ≥ ChIP 7.34M | present ≥ ChIP depth for broad marks | **PASS, both** — read directly from `samtools_stats/*.mLb.clN.sorted.bam.flagstat`, not raw pre-filter counts. Depth itself is adequate; it is the *uniformity* of that depth (Fingerprint row above) that fails |
 
 Thresholds applied: `skills/bioinfo-analyze/references/qc-interpretation.md` §3.5, computed
 directly from `deepTools/plotFingerprint/*.qcmetrics.txt` and `bedtools intersect`, not eyeballed
@@ -104,8 +111,6 @@ look at.
   as its background child — a recurring failure mode in this session (also hit on scrnaseq).
   Tracked and being fixed separately (repo-level fix to `agents/bioinfo-tech.md`, not part of
   this run's own scope). This run's data is intact — resumed cleanly from cache, 0 failures.
-- REP2's Input depth was not directly compared against its ChIP depth in this handoff — the
-  §3.5 "Input ≥ ChIP depth for broad marks" check was only done for REP1.
 - No IDR analysis (not appropriate for a broad mark per §3.5's own guidance) — the overlap-fraction
   check above is the one this doc says to use instead, and it was done.
 
