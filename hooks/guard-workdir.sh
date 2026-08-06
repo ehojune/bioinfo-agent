@@ -41,6 +41,26 @@ norm_root() {
   while [ "$v" != "/" ] && [ "${v%/}" != "$v" ]; do v="${v%/}"; done
   printf '%s' "$v"
 }
+# READ THE CONFIGURED ROOTS OFF DISK WHEN THE ENVIRONMENT DOES NOT CARRY THEM.
+# hooks.json starts this script on the WINDOWS side. The distro's ~/.config/bioinfo/env.sh has
+# never been sourced there, so on a host whose roots are configured only inside WSL both
+# BIOINFO_WORK and NXF_WORKROOT are unset here and the defaults below take over. That is not a
+# cosmetic gap: with the real root at /scratch/nxf,
+#   wsl -d Ubuntu-24.04 -- bash -lc 'rm -rf /scratch/nxf/demo/work'
+# carries a fully resolved path -- the exact form the deny below tells callers to use -- and the
+# hook, matching against /work/nxf, found no target and exited 0 on a live run.
+# config/host.env is the per-machine record, is plain KEY=VALUE, and sits on a path Windows can
+# read. PARSE it, never source it: this file runs on every Bash call in the session and must not
+# execute anything a config file happens to contain. (Caught in review of PR #18.)
+HOSTENV="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." 2>/dev/null && pwd || printf '.')}/config/host.env"
+hostenv_get() {
+  [ -r "$HOSTENV" ] || return 0
+  sed -n "s/^[[:space:]]*$1=//p" "$HOSTENV" | head -1 \
+    | sed 's/[[:space:]]*#.*$//; s/^"//; s/"$//; s/^'\''//; s/'\''$//; s/[[:space:]]*$//; s/\r$//'
+}
+: "${BIOINFO_WORK:=$(hostenv_get BIOINFO_WORK)}"
+: "${NXF_WORKROOT:=$(hostenv_get NXF_WORKROOT)}"
+
 WORK_ROOT="$(norm_root "${BIOINFO_WORK:-/work}")"
 # Run directories live under this, one per run id. SAME DERIVATION as bin/preflight.sh:9,
 # every cmd.sh, and every NXFDIR= line in references/runbook.md. Hardcoding "$WORK_ROOT/nxf"
@@ -227,10 +247,20 @@ fi
 # a single regex at both ends instead would break on two targets in one command, because the
 # whitespace that ends the first is the same character that begins the second and grep -o
 # does not return overlapping matches.
+#
+# PLUS A ROOT-AGNOSTIC SHAPE. Reading config/host.env above recovers the configured root for the
+# documented setup, but runbook.md section 2 also tells the operator to `export NXF_WORKROOT`,
+# and an export that never reaches host.env is invisible to a hook running on the Windows side.
+# So do not rely on knowing the root at all: `<anything>/nxf/<runid>` IS the run-tree layout this
+# repo builds everywhere -- bin/preflight.sh, every cmd.sh, every NXFDIR= line. Matching the
+# shape catches /scratch/nxf/demo/work on a host this process cannot introspect. A directory
+# that genuinely is somebody's unrelated ".../nxf/<name>" gets the run-state questions asked
+# about it, which is the right way to be wrong for a guard whose job is the destructive case.
+NXF_SHAPE='^/[^[:space:]]*/nxf(/[^/]+.*)?$'
 targets="$(printf '%s' "$CMD" \
   | tr -s '[:space:]' '\n' \
   | sed -E "s/^[\"']+//; s/[\"']+\$//" \
-  | grep -E "^(${ROOT_ALT})(/.*)?\$" || true)"
+  | grep -E "^(${ROOT_ALT})(/.*)?\$|${NXF_SHAPE}" || true)"
 [ -n "$targets" ] || allow
 
 while IFS= read -r t; do
@@ -238,17 +268,23 @@ while IFS= read -r t; do
   t="${t%/}"                                   # `rm -rf /work/` is still the work root
   [ -n "$t" ] || continue
 
-  # Refuse to wipe the whole work root regardless of run state.
-  if [ "$t" = "$WORK_ROOT" ] || [ "$t" = "/work" ] || [ "$t" = "$NXF_ROOT" ] || [ "$t" = "/work/nxf" ]; then
+  # Refuse to wipe the whole work root regardless of run state. The */nxf case covers a root
+  # this process could not learn: it is still somebody's run tree, whoever configured it.
+  if [ "$t" = "$WORK_ROOT" ] || [ "$t" = "/work" ] || [ "$t" = "$NXF_ROOT" ] || [ "$t" = "/work/nxf" ] \
+     || case "$t" in */nxf) true ;; *) false ;; esac; then
     deny "that target is the entire work root ($t), not one run. Every run's -resume cache lives
       under it. Delete a single finished run directory instead."
   fi
 
-  # runid is the component directly under the run root
+  # runid is the component directly under the run root. Try the roots this process knows first,
+  # then fall back to the layout itself so a root configured out of reach still resolves.
   runid="$(printf '%s' "$t" | sed -nE "s#^(${NXF_ALT})/([^/]+).*#\2#p")"
-  [ -n "$runid" ] || continue
-
   rundir="$(printf '%s' "$t" | sed -nE "s#^((${NXF_ALT})/[^/]+).*#\1#p")"
+  if [ -z "$runid" ]; then
+    runid="$(printf '%s' "$t" | sed -nE 's#^(/.*/nxf)/([^/]+).*#\2#p')"
+    rundir="$(printf '%s' "$t" | sed -nE 's#^(/.*/nxf/[^/]+).*#\1#p')"
+  fi
+  [ -n "$runid" ] || continue
 
   # Condition 1 — the run must not be live.
   # TWO independent checks, because either alone has a hole. The pid file is only written if
