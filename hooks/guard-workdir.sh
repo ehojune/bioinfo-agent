@@ -282,11 +282,12 @@ PREPASS=""
 shell_prepass() {     # pure shell; gated below so a command with no backslash never pays for it
   # two statements: `local` expands all its arguments before assigning any, so ${#s} in the
   # same line reads the caller's (unset) s and trips set -u
-  local s="$1" out="" i=0 c nx n
+  local s="$1" out="" i=0 c nx n q=""
   n=${#s}
   while [ "$i" -lt "$n" ]; do
     c="${s:i:1}"
-    if [ "$c" = '\' ] && [ $((i+1)) -lt "$n" ]; then
+    # A backslash is an escape outside quotes and inside "", literal inside ''.
+    if [ "$c" = '\' ] && [ "$q" != "'" ] && [ $((i+1)) -lt "$n" ]; then
       nx="${s:i+1:1}"
       case "$nx" in
         ';')   out="$out$_E1" ;;
@@ -297,11 +298,34 @@ shell_prepass() {     # pure shell; gated below so a command with no backslash n
       esac
       i=$((i+2)); continue
     fi
+    # QUOTES PARK SEPARATORS TOO, and this is the commoner spelling. Escaping was handled first
+    # and quoting was not, so `rm -rf "/foo/big&disk/work"` still had its & fed to the tr below
+    # and neither fragment matched the root -- while bash treats the quoted & as part of the
+    # pathname and deletes it. Writing a path with a special character in quotes is what a
+    # person actually does; the backslash form is the rarer one. (Caught in review of PR #18.)
+    if [ -z "$q" ]; then
+      case "$c" in '"'|"'") q="$c"; out="$out$c"; i=$((i+1)); continue ;; esac
+    elif [ "$c" = "$q" ]; then
+      q=""; out="$out$c"; i=$((i+1)); continue
+    else
+      case "$c" in
+        ';') out="$out$_E1"; i=$((i+1)); continue ;;
+        '|') out="$out$_E2"; i=$((i+1)); continue ;;
+        '&') out="$out$_E3"; i=$((i+1)); continue ;;
+      esac
+    fi
     out="$out$c"; i=$((i+1))
   done
   PREPASS="$out"
 }
-case "$CMD" in *\\*) shell_prepass "$CMD"; CMD="$PREPASS" ;; esac
+# Run it for a backslash, or for a quote that shares the command with a separator. Anything
+# else cannot need it, and this walk is pure shell on every recursive rm.
+_pp=0
+case "$CMD" in
+  *\\*) _pp=1 ;;
+  *[\"\']*) case "$CMD" in *[\;\|\&]*) _pp=1 ;; esac ;;
+esac
+[ "$_pp" -eq 1 ] && { shell_prepass "$CMD"; CMD="$PREPASS"; }
 CMD_SCAN="$(
   printf '%s\n' "$CMD" | tr ';|&' '\n\n\n' | while IFS= read -r _seg || [ -n "$_seg" ]; do
     case "$_seg" in *'>'*) printf '%s\n' "$_seg"; continue ;; esac

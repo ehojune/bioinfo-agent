@@ -261,6 +261,16 @@ disk/work'                    BIOINFO_WORK=/bigdisk/work
 check allow 'rm -rf /big\\
 disk/work'                    BIOINFO_WORK=/bigdisk/work
 
+section "QUOTED separators — the commoner spelling of a path with a special character"
+check deny  'rm -rf "/foo/big&disk/work"'             BIOINFO_WORK='/foo/big&disk/work'
+check deny  'rm -rf "/foo/big&disk/work/nxf/r/work"'  BIOINFO_WORK='/foo/big&disk/work'
+check allow 'rm -rf "/foo/big&disk/workspace"'        BIOINFO_WORK='/foo/big&disk/work'
+check deny  "rm -rf '/foo/semi;disk/work'"            BIOINFO_WORK='/foo/semi;disk/work'
+check deny  'rm -rf "/foo/pipe|disk/work"'            BIOINFO_WORK='/foo/pipe|disk/work'
+# and an UNquoted separator is still a separator, so the hidden-command cases stay denied
+check deny  'echo hi ; rm -rf /work'
+check deny  'echo hi && rm -rf /work'
+
 section "runbook section 9 — the reclaim must become possible, not stay blocked forever"
 W="$TMP/fakework"; mkdir -p "$W/nxf/testrun/work"
 check deny  "rm -rf $W/nxf/testrun/work" BIOINFO_WORK="$W"          # no handoff yet
