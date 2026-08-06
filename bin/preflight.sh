@@ -72,7 +72,11 @@ REV=""; PIPE=""
 if [ -f "$RUNDIR/cmd.sh" ]; then
   if grep -qE '(^| )-r +"?\$?\{?[0-9A-Za-z._-]+\}?"?' "$RUNDIR/cmd.sh" && ! grep -qE '(^| )-r +"?\$?\{?(dev|master|main)\}?"?( |$)' "$RUNDIR/cmd.sh"; then
     REV="$(grep -oE '(^| )-r +"?\$?\{?[0-9A-Za-z._-]+\}?"?' "$RUNDIR/cmd.sh" | head -1 | tr -d ' "${}' | sed 's/^-r//')"
-    if grep -qE "^[[:space:]]*${REV}=" "$RUNDIR/cmd.sh"; then   # -r $REV — resolve the assignment
+    # The guard needs the same `export` tolerance as the resolver below. Teaching only the
+    # resolver left a cmd.sh whose ONLY assignment is `export REV=2.1.0` skipping this block
+    # entirely, so REV stayed the variable NAME and preflight announced `pinned in cmd.sh: REV`.
+    # Caught by testing the case rather than by reading the patch.
+    if grep -qE "^[[:space:]]*(export[[:space:]]+)?${REV}=" "$RUNDIR/cmd.sh"; then
       # THE LAST ASSIGNMENT BEFORE THE INVOCATION, not the first in the file. bash uses the value
       # in effect when the line runs, so
       #   REV=3.18.0
@@ -86,10 +90,19 @@ if [ -f "$RUNDIR/cmd.sh" ]; then
       # The trailing comment is stripped first: the template writes
       #   REV=3.18.0        # from config/pipelines.tsv
       # and `tr -d ' '` alone would glue the comment onto the revision.
+      # `export REV=dev` is an assignment too, and skipping it read the value bash discarded.
+      # bootstrap/lib/host-env.sh strips the same prefix; I aligned this reader with that one on
+      # "last wins" and did not carry the `export` half across. Unlike host.env, whitespace
+      # around `=` is NOT accepted here: `REV = dev` is a command in a shell script, not an
+      # assignment, so treating it as one would invent a pin bash never sets.
       _rl="$(grep -nE '(^| )-r +' "$RUNDIR/cmd.sh" | head -1 | cut -d: -f1)"
       REV="$(awk -v v="$REV" -v L="${_rl:-0}" '
                L>0 && NR>=L { exit }
-               { s=$0; sub(/^[[:space:]]+/,"",s); if (index(s, v "=")==1) line=$0 }
+               { s=$0
+                 sub(/^[[:space:]]+/, "", s)
+                 sub(/^export[[:space:]]+/, "", s)
+                 sub(/^[[:space:]]+/, "", s)
+                 if (index(s, v "=")==1) line=s }
                END { print line }' "$RUNDIR/cmd.sh" \
              | cut -d= -f2- | sed 's/#.*$//' | tr -d '\047" ')"
     fi
