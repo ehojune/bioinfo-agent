@@ -31,13 +31,23 @@
 
 set -uo pipefail
 
-WORK_ROOT="${BIOINFO_WORK:-/work}"
+# Host settings sometimes carry a trailing slash, and the derivation below can introduce an
+# inner one (BIOINFO_WORK=/ makes "//nxf"). Commands do not preserve either, so a raw value
+# goes into the regex and the equality tests and matches nothing: with NXF_WORKROOT=/scratch/nxf/
+# a plain `rm -rf /scratch/nxf/run/work` exited 0 and deleted a live run unchecked. Collapse
+# repeats and trim the tail, keeping `/` itself.
+norm_root() {
+  local v; v="$(printf '%s' "$1" | sed 's#//*#/#g')"
+  while [ "$v" != "/" ] && [ "${v%/}" != "$v" ]; do v="${v%/}"; done
+  printf '%s' "$v"
+}
+WORK_ROOT="$(norm_root "${BIOINFO_WORK:-/work}")"
 # Run directories live under this, one per run id. SAME DERIVATION as bin/preflight.sh:9,
 # every cmd.sh, and every NXFDIR= line in references/runbook.md. Hardcoding "$WORK_ROOT/nxf"
 # here meant that on a host which sets NXF_WORKROOT elsewhere -- which runbook.md section 2
 # tells the operator to export -- this hook matched nothing, and a live run's work directory
 # was deletable while the identical command against the default root was blocked.
-NXF_ROOT="${NXF_WORKROOT:-${WORK_ROOT}/nxf}"
+NXF_ROOT="$(norm_root "${NXF_WORKROOT:-${WORK_ROOT}/nxf}")"
 HOLD_DAYS="${BIOINFO_WORKDIR_HOLD_DAYS:-7}"
 
 deny() { printf 'BLOCKED by bioinfo guard: %s\n' "$1" >&2; exit 2; }

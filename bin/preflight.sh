@@ -166,6 +166,31 @@ fi
 
 echo "== references =="
 if [ -d "$REFS" ]; then ok "refs root $REFS"; else bad "refs root $REFS absent — run bootstrap/04-refs.sh"; fi
+
+manifest_has() {
+  local rel="$1"
+  [ -f "$MANIFEST" ] && awk -F'\t' -v r="$rel" '/^#/{next} $1==r||$1==r"/"{f=1} END{exit !f}' "$MANIFEST"
+}
+
+# 04-refs.sh derives three build-named aliases from canonical manifest rows. The aliases
+# deliberately have no rows of their own; adding one transfers ownership away from the alias
+# mechanism. Print the canonical row when a missing path is one of those generated aliases.
+generated_alias_source() {
+  local rel="$1" top build kind file extra canonical=""
+  IFS=/ read -r top build kind file extra <<EOF
+$rel
+EOF
+  [ "$top" = genomes ] && [ -n "$build" ] && [ -z "${extra:-}" ] || return 1
+  case "$kind/$file" in
+    "fasta/$build.fa")      canonical="genomes/$build/fasta/genome.fa" ;;
+    "fasta/$build.fa.fai")  canonical="genomes/$build/fasta/genome.fa.fai" ;;
+    "gtf/$build.gtf.gz")    canonical="genomes/$build/gtf/genes.gtf.gz" ;;
+    *) return 1 ;;
+  esac
+  manifest_has "$canonical" || return 1
+  printf '%s' "$canonical"
+}
+
 # BOTH files, not params.yaml alone. A run that passes its references as --fasta/--gtf
 # on the command line has no params.yaml at all (runs/20260804-rnaseq-scer-verify is one),
 # and this block used to skip it while printing "checked via cmd.sh instead" -- a check
@@ -208,7 +233,9 @@ if [ -n "$refsrc" ]; then
     # That confusion is not hypothetical: it is what put genomes/GRCh38/index/bowtie2/ on
     # reference-store.md's missing-rows list for months while the row existed and the index
     # did not. Ask the manifest which case this is.
-    elif [ -f "$MANIFEST" ] && awk -F'\t' -v r="${p#"$REFS"/}" '/^#/{next} $1==r||$1==r"/"{f=1} END{exit !f}' "$MANIFEST"; then
+    elif alias_source="$(generated_alias_source "${p#"$REFS"/}" || true)" && [ -n "$alias_source" ]; then
+      bad "ref MISSING: $p — this is a generated alias of manifest row $alias_source. Do not add an alias row; run bootstrap/04-refs.sh. If it reports PENDING, materialize the canonical row first."
+    elif manifest_has "${p#"$REFS"/}"; then
       bad "ref MISSING: $p — the manifest HAS this row; the file was never produced. Run bootstrap/04-refs.sh for a fetch row, or build it (references/reference-store.md)."
     else
       bad "ref MISSING: $p — and no row for it in config/refs.manifest.tsv. Add the row, then re-run bootstrap/04-refs.sh."
