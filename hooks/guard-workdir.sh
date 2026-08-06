@@ -23,6 +23,17 @@
 # can defeat it (base64, a wrapper script, an env var holding the path). It exists to stop the
 # plausible accident, not an adversary.
 #
+# It also cannot protect a root it has no way to learn. This hook runs on the WINDOWS side, and
+# a value that exists only inside the distro -- exported in a login shell, never written to a
+# host.env this process can reach -- is invisible to it. The two recoveries below cover the
+# documented setups: the roots are read from the environment, or from config/host.env wherever
+# that file actually is, and any path shaped like <root>/nxf/<runid> is recognised without
+# knowing the root at all. What survives all three is a root that is BOTH unreachable AND not
+# laid out as .../nxf/<runid> -- there, `rm -rf <that root>` looks like any other directory and
+# is allowed. If your host is in that position, put BIOINFO_WORK and NXF_WORKROOT in the env
+# block of .claude/settings.json so this process inherits them; that is the one route that
+# always works, because it does not depend on this script guessing where anything lives.
+#
 # FAIL-OPEN, DELIBERATELY. This hook runs on every Bash call in any session where the plugin is
 # installed. If it cannot parse its input it exits 0 and lets the normal permission flow decide.
 # A guard that blocks everything when jq is missing is worse than no guard.
@@ -52,9 +63,34 @@ norm_root() {
 # config/host.env is the per-machine record, is plain KEY=VALUE, and sits on a path Windows can
 # read. PARSE it, never source it: this file runs on every Bash call in the session and must not
 # execute anything a config file happens to contain. (Caught in review of PR #18.)
-HOSTENV="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." 2>/dev/null && pwd || printf '.')}/config/host.env"
+#
+# AND IT IS NOT NEXT TO THIS SCRIPT. host.env is gitignored (.gitignore, "config/host.env") --
+# correctly, it is per-machine -- so on the advertised `claude plugin install` route
+# CLAUDE_PLUGIN_ROOT points at a plugin cache that only ever contained host.env.example. The
+# real file lives in the separately cloned setup repo. Looking only beside the script therefore
+# missed it exactly when the plugin route was used, and with BIOINFO_WORK=/bigdisk/work set only
+# there, `rm -rf /bigdisk/work` -- the entire configured run tree -- was allowed, since it
+# matches neither the /work defaults nor the /nxf shape. So try the places it can actually be,
+# nearest-known first. (Caught in review of PR #18.)
+_selfdir="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd || printf '')"
+HOSTENV=""
+for _cand in \
+  "${BIOINFO_HOST_ENV:-}" \
+  "${BIOINFO_HOME:-/mnt/d/bioinfo-agent}/config/host.env" \
+  "${CLAUDE_PROJECT_DIR:-}/config/host.env" \
+  "${CLAUDE_PLUGIN_ROOT:-}/config/host.env" \
+  "${_selfdir:-}/config/host.env" \
+  "${HOME:-}/bioinfo-agent/config/host.env"
+do
+  case "$_cand" in ''|/config/host.env) continue ;; esac   # the variable was empty
+  # A Windows-side shell sees D: as /d, not /mnt/d; host.env.example writes the WSL form.
+  for _p in "$_cand" "$(printf '%s' "$_cand" | sed -E 's#^/mnt/([a-z])/#/\1/#')"; do
+    [ -r "$_p" ] && { HOSTENV="$_p"; break; }
+  done
+  [ -n "$HOSTENV" ] && break
+done
 hostenv_get() {
-  [ -r "$HOSTENV" ] || return 0
+  [ -n "$HOSTENV" ] && [ -r "$HOSTENV" ] || return 0
   sed -n "s/^[[:space:]]*$1=//p" "$HOSTENV" | head -1 \
     | sed 's/[[:space:]]*#.*$//; s/^"//; s/"$//; s/^'\''//; s/'\''$//; s/[[:space:]]*$//; s/\r$//'
 }
