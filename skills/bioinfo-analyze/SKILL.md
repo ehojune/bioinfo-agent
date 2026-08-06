@@ -142,7 +142,9 @@ and names here are for orientation, not for typing into a shell.
   work root `$BIOINFO_WORK` = `/work`; legacy reserve `$BIOINFO_RUNS` = `/runs`; run records
   `$BIOINFO_RUNLOG` = `/mnt/d/bioinfo-agent/runs`. Bootstrap exports all five for compatibility,
   but launch paths use the four active roots, never `BIOINFO_RUNS`. If an active root is empty,
-  stop: a path built on it can collapse to the filesystem root.
+  stop: every path built on it collapses to the filesystem root — `-work-dir $BIOINFO_WORK/<run-id>`
+  becomes `-work-dir /<run-id>`, and the same for an outdir or a run record. `hooks/guard-workdir.sh`
+  blocks that shape, but only for `rm`; nothing stops a run from writing there.
 - **A run's own tree**: `NXFDIR=${NXF_WORKROOT:-$BIOINFO_WORK/nxf}/<runid>` — the same derivation
   in `bin/preflight.sh`, in every `cmd.sh`, and in every `NXFDIR=` line of `references/runbook.md`.
   `--outdir "$NXFDIR/results"`, `-work-dir "$NXFDIR/work"`, launch directory `$NXFDIR`. Results are

@@ -10,6 +10,7 @@ WORKROOT="${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}"
 WORKDIR="$WORKROOT/$RUNID/work"
 REFS="${BIOINFO_REFS:-/refs}"
 TSV="$(cd "$(dirname "$0")/.." && pwd)/config/pipelines.tsv"
+MANIFEST="$(cd "$(dirname "$0")/.." && pwd)/config/refs.manifest.tsv"
 
 fail=0; warn=0
 ok()   { printf '  OK    %s\n' "$*"; }
@@ -184,9 +185,15 @@ if [ -d "$REFS" ]; then ok "refs root $REFS"; else bad "refs root $REFS absent �
 # 20260805-atacseq-gbr-lcl-smoke: a comment citing the manifest file by its repo-relative path
 # failed preflight with "ref MISSING: /refs.manifest.tsv" -- a real file, just not the one meant.
 #
-# Both files are scanned. A run that passes its references as --fasta/--gtf on the command line
-# has no params.yaml at all, and this block used to skip it while printing "checked via cmd.sh
-# instead" -- a check that did not exist anywhere in this script.
+# REFERENCE-ROOT VARIABLES ARE EXPANDED BEFORE MATCHING. This script reads cmd.sh as TEXT, so
+# a reference written the way config/genomes.config's own examples write it --
+#   --fasta $BIOINFO_REFS/genomes/GRCh38/fasta/GRCh38.fa
+# -- contains no literal "/refs" and was invisible here. The run then passed the reference gate
+# with a warning while pointing at a file that may not exist. Copying the documented form is
+# exactly what a new run does, so this was the common case, not the exotic one. Rewrite the four
+# spellings of the two reference roots to their value first. The trailing "/" in the pattern is
+# required so $REFSOMETHING is left alone; a bare $BIOINFO_REFS with nothing after it names the
+# root, which the check above already covers. (Caught in review of PR #18.)
 refsrc=""
 if [ -f "$RUNDIR/params.yaml" ]; then refsrc="$refsrc $RUNDIR/params.yaml"; fi
 if [ -f "$RUNDIR/cmd.sh" ];      then refsrc="$refsrc $RUNDIR/cmd.sh"; fi
@@ -196,9 +203,19 @@ if [ -n "$refsrc" ]; then
     [ -n "$p" ] || continue
     nref=$((nref+1))
     if [ -e "$p" ]; then ok "ref resolves: $p"
-    else bad "ref MISSING: $p — add a manifest row and re-run bootstrap/04-refs.sh"; fi
+    # A MISSING ROW AND A MISSING FILE NEED DIFFERENT WORK, and telling everyone to "add a
+    # manifest row" sends half of them to add a duplicate of a row that is already there.
+    # That confusion is not hypothetical: it is what put genomes/GRCh38/index/bowtie2/ on
+    # reference-store.md's missing-rows list for months while the row existed and the index
+    # did not. Ask the manifest which case this is.
+    elif [ -f "$MANIFEST" ] && awk -F'\t' -v r="${p#"$REFS"/}" '/^#/{next} $1==r||$1==r"/"{f=1} END{exit !f}' "$MANIFEST"; then
+      bad "ref MISSING: $p — the manifest HAS this row; the file was never produced. Run bootstrap/04-refs.sh for a fetch row, or build it (references/reference-store.md)."
+    else
+      bad "ref MISSING: $p — and no row for it in config/refs.manifest.tsv. Add the row, then re-run bootstrap/04-refs.sh."
+    fi
   # word-split $refsrc deliberately: these are run-dir paths this script just built.
   done < <(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' $refsrc \
+           | sed -E "s#\\\$\\{?(BIOINFO_)?REFS\\}?/#${REFS}/#g" \
            | grep -oE "(^|[^A-Za-z0-9_./-])${REFS}[^\"' ]*" | sed -E 's#^[^/]*(/.*)#\1#' | sed 's/[,:]$//' | sort -u)
   [ "$nref" -gt 0 ] || note "no $REFS path appears in params.yaml/cmd.sh outside comments — this run references nothing from the store"
 else
