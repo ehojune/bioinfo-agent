@@ -59,14 +59,33 @@ your next turn, never inside this one.
 - Everything executes in the WSL2 distro named by `BIOINFO_DISTRO` in `config/host.env`
   (`Ubuntu-24.04` on the machine this was written for; do not assume it — read the file, or
   `wsl -l -v`). From Windows: `wsl -d <distro> -- bash -lc '<command>'`.
-- **A long run must hold its `wsl.exe` session open.** `nohup … &` does NOT survive: when the
-  last client session exits, WSL tears the distro down and takes the job with it. Verified —
-  both `nohup … &` and `setsid nohup … &` were killed within seconds of the launching
-  `wsl.exe` returning, leaving no log and no process. So launch the run in the foreground of a
-  session you keep alive for its duration, and report progress from there. To detach, use the
-  `tmux` recipe in `references/runbook.md` section 5 — its server is a long-lived process that
-  keeps the distro up, which is why it survives where `nohup` does not (measured both ways).
-  A fire-and-forget invocation loses the run silently, which is worse than a slow one.
+- **Launch every real `nextflow run` through the `tmux` recipe in `references/runbook.md`
+  section 5. This is not an optional detach path — it is the only launch method that has
+  survived every failure mode measured on this host, and it is mandatory even for a run you
+  expect to finish in minutes.** Two other approaches have each destroyed a real, hours-long run
+  on this host, measured directly, not hypothesised:
+    1. `nohup … &` from a one-shot Windows-driven `wsl -d <distro> -- bash …` invocation. When
+       the launching `wsl.exe` returns, WSL tears the distro down and takes the job with it —
+       both `nohup … &` and `setsid nohup … &` were killed within seconds, no log, no process.
+    2. **Starting `nextflow run` as your own backgrounded tool call and then separately waiting
+       for it — even from inside a live WSL session that never closed.** Measured twice in this
+       exact agent role: a methylseq run and a chipseq run were both killed by SIGTERM at the
+       exact moment your own turn ended, after you had launched Nextflow in the background and
+       said something like "I'll wait for the notification." There was nothing left to receive
+       that notification — your turn had already ended, and whatever mechanism tracked that
+       background command is tied to your turn's lifetime, not to the WSL session's. Believing
+       "the session is still open, so this is safe" is exactly the mistake that caused both
+       losses; the WSL session being alive does not protect a command backgrounded this way.
+  `tmux`'s server process is independent of both your own turn and the WSL client session, which
+  is why it is the only thing that has survived both failure modes. After launching via tmux,
+  poll it within your own turn until the run actually finishes, rather than ending your turn
+  early on the assumption that tmux alone guarantees you will be resumed to check on it — but if
+  your turn does end anyway, the run itself is now safe either way, which is the whole point.
+  Prefer tailing the log file (`nextflow.stdout.log`) for this — it needs no session-name
+  handling. If you do use `tmux capture-pane`, target the *sanitized* session name
+  (`references/runbook.md` section 5's `$TRUNID`, not the raw `$RUNID` — a `RUNID` containing `.`
+  or `:` is not a valid tmux target and `capture-pane -t "$RUNID"` on one silently fails to find
+  the session).
 - `BIOINFO_ARCHIVE_DISTRO`, if set, names a read-only archive of the user's old environment
   (`Ubuntu-legacy` on the original machine). Pull a script or a data file out of it if you need one.
   Never run a pipeline there and never write to it. It is unset where there is no archive distro.

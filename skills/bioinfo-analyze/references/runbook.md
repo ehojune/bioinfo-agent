@@ -15,7 +15,7 @@ Docker **engine** inside the distro, distro ext4 on `D:\wsl\ubuntu-24.04\ext4.vh
 3. Write `samplesheet.csv`, `params.yaml`, `cmd.sh` into `$RUNDIR`.
 4. Preflight. Any FAIL is a hard stop.
 5. `-preview`, then `-stub-run`. Both must be clean.
-6. Launch on ext4 with reports and `-resume`, in a session you keep alive (or under `tmux`).
+6. Launch on ext4 with reports and `-resume`, always through `tmux` (mandatory, not optional).
 7. Monitor the trace, not the terminal.
 8. On completion: read MultiQC, rsync results out to `/mnt/d`, write the handoff.
 9. Leave the work dir alone for at least 7 days.
@@ -247,10 +247,17 @@ then launch.
 
 ## 5. Launch
 
-Write this into `$RUNDIR/cmd.sh` verbatim so the exact invocation is recorded next to the plan, then
-run it with `bash "$RUNDIR/cmd.sh"` — not `source`, which would leak its `set -euo pipefail` and
-its variables into your shell. Timestamped report filenames mean a re-launch after a failure never collides with the
-previous attempt's reports, and you keep the history of attempts.
+Write the invocation into `$RUNDIR/cmd.sh` verbatim so the exact command is recorded next to the
+plan. **Launch it through the `tmux` recipe below — always, not just when you want to "detach."**
+This is the only launch method that has survived every failure mode measured on this host,
+including one that has nothing to do with WSL: an agent starting `nextflow run` as its own
+backgrounded tool call and then separately waiting for it has twice been killed by SIGTERM the
+moment the agent's own turn ended, even with the WSL session still open the whole time (see the
+note in "Notes on the shape" below). `tmux`'s server process is independent of both the WSL
+client session and whatever tracks an agent's own backgrounded tool calls, which is why it is the
+one thing proven to survive both failure modes. Treat this as mandatory even for a run you expect
+to finish in minutes — guessing wrong about which runs count as "long" is exactly how a run gets
+lost.
 
 ```bash
 #!/usr/bin/env bash
@@ -266,10 +273,6 @@ TS=$(date +%Y%m%d-%H%M%S)
 mkdir -p "$NXFDIR/work" "$NXFDIR/results" "$NXFDIR/reports"
 cd "$NXFDIR"                                # launch dir MUST be ext4: .nextflow/cache lives here
 
-# FOREGROUND, and the `wsl.exe` session that started it stays open for the whole run.
-# Backgrounding this with `nohup … &` from a one-shot `wsl -d <distro> -- bash …` loses the
-# run: WSL tears the distro down when the last session exits, and the job dies with it —
-# no log, no process, no error. See "Notes on the shape" below.
 nextflow -log "$NXFDIR/.nextflow.log" \
   run "$PIPE" \
     -r "$REV" \
@@ -287,8 +290,9 @@ nextflow -log "$NXFDIR/.nextflow.log" \
   2>&1 | tee "$NXFDIR/nextflow.stdout.log"
 ```
 
-**To detach it instead, use `tmux` — not `nohup`.** `tmux` keeps its own server process
-alive, which keeps the distro up, and lets you re-attach to see live output:
+**Launch `cmd.sh` inside `tmux` — not bare, not `nohup`, not your own agent-side backgrounded
+tool call.** `tmux` keeps its own server process alive independent of whatever session or turn
+started it, which is why it survives where every other shortcut has failed on this host:
 
 ```bash
 # bootstrap/01-wsl-base.sh installs tmux. On a host bootstrapped some other way:
@@ -304,9 +308,78 @@ RUNDIR=/mnt/d/bioinfo-agent/runs/$RUNID
 # leaving the guard and the stop command reading a file that does not exist.
 NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID
 
+# tmux(1) documents that a session name should avoid ':' and '.' -- both have target-syntax
+# meaning ('.' separates session.window, ':' separates session:window) -- and a RUNID legitimately
+# contains '.' (this file's own pkill examples use "study.v2"). Passing $RUNID straight to
+# -s/-t risks tmux silently treating part of it as a window reference instead of the literal
+# name, after which `tmux attach`/`capture-pane` using the same raw $RUNID can miss the session
+# they just created. Derive a tmux-safe alias and use ONLY that for tmux's own -s/-t; $RUNID
+# keeps naming the filesystem paths and the pid-file/pgrep matching below, which take it literally.
+#
+# The substitution alone is not injective: "study.v2" and "study_v2" both sanitise to the same
+# string, and this recipe has no `set -e` to stop a second launch that silently collided with the
+# first's session name -- it would run straight through pid detection and attach to the WRONG
+# run's session without any error. The md5 suffix is taken from the ORIGINAL (pre-substitution)
+# $RUNID specifically so two inputs that collide after substitution almost certainly do not
+# collide after hashing.
+TRUNID="$(printf '%s' "$RUNID" | tr -c 'A-Za-z0-9_-' '_')_$(printf '%s' "$RUNID" | md5sum | cut -c1-8)"
+
 mkdir -p "$NXFDIR"                                 # cmd.sh creates it too, but the pid write below
                                                    # races the session start; do not depend on it
-tmux new-session -d -s "$RUNID" "bash '$RUNDIR/cmd.sh'"
+
+# A NEW tmux session inherits the tmux SERVER's global environment, captured whenever that
+# server first started -- not this shell's current exports. If a server was already running
+# from an earlier session (routine once tmux launch is the default), and this shell has since
+# exported a different NXF_WORKROOT/BIOINFO_WORK (a host move, a different run's override) or
+# re-sourced a refreshed ~/.config/bioinfo/env.sh, the new session would silently NOT see that:
+# `bash '$RUNDIR/cmd.sh'` is a non-login shell and does not source it either. cmd.sh would then
+# derive NXFDIR from a stale or default root -- different from the one bin/preflight.sh just
+# checked disk space and ext4-ness against in THIS shell, moments ago.
+#
+# `-e VAR=value` (tmux >=3.2) sets the environment for the new session, overriding the server's
+# stale global one. A HARDCODED list of `-e` flags here (an earlier version of this fix had one)
+# is a maintenance trap: bootstrap/03-nextflow.sh's generated env.sh alone carries 12+ NXF_*/
+# BIOINFO_* variables (NXF_HOME, NXF_WORK, NXF_TEMP, both container-cache dirs,
+# NXF_SYNTAX_PARSER, ...), config/local.config separately reads BIOINFO_MAX_CPUS/MAX_MEMORY/
+# MAX_TIME as scheduler ceilings, and NEITHER source is complete on its own -- host.env and
+# ~/.bashrc contribute the rest. A short list silently omits whichever of these the list's
+# author did not think of; a stale MAX_MEMORY can overcommit the current VM, a stale cache path
+# can write to the wrong disk. Instead, capture and forward the SAME name-shaped set
+# bootstrap/lib/host-env.sh already treats as the environment contract (BIOINFO_*, NXF_*,
+# JAVA_HOME) directly from this shell's current exports -- complete by construction, no list to
+# keep in sync as new variables are added upstream.
+#
+# PATH is added explicitly alongside that contract, not because host-env.sh treats it as part
+# of it, but because bootstrap/03-nextflow.sh's generated env.sh prepends $HOME/.local/bin to
+# it and cmd.sh calls `nextflow` bare, trusting PATH to resolve it -- exactly what
+# bin/preflight.sh just validated in THIS shell. `bash '$RUNDIR/cmd.sh'` is a non-login shell
+# and won't re-derive it, so a persistent server's older, PATH-less-prefix global environment
+# would otherwise fail the run with "nextflow: command not found" despite preflight passing.
+declare -A _te_seen=()
+tmux_env_args=()
+while IFS= read -r _te_var; do
+  case "$_te_var" in
+    BIOINFO_*|NXF_*|JAVA_HOME|PATH) tmux_env_args+=(-e "$_te_var=${!_te_var}"); _te_seen[$_te_var]=1 ;;
+  esac
+done < <(compgen -v)
+
+# `-e VAR=value` above only OVERRIDES names this shell still has set. A name the server's
+# global environment holds but this shell does NOT (env.sh explicitly `unset NXF_OFFLINE`,
+# or an operator dropped an old NXF_WORKROOT) gets no -e flag at all -- tmux inherits the
+# server's global env first and applies -e on top of it, so the omitted stale value survives
+# untouched and a run can silently start offline or under the wrong work root. Find those by
+# name against the SAME contract and drop them from the server's global environment before the
+# session inherits it. `show-environment -g` errors harmlessly (no server started) when none is
+# running yet, which is the common case for a first run.
+while IFS='=' read -r _te_name _te_rest; do
+  _te_name="${_te_name#-}"
+  case "$_te_name" in
+    BIOINFO_*|NXF_*|JAVA_HOME|PATH)
+      [ -n "${_te_seen[$_te_name]:-}" ] || tmux set-environment -g -u "$_te_name" ;;
+  esac
+done < <(tmux show-environment -g 2>/dev/null)
+
+tmux new-session -d -s "$TRUNID" "${tmux_env_args[@]}" "bash '$RUNDIR/cmd.sh'"
 
 # Record the live pid. NOT optional: hooks/guard-workdir.sh reads this file to refuse
 # deleting the work directory of a running run. Without it the guard falls through to the
@@ -336,7 +409,7 @@ else
 fi
 
 tmux ls                                            # confirm it is there
-tmux attach -t "$RUNID"                            # watch;  Ctrl-b d to leave it running
+tmux attach -t "$TRUNID"                           # watch;  Ctrl-b d to leave it running
 ```
 
 Notes on the shape:
@@ -360,9 +433,22 @@ Notes on the shape:
   `wsl -d <distro> -- bash …` returns, WSL tears down the distro and the job dies with it —
   measured here: both `nohup … &` and `setsid nohup … &` were gone within seconds, with no
   log written and no process left. It also does not survive `wsl --shutdown`, Windows sleep,
-  or a reboot. Either keep the launching session alive for the whole run, or run under `tmux`
-  (installed by `bootstrap/01-wsl-base.sh`) inside a session that stays open, so you can re-attach.
+  or a reboot. Run under `tmux` (installed by `bootstrap/01-wsl-base.sh`) so you can re-attach —
+  this is section 5's mandatory launch method, not an alternative to keeping a session open; see
+  the next bullet for why "just keep the session open" is not sufficient on its own either.
   A run launched fire-and-forget from Windows is a run you have silently lost.
+- **A SEPARATE failure mode, specific to an agent driving this runbook: starting `nextflow run`
+  as your own backgrounded tool call, then separately polling or waiting for it, is not safe
+  even when the WSL session never closes.** Measured twice on this host (a methylseq run and a
+  chipseq run, both hours into real work): the Nextflow process was killed by SIGTERM at the
+  exact moment the agent's own turn ended, immediately after it had said something like "I'll
+  wait for the background monitor to notify me." The WSL session was never torn down in either
+  case — this is a distinct mechanism from the `nohup`/`wsl.exe` one above, tied to whatever
+  tracks a background command's lifetime against the *agent turn* that started it, not against
+  the shell session. "The session is still open, so backgrounding here is safe" is exactly the
+  reasoning that caused both losses. `tmux` is unaffected by this because its server process is
+  not a child of the agent's turn at all — this is why section 5 above now treats `tmux` launch
+  as mandatory for an agent, not merely a convenience for detaching a human's terminal.
 
 **Stopping cleanly:** Ctrl-C in the foreground session, or — under `tmux` — kill the pid the
 launch recorded:

@@ -73,9 +73,13 @@ Do them in order. Do not skip step 3 or step 4.
    — the input CSV. Without `--pipeline` the required-column gate is skipped.
    Then `-stub-run` (or `-preview`) the real command with the real samplesheet. A stub run
    that fails is a real failure — fix it, do not "try it for real and see".
-5. **Execution.** Launch from ext4, logging to file, in a session you keep alive for the whole run
-   — or under `tmux`, which survives. `nohup … &` does not: a fire-and-forget launch from a
-   one-shot `wsl.exe` dies with the distro and leaves no log. Read `references/runbook.md`.
+5. **Execution.** Launch from ext4, logging to file, always through `tmux` (`references/runbook.md`
+   section 5) — not a bare foreground command, not `nohup … &`, and not your own backgrounded
+   tool call that you separately wait for. All three have lost a real run on this host: `nohup`
+   dies with the WSL session that launched it, and an agent's own backgrounded launch has twice
+   been killed by SIGTERM the instant the agent's turn ended, even with the session still open.
+   `tmux`'s server process is the only thing proven to survive both. Treat this as mandatory even
+   for a run you expect to finish in minutes.
    If a `bioinfo-tech` subagent is available and the estimate exceeds ~1 h, hand steps 5–6 to it and
    resume at step 7 from its handoff — Nextflow logs must not land in the main conversation.
 6. **QC verdict.** Read MultiQC and the pipeline's own metrics. Report PASS / PASS WITH CAVEATS /
