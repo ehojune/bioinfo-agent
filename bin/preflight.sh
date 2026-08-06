@@ -77,7 +77,15 @@ if [ -f "$RUNDIR/cmd.sh" ]; then
       # and `tr -d ' '` alone would glue the comment onto the revision.
       REV="$(grep -E "^[[:space:]]*${REV}=" "$RUNDIR/cmd.sh" | head -1 | cut -d= -f2- | sed 's/#.*$//' | tr -d '\047" ')"
     fi
-    ok "revision pinned in cmd.sh: $REV"
+    # Re-test AFTER resolving. The check above reads the command line as text, so
+    # `-r "$REV"` with `REV=dev` assigned two lines up passes it: the literal string
+    # "dev" never appears next to -r. Every shipped cmd.sh uses exactly that indirect
+    # form, which made the floating-branch gate unreachable for the template the repo
+    # tells you to copy.
+    case "$REV" in
+      dev|master|main) bad "cmd.sh resolves -r to the floating branch '$REV'. Pin an exact release tag." ;;
+      *)               ok "revision pinned in cmd.sh: $REV" ;;
+    esac
   else
     bad "cmd.sh has no -r revision pin, or pins a floating branch (dev/master/main)"
   fi
@@ -100,7 +108,11 @@ else
   elif [ "$pin" = "$REV" ]; then
     ok "nf-core/$PIPE -r $REV matches the pin in $TSV"
   else
-    note "nf-core/$PIPE -r ${REV:-none} disagrees with the pin $pin in $TSV"
+    # FAIL, not warn. config/pipelines.tsv, references/new-pipeline.md and SKILL.md all
+    # tell the reader this gate "refuses" a disagreeing -r; a warning that still exits 0
+    # made a passing preflight mean nothing about the pin. Deviating from the pin is a
+    # procurement decision -- change the row, do not talk past it.
+    bad "nf-core/$PIPE -r ${REV:-none} disagrees with the pin $pin in $TSV. Change the row or the -r; do not launch on a pin nobody approved."
   fi
 fi
 
@@ -153,22 +165,34 @@ fi
 
 echo "== references =="
 if [ -d "$REFS" ]; then ok "refs root $REFS"; else bad "refs root $REFS absent — run bootstrap/04-refs.sh"; fi
-PF="$RUNDIR/params.yaml"
-if [ -f "$PF" ]; then
+# BOTH files, not params.yaml alone. A run that passes its references as --fasta/--gtf
+# on the command line has no params.yaml at all (runs/20260804-rnaseq-scer-verify is one),
+# and this block used to skip it while printing "checked via cmd.sh instead" -- a check
+# that did not exist anywhere in this script. Scan whichever of the two are present.
+#
+# Anchored on a real path boundary: the char immediately before REFS must be
+# start-of-line, whitespace, or a quote -- never a path/word character. Without
+# this, prose like "config/refs.manifest.tsv" in a comment (a very natural thing
+# to write) is misread as the path /refs.manifest.tsv, because
+# "config/refs.manifest.tsv" contains "/refs.manifest.tsv" as a raw substring.
+# Found live on run 20260805-atacseq-gbr-lcl-smoke: a comment citing the
+# manifest file by its repo-relative path failed preflight with
+# "ref MISSING: /refs.manifest.tsv" -- a real file, just not the one meant.
+refsrc=""
+if [ -f "$RUNDIR/params.yaml" ]; then refsrc="$refsrc $RUNDIR/params.yaml"; fi
+if [ -f "$RUNDIR/cmd.sh" ];      then refsrc="$refsrc $RUNDIR/cmd.sh"; fi
+if [ -n "$refsrc" ]; then
+  nref=0
   while read -r p; do
+    [ -n "$p" ] || continue
+    nref=$((nref+1))
     if [ -e "$p" ]; then ok "ref resolves: $p"
     else bad "ref MISSING: $p — add a manifest row and re-run bootstrap/04-refs.sh"; fi
-  # Anchored on a real path boundary: the char immediately before REFS must be
-  # start-of-line, whitespace, or a quote -- never a path/word character. Without
-  # this, prose like "config/refs.manifest.tsv" in a params.yaml comment (a very
-  # natural thing to write) is misread as the path /refs.manifest.tsv, because
-  # "config/refs.manifest.tsv" contains "/refs.manifest.tsv" as a raw substring.
-  # Found live on run 20260805-atacseq-gbr-lcl-smoke: a comment citing the
-  # manifest file by its repo-relative path failed preflight with
-  # "ref MISSING: /refs.manifest.tsv" -- a real file, just not the one meant.
-  done < <(grep -oE "(^|[^A-Za-z0-9_./-])${REFS}[^\"' ]*" "$PF" | sed -E 's#^[^/]*(/.*)#\1#' | sed 's/[,:]$//' | sort -u)
+  # word-split $refsrc deliberately: these are run-dir paths this script just built.
+  done < <(grep -hoE "(^|[^A-Za-z0-9_./-])${REFS}[^\"' ]*" $refsrc | sed -E 's#^[^/]*(/.*)#\1#' | sed 's/[,:]$//' | sort -u)
+  [ "$nref" -gt 0 ] || note "no $REFS path appears in params.yaml/cmd.sh — this run references nothing from the store"
 else
-  note "no params.yaml; reference paths not checked directly (checked via cmd.sh instead)"
+  note "neither params.yaml nor cmd.sh present; reference paths not checked"
 fi
 
 echo "== concurrency =="

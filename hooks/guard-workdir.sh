@@ -10,7 +10,10 @@
 #
 # WHAT IT BLOCKS
 #   -with-cleanup / cleanup = true   always. They delete the work dir on success, by design.
-#   nextflow clean                   while any nextflow run is live.
+#   nextflow clean                   always, from inside an agent. It takes a run NAME, not a
+#                                    path, so this hook cannot tie it to a run id and therefore
+#                                    cannot check the section 9 conditions. The deny explains
+#                                    that and points at running it outside the agent instead.
 #   rm -r/-rf under the work root    unless the run is finished, handed off, and past the hold.
 #   rm -rf on a collapsed path       e.g. an unset variable turning a path into / or /<one-word>.
 #   a pipeline launched in the archive distro ($BIOINFO_ARCHIVE_DISTRO), which is read-only.
@@ -29,6 +32,12 @@
 set -uo pipefail
 
 WORK_ROOT="${BIOINFO_WORK:-/work}"
+# Run directories live under this, one per run id. SAME DERIVATION as bin/preflight.sh:9,
+# every cmd.sh, and every NXFDIR= line in references/runbook.md. Hardcoding "$WORK_ROOT/nxf"
+# here meant that on a host which sets NXF_WORKROOT elsewhere -- which runbook.md section 2
+# tells the operator to export -- this hook matched nothing, and a live run's work directory
+# was deletable while the identical command against the default root was blocked.
+NXF_ROOT="${NXF_WORKROOT:-${WORK_ROOT}/nxf}"
 HOLD_DAYS="${BIOINFO_WORKDIR_HOLD_DAYS:-7}"
 
 deny() { printf 'BLOCKED by bioinfo guard: %s\n' "$1" >&2; exit 2; }
@@ -121,9 +130,17 @@ fi
 # RECURSIVE matches both flag spellings: -r/-R in any short cluster, and --recursive.
 RECURSIVE='\brm\b[^|;&]*[[:space:]](-[a-zA-Z]*[rR]|--recursive)'
 if printf '%s' "$CMD" | grep -qE "$RECURSIVE"; then
-  if printf '%s' "$CMD" | grep -qE '\brm\b[^|;&]*[[:space:]](/|/\*|"")([[:space:]]|$)'; then
-    deny "rm target is the filesystem root, or an empty string. This is what an unset
-      \$BIOINFO_WORK / \$BIOINFO_RUNS looks like. Check the variable is set before retrying."
+  # The /<one-word> shape is the one this file's header has always advertised and the one the
+  # deny text below names, but the pattern only ever covered "/", "/*" and "". `rm -rf /runs`
+  # -- literally what `rm -rf $BIOINFO_RUNS` becomes when the variable is empty -- sailed
+  # through. A single top-level component is now matched too, with or without a trailing slash
+  # or glob, and quoted or not. Deeper paths are NOT matched here: `/work/nxf/<runid>/work` is
+  # section 5's business, and the runbook section 9 reclaim must keep working.
+  if printf '%s' "$CMD" | grep -qE '\brm\b[^|;&]*[[:space:]]["'"'"']?(/|/\*|""|/[A-Za-z0-9_.-]+/?\*?)["'"'"']?([[:space:]]|$)'; then
+    deny "rm target is the filesystem root, a single top-level directory, or an empty string.
+      This is what an unset \$BIOINFO_WORK / \$BIOINFO_RUNS / \$BIOINFO_REFS looks like — the path
+      collapses to /, /work, /runs or /refs. Check the variable is set before retrying; if you
+      really meant a top-level directory, do it outside this agent."
   fi
 fi
 
@@ -142,7 +159,15 @@ fi
 # Only fires when a target genuinely sits under the work root; unrelated rm is none of our business.
 printf '%s' "$CMD" | grep -qE "$RECURSIVE" || allow
 
-esc_root="$(printf '%s' "$WORK_ROOT" | sed 's/[][\.*^$+?(){}|/]/\\&/g')"
+esc() { printf '%s' "$1" | sed 's/[][\.*^$+?(){}|/]/\\&/g'; }
+esc_root="$(esc "$WORK_ROOT")"
+esc_nxf="$(esc "$NXF_ROOT")"
+# Roots worth scanning for. The bare literals stay in the alternation because hooks.json starts
+# this on the Windows side, where neither BIOINFO_WORK nor NXF_WORKROOT is usually inherited and
+# the defaults are all this has to go on. Duplicates in the alternation are harmless.
+ROOT_ALT="${esc_nxf}|${esc_root}|/work/nxf|/work"
+# The run-id-bearing roots only — /work on its own has no run id under it.
+NXF_ALT="${esc_nxf}|/work/nxf"
 
 # UNEXPANDED VARIABLE IN THE TARGET.
 # This hook sees the command TEXT, before the caller's shell expands anything. So
@@ -162,23 +187,42 @@ if printf '%s' "$CMD" | grep -qE '\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/(nxf|work)'; th
       which is checkable. (references/runbook.md section 9 shows that form.)"
 fi
 
-targets="$(printf '%s' "$CMD" | grep -oE "(${esc_root}|/work)(/[^[:space:]\"';|&]*)*" || true)"
+# SPLIT INTO TOKENS, THEN ANCHOR. The old form searched for the root as a raw substring
+# anywhere in the command, so every one of these was read as the bare work root and denied
+# with "that target is the entire work root (/work)" -- a directory the caller never named:
+#
+#   rm -rf /mnt/e/workspace/tmp          "/work" as a prefix of another component
+#   rm -rf /mnt/d/workflow_old           same
+#   rm -rf /home/u/projects/network/work "/work" as the last component of an unrelated tree
+#
+# In all three the "(/...)*" tail matched zero times and $t collapsed to exactly "/work".
+# A path argument is a whitespace-delimited token, so split on whitespace, drop the quotes,
+# and require the root to match from the START of a token to a component boundary. Anchoring
+# a single regex at both ends instead would break on two targets in one command, because the
+# whitespace that ends the first is the same character that begins the second and grep -o
+# does not return overlapping matches.
+targets="$(printf '%s' "$CMD" \
+  | tr -s '[:space:]' '\n' \
+  | sed -E "s/^[\"']+//; s/[\"']+\$//" \
+  | grep -E "^(${ROOT_ALT})(/.*)?\$" || true)"
 [ -n "$targets" ] || allow
 
 while IFS= read -r t; do
   [ -n "$t" ] || continue
+  t="${t%/}"                                   # `rm -rf /work/` is still the work root
+  [ -n "$t" ] || continue
 
   # Refuse to wipe the whole work root regardless of run state.
-  if [ "$t" = "$WORK_ROOT" ] || [ "$t" = "/work" ] || [ "$t" = "$WORK_ROOT/nxf" ] || [ "$t" = "/work/nxf" ]; then
+  if [ "$t" = "$WORK_ROOT" ] || [ "$t" = "/work" ] || [ "$t" = "$NXF_ROOT" ] || [ "$t" = "/work/nxf" ]; then
     deny "that target is the entire work root ($t), not one run. Every run's -resume cache lives
       under it. Delete a single finished run directory instead."
   fi
 
-  # runid is the component directly under <root>/nxf/
-  runid="$(printf '%s' "$t" | sed -nE "s#^(${esc_root}|/work)/nxf/([^/]+).*#\2#p")"
+  # runid is the component directly under the run root
+  runid="$(printf '%s' "$t" | sed -nE "s#^(${NXF_ALT})/([^/]+).*#\2#p")"
   [ -n "$runid" ] || continue
 
-  rundir="$(printf '%s' "$t" | sed -nE "s#^((${esc_root}|/work)/nxf/[^/]+).*#\1#p")"
+  rundir="$(printf '%s' "$t" | sed -nE "s#^((${NXF_ALT})/[^/]+).*#\1#p")"
 
   # Condition 1 — the run must not be live.
   # TWO independent checks, because either alone has a hole. The pid file is only written if
@@ -220,8 +264,21 @@ while IFS= read -r t; do
   done
 
   if [ -z "$handoff" ]; then
-    deny "no handoff.md found for run $runid. The handoff is the record that the run finished and
-      the user saw the results. Write it, get sign-off, then reclaim (runbook.md section 9)."
+    # "Not found" and "not visible from here" are different facts and the caller has to be able
+    # to tell them apart. hooks.json starts this hook on the WINDOWS side, so when the agent
+    # reaches the distro through `wsl -d <distro> -- bash -lc '...'` none of the three candidate
+    # paths can resolve: BIOINFO_RUNLOG and BIOINFO_HOME are not exported there, and /mnt/d and
+    # /work are inside the distro. That is the normal case for an agent-issued reclaim, and the
+    # old wording ("write it, get sign-off") sent the reader off to write a file that already
+    # existed. Say which paths were tried.
+    deny "cannot confirm a handoff for run $runid — no handoff.md at any of:
+        ${BIOINFO_RUNLOG:-<BIOINFO_RUNLOG unset>}/$runid/handoff.md
+        ${BIOINFO_HOME:-/mnt/d/bioinfo-agent}/runs/$runid/handoff.md
+        $rundir/handoff.md
+      If the run was never handed off: write it and get sign-off first (runbook.md section 9).
+      If it was, this hook simply cannot see those paths from where it runs — it starts on the
+      Windows side, so a run record inside the distro is invisible to it. Do the reclaim from a
+      shell in the distro rather than through this agent."
   fi
 
   if [ -n "$(find "$handoff" -mtime "-${HOLD_DAYS}" 2>/dev/null)" ]; then
