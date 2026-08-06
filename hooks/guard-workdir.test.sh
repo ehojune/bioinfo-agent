@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+# guard-workdir.test.sh — exit-code tests for guard-workdir.sh. Read-only, safe to run anytime.
+#
+#   bash hooks/guard-workdir.test.sh
+#
+# RUN THIS AFTER EVERY EDIT TO guard-workdir.sh. That hook is ~300 lines of regex and shell
+# string handling whose entire output is one bit, allow or deny, which makes it both the easiest
+# thing here to test and the easiest to break silently. PR #18 changed its matching six times;
+# five of those rounds introduced or exposed a real hole, and each round's evidence lived only in
+# a throwaway shell probe. This file is that evidence, kept.
+#
+# EXIT CODES ONLY. Nothing here asserts on the wording of a deny message. Those get rewritten
+# often — three times in PR #18 alone — and a test that fails on rephrasing is a test people
+# delete. What must not change without someone deciding to change it is which commands get
+# through.
+#
+# HERMETIC. Every case runs with the ambient BIOINFO_*/NXF_*/CLAUDE_* variables cleared and HOME
+# pointed at an empty directory, so a case that needs a root sets it explicitly and the machine
+# this runs on cannot change the answer. Fixtures live in a temp dir and are removed at exit.
+
+set -uo pipefail
+
+SRC="$(cd "$(dirname "$0")" && pwd)/guard-workdir.sh"
+[ -r "$SRC" ] || { printf 'cannot read %s\n' "$SRC" >&2; exit 1; }
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/nohome" "$TMP/fakerepo/hooks"
+
+# RUN A COPY, FROM A DIRECTORY WITH NO config/. The hook looks for host.env beside itself, and
+# beside the real one sits the developer's own config/host.env -- gitignored, so absent from a
+# fresh clone, but present on any machine that has been set up. Testing in place therefore let
+# that file answer for the fixtures below, and the first run of this suite failed a case for
+# that reason and no other. The copy is byte-identical and made fresh on every run.
+# The copy keeps the real <repo>/hooks/<script> layout, because the hook resolves that
+# candidate as $(dirname $0)/../config/host.env and a flat copy would look one level too high.
+HOOK="$TMP/fakerepo/hooks/guard-workdir.sh"
+cp "$SRC" "$HOOK"
+
+pass=0; fail=0
+section() { printf '\n== %s ==\n' "$*"; }
+
+# check <allow|deny> <command> [VAR=value ...]
+check() {
+  local want="$1" cmd="$2"; shift 2
+  local esc got rc
+  esc="$(printf '%s' "$cmd" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$esc" \
+    | env -u BIOINFO_WORK -u NXF_WORKROOT -u BIOINFO_RUNLOG -u BIOINFO_ARCHIVE_DISTRO \
+          -u BIOINFO_HOST_ENV -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PROJECT_DIR \
+          -u BIOINFO_WORKDIR_HOLD_DAYS \
+          HOME="$TMP/nohome" BIOINFO_HOME="$TMP/nohome" "$@" \
+          bash "$HOOK" >/dev/null 2>&1
+  rc=$?
+  [ "$rc" -eq 0 ] && got=allow || got=deny
+  if [ "$got" = "$want" ]; then
+    pass=$((pass+1)); printf '  ok    %-6s %s\n' "$got" "$cmd"
+  else
+    fail=$((fail+1)); printf '  FAIL  want=%-5s got=%-5s %s\n' "$want" "$got" "$cmd"
+  fi
+}
+
+section "readers and unrelated targets pass through"
+check allow 'echo hello'
+check allow "grep -r 'nextflow clean' docs/"
+check allow 'rm -rf node_modules'
+check allow 'rm -rf ./build'
+check allow 'rm -rf /tmp/scratch/foo'
+check allow 'rm -rf /c/Users/admin/tmp/x'
+check allow 'rm -rf "$TMPD"'
+check allow 'rm -rf "$dest"'
+check allow 'rm -rf /tmp/$USER/workspace'
+
+section "1. cleanup flags"
+check deny 'nextflow run nf-core/rnaseq -with-cleanup'
+check deny 'echo "cleanup = true" >> nextflow.config'
+
+section "3. collapsed paths — an unset root reaching the filesystem root"
+check deny 'rm -rf /'
+check deny 'rm -rf /*'
+check deny 'rm -rf ""'
+check deny 'rm -rf /runs'
+check deny 'rm -rf /runs/'
+check deny 'rm -rf /runs/*'
+check deny 'rm -rf "/refs"'
+
+section "4. nextflow clean"
+check deny 'nextflow clean -n -before myrun'
+
+section "5. the work root and one run under it"
+check deny 'rm -rf /work'
+check deny 'rm -rf /work/'
+check deny 'rm -rf /work/nxf'
+check deny 'rm -rf /work/nxf/20260728-x/work'
+
+section "5. paths that merely CONTAIN the root string"
+# Each of these was denied as "the entire work root (/work)" before the token split.
+check allow 'rm -rf /mnt/e/workspace/tmp'
+check allow 'rm -rf /mnt/d/workflow_old'
+check allow 'rm -rf /home/u/projects/network/work'
+
+section "5. unexpanded variables — no run id, so no run-state check is possible"
+check deny 'rm -rf "$NXFDIR/work"'
+check deny 'rm -rf "$NXF_WORKROOT/demo/work"'
+check deny 'rm -rf "$BIOINFO_WORK/nxf/run1/work"'
+check deny 'rm -rf ${NXFDIR}/work'
+check deny 'rm -rf "$NXFDIR"'
+check deny 'rm -rf "$W/nxf/run1/work"'
+
+section "root normalization — trailing and repeated slashes"
+check deny  'rm -rf /scratch/nxf/run/work'   NXF_WORKROOT=/scratch/nxf
+check deny  'rm -rf /scratch/nxf/run/work'   NXF_WORKROOT=/scratch/nxf/
+check deny  'rm -rf /scratch/nxf/run/work'   NXF_WORKROOT=/scratch//nxf//
+check deny  'rm -rf /nxf/run/work'           BIOINFO_WORK=/
+check deny  'rm -rf /work/nxf/run/work'      BIOINFO_WORK=/work/
+check deny  'rm -rf /bigdisk/work/nxf/r/work' BIOINFO_WORK=/bigdisk/work
+check allow 'rm -rf /bigdisk/workspace'       BIOINFO_WORK=/bigdisk/work
+
+section "root-agnostic layout — the root is configured somewhere this hook cannot read"
+# hooks.json starts the hook on the Windows side; a root exported only inside the distro is
+# invisible there. <anything>/nxf/<runid> is recognisable without knowing the root.
+check deny  "wsl -d Ubuntu-24.04 -- bash -lc 'rm -rf /scratch/nxf/demo/work'"
+check deny  'rm -rf /scratch/nxf/demo/work'
+check deny  'rm -rf /scratch/nxf'
+check deny  'rm -rf /some/other/root/nxf/run7/work'
+check allow 'rm -rf /some/other/root/results'
+
+section "host.env discovery — where the file can be, given host.env is gitignored"
+mkdir -p "$TMP/viahome/config" "$TMP/cache/config" "$TMP/proj/config" "$TMP/home2/bioinfo-agent/config"
+printf 'BIOINFO_WORK=/rootA/work\n' > "$TMP/viahome/config/host.env"
+printf 'BIOINFO_WORK=/rootB/work\n' > "$TMP/cache/config/host.env"
+printf 'BIOINFO_WORK=/rootC/work\n' > "$TMP/proj/config/host.env"
+printf 'BIOINFO_WORK=/rootD/work\n' > "$TMP/home2/bioinfo-agent/config/host.env"
+printf 'BIOINFO_WORK=/rootE/work\n' > "$TMP/explicit.env"
+check deny 'rm -rf /rootA/work' BIOINFO_HOME="$TMP/viahome"
+check deny 'rm -rf /rootB/work' CLAUDE_PLUGIN_ROOT="$TMP/cache"
+check deny 'rm -rf /rootC/work' CLAUDE_PROJECT_DIR="$TMP/proj"
+check deny 'rm -rf /rootD/work' HOME="$TMP/home2"
+check deny 'rm -rf /rootE/work' BIOINFO_HOST_ENV="$TMP/explicit.env"
+# beside the script — the symlink/junction install route
+mkdir -p "$TMP/fakerepo/config"
+printf 'BIOINFO_WORK=/rootF/work\n' > "$TMP/fakerepo/config/host.env"
+check deny 'rm -rf /rootF/work'
+rm -rf "$TMP/fakerepo/config"   # restore the hermetic baseline for everything after this
+
+section "host.env — the LAST assignment wins, as load_host_env does"
+printf 'BIOINFO_WORK=/old/work\nBIOINFO_WORK=/bigdisk/work\n' > "$TMP/lastwins.env"
+check deny  'rm -rf /bigdisk/work' BIOINFO_HOST_ENV="$TMP/lastwins.env"
+check allow 'rm -rf /old/work'     BIOINFO_HOST_ENV="$TMP/lastwins.env"
+
+section "host.env line forms — must match bootstrap/lib/host-env.sh exactly"
+i=0
+while IFS= read -r line; do
+  i=$((i+1)); printf '%s\n' "$line" > "$TMP/form$i.env"
+  check deny 'rm -rf /bigdisk/work' BIOINFO_HOST_ENV="$TMP/form$i.env"
+done <<'FORMS'
+BIOINFO_WORK=/bigdisk/work
+export BIOINFO_WORK=/bigdisk/work
+   export   BIOINFO_WORK=/bigdisk/work
+BIOINFO_WORK = /bigdisk/work
+BIOINFO_WORK="/bigdisk/work"
+BIOINFO_WORK='/bigdisk/work'
+BIOINFO_WORK=/bigdisk/work   # trailing comment
+export BIOINFO_WORK="/bigdisk/work"  # both
+FORMS
+
+section "a root containing a space — the loader supports it, so the guard must too"
+printf 'BIOINFO_WORK="/big disk/work"\n' > "$TMP/space.env"
+check deny  'rm -rf /big\ disk/work/nxf/demo/work'   BIOINFO_HOST_ENV="$TMP/space.env"
+check deny  'rm -rf "/big disk/work/nxf/demo/work"'  BIOINFO_HOST_ENV="$TMP/space.env"
+check deny  "rm -rf '/big disk/work/nxf/demo/work'"  BIOINFO_HOST_ENV="$TMP/space.env"
+check deny  'rm -rf /big\ disk/work'                 BIOINFO_HOST_ENV="$TMP/space.env"
+check allow 'rm -rf /big\ disk/workspace'            BIOINFO_HOST_ENV="$TMP/space.env"
+
+section "runbook section 9 — the reclaim must become possible, not stay blocked forever"
+W="$TMP/fakework"; mkdir -p "$W/nxf/testrun/work"
+check deny  "rm -rf $W/nxf/testrun/work" BIOINFO_WORK="$W"          # no handoff yet
+touch "$W/nxf/testrun/handoff.md"
+check deny  "rm -rf $W/nxf/testrun/work" BIOINFO_WORK="$W"          # inside the hold
+touch -d '30 days ago' "$W/nxf/testrun/handoff.md" 2>/dev/null \
+  || touch -t "$(date -d '30 days ago' +%Y%m%d0000 2>/dev/null || echo 202001010000)" "$W/nxf/testrun/handoff.md"
+check allow "rm -rf $W/nxf/testrun/work" BIOINFO_WORK="$W"          # past the hold
+
+printf '\nguard-workdir: %d passed, %d failed\n' "$pass" "$fail"
+[ "$fail" -eq 0 ]

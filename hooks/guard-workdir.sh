@@ -39,6 +39,10 @@
 # A guard that blocks everything when jq is missing is worse than no guard.
 #
 # Protocol: stdin is the PreToolUse JSON; exit 2 with a reason on stderr blocks the call.
+#
+# TESTS: hooks/guard-workdir.test.sh. Run it after every edit to this file — `bash
+# hooks/guard-workdir.test.sh`, 68 allow/deny cases, no network, nothing outside a temp dir.
+# Every case in it is a hole this hook actually had.
 
 set -uo pipefail
 
@@ -99,7 +103,11 @@ done
 hostenv_get() {
   [ -n "$HOSTENV" ] && [ -r "$HOSTENV" ] || return 0
   local _v
-  _v="$(sed -n -E "s/^[[:space:]]*(export[[:space:]]+)?$1[[:space:]]*=//p" "$HOSTENV" | head -1)"
+  # tail, not head. load_host_env reads the WHOLE file and exports on every match, so a later
+  # line for the same key wins. An operator who leaves BIOINFO_WORK=/old/work in place and
+  # appends the new value runs under the new one, and taking the first match here made the guard
+  # protect a root nothing uses. (Caught in review of PR #18.)
+  _v="$(sed -n -E "s/^[[:space:]]*(export[[:space:]]+)?$1[[:space:]]*=//p" "$HOSTENV" | tail -1)"
   _v="${_v%$'\r'}"                                    # tolerate a CRLF checkout
   _v="${_v#"${_v%%[![:space:]]*}"}"                   # leading whitespace off the value
   case "$_v" in
@@ -309,11 +317,46 @@ fi
 # shape catches /scratch/nxf/demo/work on a host this process cannot introspect. A directory
 # that genuinely is somebody's unrelated ".../nxf/<name>" gets the run-state questions asked
 # about it, which is the right way to be wrong for a guard whose job is the destructive case.
-NXF_SHAPE='^/[^[:space:]]*/nxf(/[^/]+.*)?$'
-targets="$(printf '%s' "$CMD" \
-  | tr -s '[:space:]' '\n' \
-  | sed -E "s/^[\"']+//; s/[\"']+\$//" \
-  | grep -E "^(${ROOT_ALT})(/.*)?\$|${NXF_SHAPE}" || true)"
+#
+# AND WHITESPACE INSIDE A WORD IS NOT A BOUNDARY. A configured root may contain a space -- the
+# host-env loader supports a quoted value precisely so it can -- and bash writes such a target as
+#   rm -rf /big\ disk/work/nxf/demo/work        or   rm -rf "/big disk/work/nxf/demo/work"
+# Splitting blindly on whitespace produced `/big\` and `disk/work/nxf/demo/work`, neither of
+# which matches anything, so the hook exited 0 while bash reassembled the real path and deleted
+# it. Walk the string once: swallow the quoting the way a shell would, and hold a space that
+# belongs to a word as \001 until after the split. (Caught in review of PR #18.)
+#
+# TWO TOKENISATIONS, UNIONED, because one cannot serve both shapes. Quoting means "this is one
+# word" for a path with a space, and "this is an inner command" for the form the agent actually
+# uses to reach the distro:
+#   wsl -d Ubuntu-24.04 -- bash -lc 'rm -rf /scratch/nxf/demo/work'
+# Treating that quoted run as a single word hides the path inside it; splitting the quoted path
+# on its space destroys it. Nothing in the command text says which one a given quote is. So
+# produce both streams and match against the union: this decides one bit, and an extra candidate
+# token can only make the guard stricter, which is the safe direction for a delete.
+SEP="$(printf '\001')"
+NXF_SHAPE='^/.*/nxf(/[^/]+.*)?$'
+targets="$( { printf '%s' "$CMD" | tr -d '"\047' | tr -s '[:space:]' '\n'
+              printf '%s' "$CMD" \
+  | awk -v S="$SEP" '{
+      out=""; q=""; n=length($0)
+      for (i=1; i<=n; i++) {
+        c = substr($0,i,1)
+        if (q=="" && c=="\\" && i<n) {
+          nx = substr($0,i+1,1)
+          if (nx==" " || nx=="\t") { out = out S; i++; continue }
+          out = out c; continue
+        }
+        if (q=="") { if (c=="\"" || c=="\047") { q=c; continue } }
+        else {
+          if (c==q) { q=""; continue }
+          if (c==" " || c=="\t") { out = out S; continue }
+        }
+        out = out c
+      }
+      print out
+    }' | tr -s '[:space:]' '\n' | sed "s/${SEP}/ /g"
+            } | grep -E "^(${ROOT_ALT})(/.*)?\$|${NXF_SHAPE}" | sort -u || true)"
 [ -n "$targets" ] || allow
 
 while IFS= read -r t; do

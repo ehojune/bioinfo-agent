@@ -40,11 +40,23 @@ Pipeline commands name only the standard path
 - **Does not run binaries it found on disk** — tools come from containers
 
 Only the work-directory rule is machine-checked. `hooks/guard-workdir.sh` registers as a PreToolUse
-hook and refuses `-with-cleanup`, `cleanup = true`, `nextflow clean` while a run is live, and any
-`rm -rf` on a work directory unless that run is finished, handed off, and past the hold
-(`BIOINFO_WORKDIR_HOLD_DAYS`, 7 by default). It sees every Bash call in the session, not only the
-subagent's, and it fails open if it cannot parse its input — a guard that blocks everything when
-`jq` is missing is worse than no guard.
+hook and refuses `-with-cleanup`, `cleanup = true`, `nextflow clean`, and any `rm -rf` on a work
+directory unless that run is finished, handed off, and past the hold (`BIOINFO_WORKDIR_HOLD_DAYS`,
+7 by default). It sees every Bash call in the session, not only the subagent's, and it fails open
+if it cannot parse its input — a guard that blocks everything when `jq` is missing is worse than
+no guard.
+
+**Editing that hook means running its tests.**
+
+```bash
+bash hooks/guard-workdir.test.sh
+```
+
+68 cases, allow/deny only, hermetic. The hook is ~300 lines of regex whose whole output is one
+bit, which makes it the easiest thing here to break without noticing: six consecutive rounds of
+review on PR #18 each found a real hole, and three of those were introduced by the fix before
+them. The suite is that history kept. It asserts exit codes and never message wording, because
+the wording gets rewritten and a test that fails on rephrasing is a test people delete.
 
 Both install routes register it: the plugin from `hooks/hooks.json`, `install.ps1` by merging one
 entry into the config dir's `settings.json`. Hand-made symlinks do not, so on that route every rule
