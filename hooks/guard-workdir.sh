@@ -226,7 +226,16 @@ if [ -z "$CMD" ]; then
     | sed -n 's/.*"command"[[:space:]]*:[[:space:]]*"\(\([^"\\]\|\\.\)*\)".*/\1/p' \
     | head -1)"
   # Unescape the sequences that change what the command means.
-  CMD="${CMD//\\\"/\"}"; CMD="${CMD//\\n/ }"; CMD="${CMD//\\t/ }"; CMD="${CMD//\\\\/\\}"
+  #
+  # \n BECOMES A NEWLINE, not a space. A newline is a command separator; a space is not, and
+  # collapsing one into the other merged two commands into one segment, after which the reader
+  # exemption judged the pair by the FIRST verb:
+  #     {"command":"echo a\nrm -rf /work"}   ->   echo a rm -rf /work   ->   verb echo -> allowed
+  # The rm was never scanned. Only on this branch: with jq the newline survives and the same
+  # input denies, so the bypass existed exactly on the Windows side, which is the side
+  # hooks.json actually starts this script on. \t stays a space -- a tab separates words, not
+  # commands. (Found while fixing the round-10 continuation finding.)
+  CMD="${CMD//\\\"/\"}"; CMD="${CMD//\\n/$NL}"; CMD="${CMD//\\t/ }"; CMD="${CMD//\\\\/\\}"
 fi
 [ -n "$CMD" ] || allow          # could not read it — not our call to make
 
@@ -253,8 +262,46 @@ fi
 # the path in half before any matcher saw it, no token held the whole root, and the hook exited
 # 0. Park the escaped ones out of tr's reach and put them back afterwards as the bare character
 # the shell would have produced. (Caught in review of PR #18.)
+#
+# PARITY, and it has to be counted rather than peeked at. `${CMD//\\;/…}` hid a separator
+# whenever a backslash sat in front of it, which is wrong exactly when the backslash is itself
+# escaped: bash reads `echo x\\; rm -rf /work` as TWO commands (verified -- it prints `x\` and
+# then runs the second), but hiding that `;` left one echo-led segment, the reader exemption
+# dropped it, and the rm sailed through. That was a bypass this PR introduced in the previous
+# round, not a pre-existing one: the same input denied at 7707948.
+#
+# Consuming `\X` as a PAIR gets parity for free. In `x\\;` the two backslashes are eaten
+# together, so the `;` after them is met bare and stays a separator. In `x\;` the pair is
+# backslash-semicolon and the separator is hidden. No counter needed.
+#
+# The same pass joins a backslash-newline, because bash removes both characters and welds the
+# word: `rm -rf /big\<newline>disk/work` is /bigdisk/work to bash, while every awk below reads
+# one line at a time and could only ever see two unrelated fragments.
 _E1="$(printf '\002')"; _E2="$(printf '\003')"; _E3="$(printf '\004')"
-CMD="${CMD//\\;/$_E1}"; CMD="${CMD//\\|/$_E2}"; CMD="${CMD//\\&/$_E3}"
+PREPASS=""
+shell_prepass() {     # pure shell; gated below so a command with no backslash never pays for it
+  # two statements: `local` expands all its arguments before assigning any, so ${#s} in the
+  # same line reads the caller's (unset) s and trips set -u
+  local s="$1" out="" i=0 c nx n
+  n=${#s}
+  while [ "$i" -lt "$n" ]; do
+    c="${s:i:1}"
+    if [ "$c" = '\' ] && [ $((i+1)) -lt "$n" ]; then
+      nx="${s:i+1:1}"
+      case "$nx" in
+        ';')   out="$out$_E1" ;;
+        '|')   out="$out$_E2" ;;
+        '&')   out="$out$_E3" ;;
+        "$NL") : ;;                    # line continuation: bash drops both and joins the word
+        *)     out="$out\\$nx" ;;      # leave it; the tokenizer strips the backslash later
+      esac
+      i=$((i+2)); continue
+    fi
+    out="$out$c"; i=$((i+1))
+  done
+  PREPASS="$out"
+}
+case "$CMD" in *\\*) shell_prepass "$CMD"; CMD="$PREPASS" ;; esac
 CMD_SCAN="$(
   printf '%s\n' "$CMD" | tr ';|&' '\n\n\n' | while IFS= read -r _seg || [ -n "$_seg" ]; do
     case "$_seg" in *'>'*) printf '%s\n' "$_seg"; continue ;; esac

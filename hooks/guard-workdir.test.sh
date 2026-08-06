@@ -44,7 +44,11 @@ section() { printf '\n== %s ==\n' "$*"; }
 check() {
   local want="$1" cmd="$2"; shift 2
   local esc got rc
-  esc="$(printf '%s' "$cmd" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  # Newlines are escaped too, not just backslash and quote: a raw newline inside a JSON string
+  # is invalid, the hook's extraction then finds nothing, and it fails open — so a case written
+  # with a real newline would have "passed" by never being parsed at all.
+  esc="$(printf '%s' "$cmd" | sed 's/\\/\\\\/g; s/"/\\"/g' \
+         | awk '{ printf "%s%s", (NR>1 ? "\\n" : ""), $0 }')"
   printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$esc" \
     | env -u BIOINFO_WORK -u NXF_WORKROOT -u BIOINFO_RUNLOG -u BIOINFO_ARCHIVE_DISTRO \
           -u BIOINFO_HOST_ENV -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PROJECT_DIR \
@@ -234,6 +238,28 @@ check deny  'rm -rf /ref\*/work'             BIOINFO_WORK='/ref*/work'
 check deny  'rm -rf /a\(b/work'              BIOINFO_WORK='/a(b/work'
 check deny  'rm -rf /d\$x/work'              BIOINFO_WORK='/d$x/work'
 check allow 'rm -rf /ref1/work'              BIOINFO_WORK='/ref?/work'
+
+section "backslash parity — an escaped backslash does not escape what follows it"
+# bash runs TWO commands for the even case (verified: it prints `x\` then runs the second), and
+# ONE for the odd case. Hiding the separator on "a backslash precedes it" got that backwards and
+# let the second command hide behind the reader exemption.
+check deny  'echo x\\; rm -rf /work'
+check allow 'echo x\; rm -rf /work'
+
+section "a newline is a command separator; a space is not"
+# The no-jq extraction mapped \n to a space, which merged two commands into one segment and let
+# the reader exemption judge the pair by the first verb. jq keeps the newline, so this bypass
+# existed only on the Windows side — the side hooks.json actually starts the hook on.
+check deny 'echo a
+rm -rf /work'
+check deny 'cat foo
+rm -rf /work/nxf/r/work'
+
+section "backslash-newline continuation — bash removes both and welds the word"
+check deny  'rm -rf /big\
+disk/work'                    BIOINFO_WORK=/bigdisk/work
+check allow 'rm -rf /big\\
+disk/work'                    BIOINFO_WORK=/bigdisk/work
 
 section "runbook section 9 — the reclaim must become possible, not stay blocked forever"
 W="$TMP/fakework"; mkdir -p "$W/nxf/testrun/work"
