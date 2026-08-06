@@ -3,7 +3,7 @@ set -euo pipefail
 RUNID=20260807-rnaseq-salmononly-e
 PIPE=nf-core/rnaseq
 REV=3.18.0        # from config/pipelines.tsv
-REPO=/mnt/d/bioinfo-agent/.claude/worktrees/agent-review-improvements-05c20c
+REPO="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}"
 RUNDIR=$REPO/runs/$RUNID
 
 # WORK DIR ON /mnt/e. The repo forbids this and preflight refuses it; the reason it gives is
@@ -22,7 +22,7 @@ cd "$NXFDIR"
 nextflow -log "$NXFDIR/.nextflow.log" \
   run "$PIPE" -r "$REV" \
     -profile test,docker \
-    -c $REPO/config/local.config \
+    -c "$REPO/config/local.config" \
     --skip_alignment \
     --pseudo_aligner salmon \
     --outdir  "$NXFDIR/results" \
