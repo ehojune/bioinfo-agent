@@ -583,7 +583,12 @@ targets="$( { printf '%s' "$CMD" \
 
 while IFS= read -r t; do
   [ -n "$t" ] || continue
-  t="${t%/}"                                   # `rm -rf /work/` is still the work root
+  # SAME NORMALIZATION THE ROOTS GOT. `${t%/}` strips one trailing slash, so `rm -rf /work//`
+  # left `/work/`, matched no root, produced no run id, and fell out of the loop at exit 0 --
+  # while rm treats it as /work and takes the whole tree with every resume cache in it. Roots
+  # were normalized from the start and targets were not; that asymmetry was the bug.
+  # (Caught in review of PR #18.)
+  norm_root "$t"; t="$NORM"
   [ -n "$t" ] || continue
 
   # Refuse to wipe the whole work root regardless of run state. The */nxf case covers a root

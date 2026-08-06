@@ -290,6 +290,14 @@ check allow "rm -rf \$'/workspace/tmp'"
 check deny  'rm -rf $NXFDIR/work'
 check allow 'rm -rf $HOME/tmp'
 
+section "repeated slashes in the TARGET, not just in the configured root"
+# rm treats /work// as /work. Roots were normalized from the start and targets were not.
+check deny 'rm -rf /work//'
+check deny 'rm -rf /work///'
+check deny 'rm -rf /work//nxf'
+check deny 'rm -rf /work//nxf//run1//work'
+check deny 'rm -rf /work/'
+
 section "runbook section 9 — the reclaim must become possible, not stay blocked forever"
 W="$TMP/fakework"; mkdir -p "$W/nxf/testrun/work"
 check deny  "rm -rf $W/nxf/testrun/work" BIOINFO_WORK="$W"          # no handoff yet
