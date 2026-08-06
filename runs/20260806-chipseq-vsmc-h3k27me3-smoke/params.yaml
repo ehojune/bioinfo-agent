@@ -1,0 +1,32 @@
+# nf-core/chipseq 2.1.0 params — 20260806-chipseq-vsmc-h3k27me3-smoke
+# Explicit reference paths, NOT --genome GRCh38: the compact form auto-populates
+# bwa_index/star_index from genomes.config's GRCh38 block (declared but not built for
+# this FASTA) and nf-schema's exists:true validation fails on them regardless of which
+# --aligner is actually selected. See plan.md. blacklist is never populated by the
+# compact form either way (no blacklist key in genomes.config's GRCh38 block).
+fasta: /refs/genomes/GRCh38/fasta/GRCh38.fa
+gtf: /refs/genomes/GRCh38/gtf/GRCh38.gtf.gz
+bowtie2_index: /refs/genomes/GRCh38/index/bowtie2
+gene_bed: /refs/genomes/GRCh38/bed/genes.bed
+blacklist: /refs/genomes/GRCh38/bed/blacklist.bed
+
+aligner: bowtie2
+# NOT this revision's default (bwa) -- no GRCh38 (non-gatk) bwa index exists in the
+# store; bowtie2 index already present, built by the prior atacseq run.
+
+macs_gsize: 2700000000
+# Plain decimal, NOT 2.7e9 -- nf-schema rejects scientific notation for this
+# Number-typed param (confirmed pitfall, atacseq run 20260805, applies here too).
+
+# No --narrow_peak: H3K27me3 is a broad repressive histone mark. Pipeline default
+# (broad mode, broad_cutoff 0.1) is the correct choice here, left unset deliberately.
+
+min_reps_consensus: 1
+# Pipeline default. 2 real biological replicates exist per sample here, but read
+# depth is shallow (3.2M-9.3M reads/sample, ~28% of the 30M-read reference figure
+# in estimates.md). Requiring 2/2 replicate agreement risked an empty consensus set
+# from depth alone, not biology -- kept lenient, will report actual per-replicate
+# peak overlap in the QC verdict instead.
+
+save_reference: false
+# bowtie2 index already store-resident; nothing new to save.

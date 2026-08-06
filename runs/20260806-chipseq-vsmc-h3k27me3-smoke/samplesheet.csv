@@ -1,0 +1,5 @@
+sample,fastq_1,fastq_2,replicate,antibody,control,control_replicate
+VSMC_WT_H3K27me3,/work/rawdata/20260806-chipseq-vsmc-h3k27me3-prep/SRR24843734.fastq.gz,,1,H3K27me3,VSMC_WT_Input,1
+VSMC_WT_H3K27me3,/work/rawdata/20260806-chipseq-vsmc-h3k27me3-prep/SRR24843688.fastq.gz,,2,H3K27me3,VSMC_WT_Input,2
+VSMC_WT_Input,/work/rawdata/20260806-chipseq-vsmc-h3k27me3-prep/SRR24843726.fastq.gz,,1,,,
+VSMC_WT_Input,/work/rawdata/20260806-chipseq-vsmc-h3k27me3-prep/SRR24843707.fastq.gz,,2,,,
