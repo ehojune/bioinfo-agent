@@ -110,8 +110,16 @@ Every `build` and `fetch` row in the manifest is a cost paid before the run, not
 - No STAR, salmon or bismark index exists, so the first rnaseq/methylseq run pays the build (~1 h
   each; the STAR build wants ~40 GB RAM, which is the entire Nextflow pool).
 - `KOREF1` is FASTA only — no `.fai`, no `.dict`, no BWA index, and no manifest rows for them.
-- `config/genomes.config` names a `bowtie2` index path for atacseq/chipseq/cutandrun that the
-  manifest does not carry. Add the row before promising one of those runs.
+- ~~`config/genomes.config` names a `bowtie2` index path for atacseq/chipseq/cutandrun that the
+  manifest does not carry.~~ **Stale as of 2026-08-05**: the manifest has carried a `build`-mode
+  row for `genomes/GRCh38/index/bowtie2/` since day one, and the index itself has existed on disk
+  since the first atacseq run built and promoted it (reused by chipseq and cutandrun since,
+  zero rebuild cost). Left here, struck through, as a reminder that this file drifts — re-verify
+  with `bash bootstrap/04-refs.sh --dry-run` before repeating a claim like this one.
+- `genomes/ECOLI_K12/index/bowtie2/` (cutandrun spike-in) is `build` mode and still genuinely
+  absent — the fasta itself was fetched and manifest-tracked 2026-08-06, but the bowtie2 index is
+  rebuilt fresh by every cutandrun run unless one promotes a built copy to the store (same pattern
+  as the GRCh38 bowtie2 index above). Trivial cost either way: the genome is 4.6 Mb.
 
 Flag whichever of these a request touches in the run plan and in the estimate, before the run — do
 not discover it twelve hours in.

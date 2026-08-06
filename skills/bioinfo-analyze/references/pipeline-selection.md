@@ -488,9 +488,14 @@ run aborts at parameter validation (`--bwa_index`/`--star_index` "does not exist
 process starts, no matter which `--aligner` is passed. `--blacklist` is a separate, permanent gap
 either way: `genomes.config`'s GRCh38 block has no `blacklist` key, so the compact form never
 populates it. Use explicit `--fasta`/`--gtf`/`--bowtie2_index`/`--blacklist`/`--gene_bed` instead
-(`config/genomes.config` §3b has the full command and rationale). cutandrun shares the same
-bwa/bowtie2/star declaration pattern and has not been run on this host yet — assume the same trap
-applies there until proven otherwise.
+(`config/genomes.config` §3b has the full command and rationale). **cutandrun does NOT share this
+trap — confirmed 2026-08-06 (cutandrun 3.2.2, run `20260806-cutandrun-hpsc-h3k27me3-smoke`) by
+reading `main.nf` and `subworkflows/local/prepare_genome.nf` at the pinned revision directly.**
+cutandrun's `main.nf` calls `getGenomeAttribute()` only for `fasta`, `bowtie2`, `gtf`,
+`bed12`→`gene_bed`, and `blacklist` — it never touches `bwa`/`star`/`chromap`, so the
+exists-regardless-of-aligner failure this section describes for chipseq cannot occur on cutandrun.
+See §4.8 for why cutandrun still uses explicit paths anyway (a different, permanent reason: its own
+bundled blacklist is not the same file the ENCODE blacklist row here would resolve to).
 
 **Key outputs:** same shape as atacseq — per-sample peaks, consensus BED + count matrix, bigWigs,
 MultiQC with phantompeakqualtools metrics.
@@ -514,9 +519,12 @@ uses `group`/`replicate`, **not** `sample`; copying an atacseq samplesheet acros
 
 | param | value | why |
 |---|---|---|
-| `--peakcaller` | `seacr` or `seacr,macs2` | order matters: the first listed is used for the consensus/reporting |
-| `--normalisation_mode` | `Spikein` if a spike-in was used, else `CPM` | declaring `Spikein` with no spike-in reads produces garbage scale factors |
-| `--spikein_genome` | E. coli K12 by default | if the experiment used a different carrier, override |
+| `--bowtie2` | store bowtie2 index path | **NOT** `--bowtie2_index` — that is chipseq's param name for the equivalent index. cutandrun's own is `--bowtie2`. Confirmed via `--help` and source, 2026-08-06 (run `20260806-cutandrun-hpsc-h3k27me3-smoke`); easy to get wrong copying a chipseq cmd.sh forward |
+| `--peakcaller` | `seacr` or `seacr,macs2` | order matters: the first listed is used for the consensus/reporting. Pipeline default is `seacr` alone |
+| `--normalisation_mode` | `Spikein` if a spike-in was used, else `CPM` | pipeline default is `Spikein`; declaring it with no real spike-in reads produces garbage scale factors — silently wrong, not an error. **Spike-in alignment and its QC metrics (spike-in fraction, scale factor) run unconditionally regardless of this setting** — confirmed via source read of `workflows/cutandrun.nf` (the spike-in `ALIGN_BOWTIE2` branch is gated only by `params.run_alignment` and `aligner=="bowtie2"`, never by `normalisation_mode`) — so choosing `CPM` over `Spikein` does not lose the §3.5 spike-in QC band, it only changes whether published tracks get scaled by the factor |
+| `--spikein_genome` | E. coli K12 by default | if the experiment used a different carrier, override. Ignored once `--spikein_fasta` is passed explicitly |
+| `--spikein_fasta` / `--spikein_bowtie2` | store paths | `--spikein_bowtie2` can be omitted — the pipeline builds it itself from `--spikein_fasta` via `BOWTIE2_BUILD_SPIKEIN` (confirmed via source read of `prepare_genome.nf`); trivial cost for the ~4.6 Mb E. coli genome |
+| `--macs2_narrow_peak` | pipeline default `true` (narrow) | set `false` for broad marks (H3K27me3/H3K9me3/H3K36me3), same reasoning as chipseq's broad-mode choice |
 | `--use_control` / `--igg_scale_factor` | with IgG | controls how the IgG track is subtracted |
 | `--dedup_target_reads` | usually **off** for CUT&RUN | high-efficiency CUT&RUN produces genuine duplicate fragments; deduplicating them throws away signal. This is a real judgement call — state which way you went |
 | `--consensus_peak_mode` | `group` | `all` collapses across the whole experiment |
@@ -524,22 +532,28 @@ uses `group`/`replicate`, **not** `sample`; copying an atacseq samplesheet acros
 **Reference-store paths:**
 
 ```
-$BIOINFO_REFS/genomes/GRCh38/fasta/genome.fa
-$BIOINFO_REFS/genomes/GRCh38/gtf/genes.gtf.gz
-$BIOINFO_REFS/genomes/GRCh38/index/bowtie2/        manifest row present (build mode) — index itself absent until built
-$BIOINFO_REFS/genomes/ECOLI_K12/fasta/genome.fa    no manifest row yet — see §9
-$BIOINFO_REFS/genomes/ECOLI_K12/index/bowtie2/     no manifest row yet — see §9
+$BIOINFO_REFS/genomes/GRCh38/fasta/GRCh38.fa           alias, present
+$BIOINFO_REFS/genomes/GRCh38/gtf/GRCh38.gtf.gz         alias, present
+$BIOINFO_REFS/genomes/GRCh38/index/bowtie2/            present — built by atacseq, reused by chipseq and cutandrun
+$BIOINFO_REFS/genomes/GRCh38/bed/cutandrun_blacklist.bed   present — added 2026-08-06, see below
+$BIOINFO_REFS/genomes/ECOLI_K12/fasta/genome.fa        present — added 2026-08-06 (NCBI RefSeq GCF_000005845.2)
+$BIOINFO_REFS/genomes/ECOLI_K12/index/bowtie2/         manifest row present (build mode) — index itself built per-run unless promoted after
 ```
 
 **Do not point `--blacklist` at `genomes/GRCh38/bed/blacklist.bed` (the atacseq/chipseq ENCODE
 list) for this pipeline.** nf-core/cutandrun 3.2.2's own `conf/igenomes.config` maps GRCh38 to its
 bundled `assets/blacklists/GRCh38-blacklist.bed` — a different, CUT&RUN-specific region set (1049
-regions vs 636 in the ENCODE ChIP-seq list; confirmed by diff 2026-08-05). Use the pipeline's own
-bundled file, or add a *separate* manifest row for it if it needs to be store-resident — do not
-reuse the atacseq/chipseq row.
+regions vs 636 in the ENCODE ChIP-seq list; confirmed by diff 2026-08-05). As of 2026-08-06 this
+file is copied into the store at `genomes/GRCh38/bed/cutandrun_blacklist.bed` (manifest row +
+sha256 in `refs.manifest.tsv`) rather than left pointing at the pipeline's `NXF_ASSETS` clone
+directory, which changes hash on every `nextflow pull`. Do not reuse the atacseq/chipseq row, and
+do not point atacseq/chipseq at this one either.
 
-By default the pipeline will fetch the spike-in genome itself. On this host, prefer adding it to
-the store so the run is offline-reproducible.
+The E. coli K12 spike-in genome (`genomes/ECOLI_K12/fasta/genome.fa`) was fetched and manifest-
+tracked as of 2026-08-06 rather than left to the pipeline's own per-run download — the store is
+offline-reproducible for this pipeline now. The spike-in bowtie2 index is still built per-run
+(cheap — seconds, for a 4.6 Mb genome) unless a future run promotes a built copy to the store path
+above, the same way the human GRCh38 bowtie2 index was promoted after atacseq first built it.
 
 **Key outputs:** SEACR/MACS2 peak BEDs per group, consensus peaks, normalised bigWigs, the
 `igv_session.xml`, the reporting HTML, MultiQC.
@@ -896,18 +910,20 @@ list as missing were re-checked against the manifest directly and turned out not
 `genomes/GRCh38/index/bowtie2/` has had a `build`-mode manifest row from day one (it was never
 missing — only the index *file* was, which the first atacseq run has since built and promoted into
 the store); `genomes/GRCh38/bed/blacklist.bed` genuinely had no row and was fetched and added this
-run (PR #10). Both are removed from the table below. If you are reading this file at a much later
-date, re-verify with `bash bootstrap/04-refs.sh --dry-run` rather than trusting this table on
-sight — this stale-doc drift is exactly why: the row can look missing here for months after the
-underlying gap was actually fixed, and the fastest way to know is to ask the filesystem.
+run (PR #10). **As of 2026-08-06 (run `20260806-cutandrun-hpsc-h3k27me3-smoke`)**, the E. coli K12
+spike-in fasta and cutandrun's own bundled GRCh38 blacklist were likewise fetched/copied and given
+manifest rows (see `pipeline-selection.md` §4.8) — both removed from the table below along with the
+two 2026-08-05 rows. If you are reading this file at a much later date, re-verify with
+`bash bootstrap/04-refs.sh --dry-run` rather than trusting this table on sight — this stale-doc
+drift is exactly why: the row can look missing here for months after the underlying gap was
+actually fixed, and the fastest way to know is to ask the filesystem.
 
 | Standard path | Mode | Needed by | Note |
 |---|---|---|---|
 | `genomes/GRCh38/index/bwa/` | build | chipseq (`--aligner bwa`), methylseq bwameth | the existing BWA index is on `GRCh38gatk`, a different FASTA |
 | `genomes/GRCh38/index/bwameth/` | build | methylseq `--aligner bwameth` | `bwameth.py index` |
-| `genomes/ECOLI_K12/fasta/genome.fa` + `index/bowtie2/` | fetch/build | cutandrun spike-in | otherwise the pipeline downloads it per run |
+| `genomes/ECOLI_K12/index/bowtie2/` | build | cutandrun spike-in | fasta is now store-resident (manifest row added 2026-08-06); the bowtie2 index itself is still built fresh per-run (seconds, 4.6 Mb genome) unless a run promotes a built copy the way atacseq did for the human GRCh38 index |
 | `genomes/GRCh38/fasta/genome.dict` | build | any GATK-adjacent step on the UCSC build | already a `build` row; still absent |
-| cutandrun's own GRCh38 blacklist | none — pipeline-bundled, not a store asset | cutandrun `--blacklist` | **not** the atacseq/chipseq ENCODE blacklist above — nf-core/cutandrun 3.2.2 bundles a different, protocol-specific region set at `assets/blacklists/GRCh38-blacklist.bed`. Add a separate manifest row only if it needs to be store-resident; do not point cutandrun at `genomes/GRCh38/bed/blacklist.bed` |
 
 Everything already flagged missing in `references/reference-store.md` — both `.dict` files, the
 GATK bundle, STAR/salmon/bismark indexes, VEP/snpEff caches — applies here too. State the missing
