@@ -326,7 +326,27 @@ TRUNID="$(printf '%s' "$RUNID" | tr -c 'A-Za-z0-9_-' '_')_$(printf '%s' "$RUNID"
 
 mkdir -p "$NXFDIR"                                 # cmd.sh creates it too, but the pid write below
                                                    # races the session start; do not depend on it
-tmux new-session -d -s "$TRUNID" "bash '$RUNDIR/cmd.sh'"
+
+# A NEW tmux session inherits the tmux SERVER's global environment, captured whenever that
+# server first started -- not this shell's current exports. If a server was already running
+# from an earlier session (routine once tmux launch is the default), and this shell has since
+# exported a different NXF_WORKROOT/BIOINFO_WORK (a host move, a different run's override) or
+# re-sourced a refreshed ~/.config/bioinfo/env.sh, the new session would silently NOT see that:
+# `bash '$RUNDIR/cmd.sh'` is a non-login shell and does not source it either. cmd.sh would then
+# derive NXFDIR from a stale or default root -- different from the one bin/preflight.sh just
+# checked disk space and ext4-ness against in THIS shell, moments ago. `-e VAR=value` (tmux
+# >=3.2) sets the environment for the new session explicitly, overriding whatever the server's
+# own global environment holds; empty values here still trigger cmd.sh's own `${VAR:-default}`
+# fallbacks correctly, so an unset variable in this shell does not become a forced-empty one.
+tmux new-session -d -s "$TRUNID" \
+  -e "BIOINFO_HOME=${BIOINFO_HOME:-}" \
+  -e "BIOINFO_REFS=${BIOINFO_REFS:-}" \
+  -e "BIOINFO_WORK=${BIOINFO_WORK:-}" \
+  -e "NXF_WORKROOT=${NXF_WORKROOT:-}" \
+  -e "NXF_ASSETS=${NXF_ASSETS:-}" \
+  -e "NXF_OPTS=${NXF_OPTS:-}" \
+  -e "NXF_ANSI_LOG=${NXF_ANSI_LOG:-}" \
+  "bash '$RUNDIR/cmd.sh'"
 
 # Record the live pid. NOT optional: hooks/guard-workdir.sh reads this file to refuse
 # deleting the work directory of a running run. Without it the guard falls through to the
