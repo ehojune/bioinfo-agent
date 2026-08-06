@@ -207,6 +207,26 @@ printf 'BIOINFO_WORK=/ref?/work\n' > "$TMP/glob.env"
 check deny 'rm -rf "/ref?/work"' BIOINFO_HOST_ENV="$TMP/glob.env" BIOINFO_WORK=/ref1/work
 check deny 'rm -rf /ref1/work'    BIOINFO_HOST_ENV="$TMP/glob.env" BIOINFO_WORK=/ref1/work
 
+section "/nxf as a TOP-LEVEL root — the shape match must not require a prefix"
+check deny  'rm -rf /nxf/demo/work'
+check deny  "wsl -d Ubuntu -- bash -lc 'rm -rf /nxf/demo/work'"
+check deny  'rm -rf /nxf'
+check allow 'rm -rf /nxfstuff/demo'
+
+section "escaped shell separators in a root — ; | & are legal in a directory name"
+# host.env cannot carry these (host-env.sh rejects them, and so does this hook's reader), so
+# the root can only arrive inherited. Bash writes the target with the separator escaped, and
+# splitting on it regardless tore the path apart before any matcher saw it.
+check deny  'rm -rf /big\&disk/work'               BIOINFO_WORK='/big&disk/work'
+check deny  'rm -rf /big\&disk/work/nxf/demo/work' BIOINFO_WORK='/big&disk/work'
+check deny  'rm -rf /big\&disk/work/nxf'           BIOINFO_WORK='/big&disk/work'
+check allow 'rm -rf /big\&disk/workspace'          BIOINFO_WORK='/big&disk/work'
+check deny  'rm -rf /semi\;disk/work'              BIOINFO_WORK='/semi;disk/work'
+check deny  'rm -rf /pipe\|disk/work'              BIOINFO_WORK='/pipe|disk/work'
+# an UNescaped separator is still a separator
+check allow 'echo hi & echo bye'
+check deny  'echo hi ; rm -rf /work'
+
 section "runbook section 9 — the reclaim must become possible, not stay blocked forever"
 W="$TMP/fakework"; mkdir -p "$W/nxf/testrun/work"
 check deny  "rm -rf $W/nxf/testrun/work" BIOINFO_WORK="$W"          # no handoff yet

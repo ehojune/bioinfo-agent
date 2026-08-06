@@ -246,6 +246,15 @@ fi
 # Any segment containing `>` is scanned. That costs a false positive on things like
 # `grep -r 'nextflow clean' docs/ > out.txt`, which is the right way to be wrong here: the
 # exemption exists because reading about a command is not running it, and a redirect is a write.
+#
+# ESCAPED SEPARATORS ARE NOT SEPARATORS. `;` `|` `&` are legal in a directory name, so a
+# configured root may contain one -- BIOINFO_WORK=/big&disk/work -- and bash spells the target
+# `rm -rf /big\&disk/work/nxf/demo/work`. Splitting on every & regardless of the backslash tore
+# the path in half before any matcher saw it, no token held the whole root, and the hook exited
+# 0. Park the escaped ones out of tr's reach and put them back afterwards as the bare character
+# the shell would have produced. (Caught in review of PR #18.)
+_E1="$(printf '\002')"; _E2="$(printf '\003')"; _E3="$(printf '\004')"
+CMD="${CMD//\\;/$_E1}"; CMD="${CMD//\\|/$_E2}"; CMD="${CMD//\\&/$_E3}"
 CMD_SCAN="$(
   printf '%s\n' "$CMD" | tr ';|&' '\n\n\n' | while IFS= read -r _seg || [ -n "$_seg" ]; do
     case "$_seg" in *'>'*) printf '%s\n' "$_seg"; continue ;; esac
@@ -259,6 +268,11 @@ CMD_SCAN="$(
 )"
 [ -n "${CMD_SCAN//[[:space:]]/}" ] || allow      # every segment was a reader
 CMD="$CMD_SCAN"
+# `\&`, not `&`. In a ${var//pat/repl} replacement bash reads a bare & as the matched text, so
+# `${CMD//$_E3/&}` put the placeholder straight back and the restore was a silent no-op -- which
+# is exactly why the ; and | cases worked and the & one did not. A variable holding & is
+# reinterpreted the same way; only the backslash escapes it. Verified on bash 5.3.15.
+CMD="${CMD//$_E1/;}"; CMD="${CMD//$_E2/|}"; CMD="${CMD//$_E3/\&}"
 
 # ---------------------------------------------------------------- 1. cleanup flags, always
 case "$CMD" in
@@ -428,7 +442,11 @@ fi
 # What neither covers is a quote nested inside a quote -- bash -lc '... "/big disk/..." ...'.
 # Parsing that correctly means being a shell, which this is not; see WHAT IT DOES NOT DO.
 SEP="$(printf '\001')"
-NXF_SHAPE='^/.*/nxf(/[^/]+.*)?$'
+# The prefix is OPTIONAL. `^/.*/nxf` demanded a nonempty component before /nxf, so a top-level
+# root -- NXF_WORKROOT=/nxf, perfectly valid and, being inside the distro, invisible to a
+# Windows-side hook -- matched nothing and `rm -rf /nxf/demo/work` exited 0 on a live run.
+# (Caught in review of PR #18.)
+NXF_SHAPE='^(/.*)?/nxf(/[^/]+.*)?$'
 targets="$( { printf '%s' "$CMD" \
   | awk -v S="$SEP" '{
       out=""; n=length($0)
@@ -483,8 +501,9 @@ while IFS= read -r t; do
   runid="$(printf '%s' "$t" | sed -nE "s#^(${NXF_ALT})/([^/]+).*#\2#p")"
   rundir="$(printf '%s' "$t" | sed -nE "s#^((${NXF_ALT})/[^/]+).*#\1#p")"
   if [ -z "$runid" ]; then
-    runid="$(printf '%s' "$t" | sed -nE 's#^(/.*/nxf)/([^/]+).*#\2#p')"
-    rundir="$(printf '%s' "$t" | sed -nE 's#^(/.*/nxf/[^/]+).*#\1#p')"
+    # same optional prefix as NXF_SHAPE: a run under the top-level root /nxf has none
+    runid="$(printf '%s' "$t" | sed -nE 's#^(.*)/nxf/([^/]+).*#\2#p')"
+    rundir="$(printf '%s' "$t" | sed -nE 's#^((.*)/nxf/[^/]+).*#\1#p')"
   fi
   [ -n "$runid" ] || continue
 
