@@ -215,13 +215,36 @@ and names here are for orientation, not for typing into a shell.
 `$BIOINFO_RUNLOG` holds one directory per past analysis on this machine. It is local and
 gitignored — it is the user's own record, not repository content.
 
-Glance at it during intake. You are looking for three things, and nothing else:
+Glance at it during intake. **`ls` alone does not find things** — run IDs are descriptive, not
+indexed, and a sample often appears only inside the record. `docs/examples/20260805-scrnaseq-skin-cd3`
+is `SRR21657609` and its name says neither. Search the contents:
+
+```bash
+grep -rl -- "$ACCESSION\|$SAMPLE" "$BIOINFO_RUNLOG"/*/handoff*.md 2>/dev/null
+```
+
+You are looking for three things, and nothing else:
 
 | You notice | Say |
 |---|---|
-| This sample already went through this pipeline, and it completed | Say so before planning. Its `handoff.md` has the measured wall clock and peak disk — those replace your estimate, they do not supplement it. Ask whether they want it re-run or want the existing results. |
+| This sample already went through this pipeline, and it completed | Say so before planning. Ask whether they want it re-run or want the existing results. Its measured numbers may replace your estimate — but only if the run was equivalent; see below. |
 | A different assay on the same sample — DNA before, RNA now | Mention it once, as an option: the two together support analyses neither supports alone. Do not design the multi-omics study uninvited. |
 | A prior run produced an artifact this one needs — a BAM, an index, a trimmed FASTQ | Say roughly where it should be and offer to use it. |
+
+**A past run's numbers are only yours to reuse if the run was equivalent.** All four must match:
+
+| | Why it invalidates the transfer |
+|---|---|
+| Pipeline **and pinned revision** | Process graphs change between releases |
+| Entry step, and the caller/tool set actually enabled | sarek from `--step mapping` is not sarek from `--step markduplicates`; each extra caller is its own scatter |
+| Reference build **and** what was prebuilt vs built during the run | An index built inside the run is hours and tens of GB that will not recur — or will |
+| Input scale — read count, coverage, sample count | Peak disk tracks the largest intermediate, not the sample name |
+
+If all four match, state the measured wall clock and peak disk as the estimate and say which run
+they came from. If any differ, **calibrate rather than copy**: use the measurement to correct the
+assumption it disproves, then estimate this run on its own terms. `preflight.sh` gates disk at
+1.5× your estimate and the user approves against it — an estimate imported from a differently
+shaped run makes both checks meaningless while looking authoritative.
 
 **Keep it light.** One glance, one sentence if something is relevant, nothing if not. Do not
 enumerate what the user has run, do not summarise their history back at them, and do not go
