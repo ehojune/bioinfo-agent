@@ -94,7 +94,7 @@ nf-core schema docs                                      # same, tools 2.x
 
 ```csv
 sample,fastq_1,fastq_2,strandedness
-KOR_CTRL_01,/refs/../data/rna/KOR_CTRL_01_L001_R1.fastq.gz,/refs/../data/rna/KOR_CTRL_01_L001_R2.fastq.gz,reverse
+KOR_CTRL_01,/data/rna/KOR_CTRL_01_L001_R1.fastq.gz,/data/rna/KOR_CTRL_01_L001_R2.fastq.gz,reverse
 KOR_CTRL_01,/data/rna/KOR_CTRL_01_L002_R1.fastq.gz,/data/rna/KOR_CTRL_01_L002_R2.fastq.gz,reverse
 KOR_CASE_07,/data/rna/KOR_CASE_07_L001_R1.fastq.gz,/data/rna/KOR_CASE_07_L001_R2.fastq.gz,reverse
 ```

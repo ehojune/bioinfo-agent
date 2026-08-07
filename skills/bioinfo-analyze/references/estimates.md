@@ -383,10 +383,16 @@ nextflow run ... -with-report report.html -with-trace trace.txt -with-timeline t
 ```
 
 ```bash
-# after the run: real cost per process
-sort -t$'\t' -k1,1 trace.txt | \
-  awk -F'\t' 'NR>1 {print $4, $9, $10, $11}' | head -40      # name, duration, realtime, %cpu
-# columns drift between Nextflow versions — check the header first:
+# after the run: real cost per process.
+# Columns BY NAME, never by position: the trace field set is configurable and nf-core
+# changes it between releases (same rule as runbook.md section 6). And do not sort
+# before the header is consumed -- `sort | awk 'NR>1'` moves the header into the body,
+# so awk drops a real task row and prints the header as data.
+awk -F'\t' '
+  NR==1 { for (i=1;i<=NF;i++) h[$i]=i; next }
+  { print $h["name"], $h["duration"], $h["realtime"], $h["%cpu"], $h["peak_rss"] }
+' trace.txt | sort -k1,1 | head -40
+# what the field set actually is on this Nextflow:
 head -1 trace.txt
 ```
 

@@ -23,19 +23,18 @@ pipeline_info/
 .nextflow.history
 
 # ---------------------------------------------------------------------- run outputs
-# runs/ holds one directory per analysis. The five files below are the record of how a
-# run was produced — text, kilobytes. Nothing else in there is worth keeping. The
-# `!runs/*/` line is load-bearing: git will not descend into an excluded directory, so
-# the re-includes below it never fire without it. Re-includes must name the file
-# exactly; a pattern that does not match anything fails silently.
+# runs/ is the user's own analysis history and never enters git. It says which samples
+# they hold and what was done to them — nobody cloning this tool should receive that,
+# and once a real patient sample goes through, the accession itself is the disclosure.
+# This repo is public.
+#
+# The agent still reads runs/ locally, at planning time, to notice that a sample has
+# been through a pipeline before. That works off the filesystem; git is not involved.
+#
+# Worked examples of the record format live in docs/examples/ and are committed on
+# purpose — they are documentation, not history.
 runs/**
-!runs/*/
 !runs/.gitkeep
-!runs/**/plan.md
-!runs/**/cmd.sh
-!runs/**/params.yaml
-!runs/**/samplesheet.csv
-!runs/**/handoff.md
 results/
 **/results/
 outdir/

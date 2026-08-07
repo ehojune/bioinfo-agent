@@ -27,15 +27,29 @@ the only commands you may issue are read-only inventory:
 
 | Allowed during steps 1–3 | Forbidden until the plan is approved |
 |---|---|
-| `ls`, `du -sh`, `df -h`, `find`, `stat`, `file` | `samtools`, `bcftools`, `gatk`, `bwa`, `picard`, `fastqc` — any analysis tool |
-| `head`/`zcat \| head` on a FASTQ (a few lines) | anything that reads a whole BAM/CRAM/FASTQ |
-| reading text: logs, scripts, existing samplesheets | `nextflow run` (except `-stub-run` at step 4) |
-| `bash bootstrap/05-verify.sh`, `04-refs.sh --dry-run` | anything that writes into the user's data directory |
+| `ls`, `du -sh`, `df -h`, `find`, `stat`, `file` | anything that STREAMS a whole BAM/CRAM/FASTQ/VCF |
+| `head`/`zcat \| head` on a FASTQ (a few lines) | `flagstat`, `stats`, `depth`, `bcftools stats`, `fastqc`, any aligner or caller |
+| **header and index reads** — see below | `nextflow run` (except `-preview`/`-stub-run` at step 4) |
+| reading text: logs, scripts, existing samplesheets | anything that writes into the user's data directory |
+| `bash bootstrap/05-verify.sh`, `04-refs.sh --dry-run` | |
 
-A 50 GB BAM does not get opened to "check it". You record that it exists, its size, and its
-mtime, and you propose validating it **in the plan**. Running `samtools quickcheck` on it during
-intake is minutes of I/O the user did not ask for, and it produces an approval prompt that looks
-like the analysis has already started.
+**Header and index reads are allowed, and you should use them.** What decides whether existing data
+is reusable is constant-size, not a scan: `samtools view -H`, `quickcheck`, `bcftools view -h`,
+`bcftools index -n`, `tabix -l`. On a 39 GB BAM here those cost 300–400 ms. `samtools idxstats`
+too — **but only with a `.bai`/`.csi` beside the file**: unindexed, it reads the entire BAM
+(htslib documents this), which is the one thing this gate exists to prevent. Check the index
+exists first.
+Refusing to spend that is how you propose a 90-hour realignment of something already aligned
+correctly. **From the container, never a host binary** — rule 10 holds, and a `samtools` on `$PATH`
+or in someone's `program/` folder is of unknown provenance:
+
+```bash
+docker run --rm -v /path/to/data:/d:ro quay.io/biocontainers/samtools:1.21--h50ea8bc_0 \
+  samtools view -H /d/sample.bam
+```
+
+**Beyond header and index, ask first.** Coverage, duplicate rate, a real record count — those are
+full scans, minutes to hours at this size. Name what you need and why; the user decides.
 
 **If the request maps to a stocked pipeline, you run that pipeline. You never hand-assemble the
 equivalent.** Do not chain `bwa mem` + `samtools sort` + `gatk MarkDuplicates` + `ApplyBQSR`
@@ -55,10 +69,14 @@ Do them in order. Do not skip step 3 or step 4.
 
 1. **Intake.** Answer every intake question below. Survey the actual files — do not trust a
    description of them. Read-only only: `ls -l`, `du -sh`, file extensions, and at most a few lines
-   of one FASTQ header to confirm pairing and read length. If the user's request does not name a
-   specific analysis — "WGRS 분석해줘", "이 데이터 좀 봐줘" — **stop and ask what question they
-   want answered** before selecting anything. Whole-genome resequencing alone does not tell you
-   whether they want germline variants, somatic variants, repeat expansions, or coverage.
+   of one FASTQ header to confirm pairing and read length, plus the header/index reads above.
+   If the user's request does not name a specific analysis — "이 데이터 좀 봐줘", "이거 분석해줘" —
+   **stop and ask what question they want answered** before selecting anything.
+
+   **"WGRS" is not one of those.** Whole-genome re-sequencing names the analysis: align short reads
+   and call germline variants — sarek, from `--step mapping` or from a later step if alignment
+   already exists. Get on with intake. Ask only what it genuinely leaves open: somatic vs germline
+   if there is any hint of tumour/normal, and whether repeat expansions or coverage are wanted too.
 2. **Pipeline selection.** Match analysis intent to a stocked pipeline and a revision.
    Read `references/pipeline-selection.md`.
 3. **Run plan and approval.** The run directory `$BIOINFO_HOME/runs/<runid>/` gets all four files
@@ -71,8 +89,10 @@ Do them in order. Do not skip step 3 or step 4.
    `bash $BIOINFO_HOME/bin/preflight.sh <rundir> <est_work_gb>` — refs, disk ≥ 1.5× estimate, Docker, pin.
    `bash $BIOINFO_HOME/scripts/check-samplesheet.sh --deep --pipeline <pipeline> <samplesheet.csv>`
    — the input CSV. Without `--pipeline` the required-column gate is skipped.
-   Then `-stub-run` (or `-preview`) the real command with the real samplesheet. A stub run
-   that fails is a real failure — fix it, do not "try it for real and see".
+   Then `-preview`, then `-stub-run` — both, in that order, on the real command with the real
+   samplesheet. Neither substitutes for the other: `-preview` resolves params and the DAG without
+   running anything, `-stub-run` exercises the process wiring. A stub run that fails is a real
+   failure — fix it, do not "try it for real and see". `references/runbook.md` section 4.
 5. **Execution.** Launch from ext4, logging to file, always through `tmux` (`references/runbook.md`
    section 5) — not a bare foreground command, not `nohup … &`, and not your own backgrounded
    tool call that you separately wait for. All three have lost a real run on this host: `nohup`
@@ -132,16 +152,26 @@ and names here are for orientation, not for typing into a shell.
   pull old scripts and data out of it, never run a pipeline in it. It may be unset, in which case
   there is no archive distro on this machine.
 - **Profile**: `-profile docker`. Docker engine runs inside the distro, not Docker Desktop.
-- **ext4 vs drvfs**: `/mnt/c`, `/mnt/d`, `/mnt/e` are Windows drives through drvfs and are 5–10×
-  slower. The Nextflow **work directory, the launch directory** (it holds `.nextflow/cache`, which
-  `-resume` depends on), **container images, and index files must all be on ext4.** Only
-  sequentially-read reference files may be symlinked out to `/mnt/d`.
+- **ext4 vs drvfs**: `/mnt/c`, `/mnt/d`, `/mnt/e` are Windows drives through drvfs. The Nextflow
+  **work directory, the launch directory** (it holds `.nextflow/cache`, which `-resume` depends
+  on), **container images, and index files must all be on ext4.** Only sequentially-read reference
+  files may be symlinked out to `/mnt/d`. This is not a performance preference: drvfs has no FIFOs,
+  so **STAR dies on it before reading anything** — measured, `runbook.md` section 1. It is also
+  5–10× slower and makes `-resume` unreliable.
 - **Paths**: repo `$BIOINFO_HOME` = `/mnt/d/bioinfo-agent`; references `$BIOINFO_REFS` = `/refs`;
-  work root `$BIOINFO_WORK` = `/work`; outdirs `$BIOINFO_RUNS` = `/runs`; run records
-  `$BIOINFO_RUNLOG` = `/mnt/d/bioinfo-agent/runs`. All five are exported by
-  `~/.config/bioinfo/env.sh`, which `bootstrap/03-nextflow.sh` generates. If any of them is empty,
+  work root `$BIOINFO_WORK` = `/work`; legacy reserve `$BIOINFO_RUNS` = `/runs`; run records
+  `$BIOINFO_RUNLOG` = `/mnt/d/bioinfo-agent/runs`. Bootstrap exports all five for compatibility,
+  but launch paths use the four active roots, never `BIOINFO_RUNS`. If an active root is empty,
   stop: every path built on it collapses to the filesystem root — `-work-dir $BIOINFO_WORK/<run-id>`
-  becomes `-work-dir /<run-id>`, and the same for an outdir or a run record.
+  becomes `-work-dir /<run-id>`, and the same for an outdir or a run record. `hooks/guard-workdir.sh`
+  blocks that shape, but only for `rm`; nothing stops a run from writing there.
+- **A run's own tree**: `NXFDIR=${NXF_WORKROOT:-$BIOINFO_WORK/nxf}/<runid>` — the same derivation
+  in `bin/preflight.sh`, in every `cmd.sh`, and in every `NXFDIR=` line of `references/runbook.md`.
+  `--outdir "$NXFDIR/results"`, `-work-dir "$NXFDIR/work"`, launch directory `$NXFDIR`. Results are
+  rsynced from there to the run record at the end (runbook section 8). **Do not point `--outdir` at
+  `$BIOINFO_RUNS`**: preflight sizes and gates the `$NXFDIR` tree, so an outdir anywhere else means
+  the disk check guarded one filesystem while the run filled another, and the completion step
+  copies an empty directory and reports it clean.
 - **References**: resolve *only* through `$BIOINFO_REFS` standard paths. If you are about to type
   `hg38.fa` or `Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta` into a command, stop — add the
   manifest row instead. Sarek uses build `GRCh38gatk`; RNA-seq and most else use `GRCh38`.
@@ -176,8 +206,52 @@ and names here are for orientation, not for typing into a shell.
    unreproducible, unresumable, and produces no MultiQC.
 10. **Never execute binaries found on disk.** Analysis tools come from the pipeline's containers.
     A `samtools` compiled into someone's project folder is of unknown provenance and version.
-11. **Nothing executes before the plan is approved.** See the gate above. Read-only inventory is
-    the entire permitted surface of steps 1–3.
+11. **Nothing executes before the plan is approved.** See the gate above. Read-only inventory plus
+    constant-size header and index reads are the entire permitted surface of steps 1–3; a full
+    scan of anything gets named and approved first.
+
+### Reading the run history
+
+`$BIOINFO_RUNLOG` holds one directory per past analysis on this machine. It is local and
+gitignored — it is the user's own record, not repository content.
+
+Glance at it during intake. **`ls` alone does not find things** — run IDs are descriptive, not
+indexed, and a sample often appears only inside the record. `docs/examples/20260805-scrnaseq-skin-cd3`
+is `SRR21657609` and its name says neither. Search the contents:
+
+```bash
+grep -rl -- "$ACCESSION\|$SAMPLE" "$BIOINFO_RUNLOG"/*/handoff*.md 2>/dev/null
+```
+
+You are looking for three things, and nothing else:
+
+| You notice | Say |
+|---|---|
+| This sample already went through this pipeline, and it completed | Say so before planning. Ask whether they want it re-run or want the existing results. Its measured numbers may replace your estimate — but only if the run was equivalent; see below. |
+| A different assay on the same sample — DNA before, RNA now | Mention it once, as an option: the two together support analyses neither supports alone. Do not design the multi-omics study uninvited. |
+| A prior run produced an artifact this one needs — a BAM, an index, a trimmed FASTQ | Say roughly where it should be and offer to use it. |
+
+**A past run's numbers are only yours to reuse if the run was equivalent.** All four must match:
+
+| | Why it invalidates the transfer |
+|---|---|
+| Pipeline **and pinned revision** | Process graphs change between releases |
+| Entry step, and the caller/tool set actually enabled | sarek from `--step mapping` is not sarek from `--step markduplicates`; each extra caller is its own scatter |
+| Reference build **and** what was prebuilt vs built during the run | An index built inside the run is hours and tens of GB that will not recur — or will |
+| Input scale — read count, coverage, sample count | Peak disk tracks the largest intermediate, not the sample name |
+
+If all four match, state the measured wall clock and peak disk as the estimate and say which run
+they came from. If any differ, **calibrate rather than copy**: use the measurement to correct the
+assumption it disproves, then estimate this run on its own terms. `preflight.sh` gates disk at
+1.5× your estimate and the user approves against it — an estimate imported from a differently
+shaped run makes both checks meaningless while looking authoritative.
+
+**Keep it light.** One glance, one sentence if something is relevant, nothing if not. Do not
+enumerate what the user has run, do not summarise their history back at them, and do not go
+looking for patterns across it. Reading the log to save them a re-run is helpful; reporting on
+their past work reads like being audited.
+
+If `$BIOINFO_RUNLOG` is empty or unset, that is the normal state for a fresh install. Move on.
 
 ### Reusing what is already there
 
@@ -188,9 +262,23 @@ goes wrong.
 |---|---|---|
 | Recalibrated BAM/CRAM | run `samtools`/`gatk` on it and carry on manually | sarek `--step variant_calling`, `bam`/`bai` columns in the samplesheet |
 | Duplicate-marked BAM | continue the hand pipeline | sarek `--step prepare_recalibration` |
+| Coordinate-sorted BAM, no dedup | re-align from FASTQ — days of compute already spent | sarek `--step markduplicates` |
 | Trimmed FASTQ | re-trim, or trim again by hand | feed as `fastq_1`/`fastq_2`, skip the trimming step by flag |
 | VCF only | write bcftools one-liners | sarek `--step annotate` |
 | An existing STAR/BWA index | rebuild it | point the manifest at it, add a row, resolve by standard path |
+
+A header read narrows the row down; two of the three fields need corroborating before you act.
+
+- **`@HD SO:`** — sort order. Says what it says.
+- **`@RG`** — present and carrying `SM`/`PL`/`LB`/`PU`, or sarek will reject the input.
+- **Reference identity.** Do **not** take `@PG CL:` for it: that field preserves a command line,
+  and the path in it may since have been replaced or retargeted. Compare the BAM's `@SQ` `SN`+`LN`
+  — and `M5` when the header carries it — against the standard reference's `.fai`/`.dict`. Any
+  mismatch means the alignment and the calling reference are different genomes.
+- **Dedup.** A missing MarkDuplicates `@PG` is a hint, not proof: `samtools markdup --no-PG` omits
+  it and headers can be rewritten. Corroborate with the script or log that produced the file
+  before choosing `--step markduplicates`; if nothing corroborates, say so in the plan and let the
+  user decide between re-marking and an approved record-level check.
 
 In every row the reuse happens **through the pipeline's own restart mechanism**, not by taking over
 where a human left off. That is what makes the result reproducible and `-resume`-able.
@@ -216,8 +304,11 @@ they were yours — you cannot vouch for how they were produced.
    fewer than 3 replicates per group, say so now — it changes what step 6 can honestly report.
 7. **Wall-clock tolerance.** Is an overnight run fine? Is >24 h acceptable? Is the machine needed
    for other work?
-8. **What already exists?** Prior BAMs, trimmed FASTQs, an existing index, a previous partial run
-   with an intact work dir. Reusing beats recomputing.
+8. **What already exists?** Two places.
+   - **On disk**: prior BAMs, trimmed FASTQs, an existing index, a previous partial run with an
+     intact work dir. Reusing beats recomputing.
+   - **In `$BIOINFO_RUNLOG`** (local, never committed): `ls` it, and read the `handoff.md` of
+     anything whose sample or accession matches. See "Reading the run history" below.
 9. **Where should outputs land**, and who reads them next.
 
 If the user cannot answer 2, 3, or 4, inspect the files and answer it yourself, then confirm.

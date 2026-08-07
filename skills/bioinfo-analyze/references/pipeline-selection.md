@@ -929,24 +929,25 @@ Selecting a pipeline surfaces references the manifest does not yet carry. These 
 not missing files — fix `config/refs.manifest.tsv` and re-run `bootstrap/04-refs.sh` rather than
 hand-placing anything under `/refs`.
 
-**As of 2026-08-05 (run `20260805-atacseq-gbr-lcl-smoke`)**, two of the rows this section used to
-list as missing were re-checked against the manifest directly and turned out not to both be gaps:
-`genomes/GRCh38/index/bowtie2/` has had a `build`-mode manifest row from day one (it was never
-missing — only the index *file* was, which the first atacseq run has since built and promoted into
-the store); `genomes/GRCh38/bed/blacklist.bed` genuinely had no row and was fetched and added this
-run (PR #10). **As of 2026-08-06 (run `20260806-cutandrun-hpsc-h3k27me3-smoke`)**, the E. coli K12
-spike-in fasta and cutandrun's own bundled GRCh38 blacklist were likewise fetched/copied and given
-manifest rows (see `pipeline-selection.md` §4.8) — both removed from the table below along with the
-two 2026-08-05 rows. If you are reading this file at a much later date, re-verify with
-`bash bootstrap/04-refs.sh --dry-run` rather than trusting this table on sight — this stale-doc
-drift is exactly why: the row can look missing here for months after the underlying gap was
-actually fixed, and the fastest way to know is to ask the filesystem.
+**This table is about rows only, and a row is not a file.** Rows removed from it over time because
+the row does exist: `genomes/GRCh38/index/bowtie2/` (a `build` row from day one),
+`genomes/GRCh38/index/bwameth/` (added 2026-08-05, exactly as section 4 already said),
+`genomes/GRCh38/bed/blacklist.bed` (`fetch` row, PR #10), and — added 2026-08-06 during run
+`20260806-cutandrun-hpsc-h3k27me3-smoke`, see §4.8 — the E. coli K12 spike-in fasta and its
+bowtie2 index, plus cutandrun's own bundled GRCh38 blacklist.
+
+**Which of those files actually exist is a separate question, and this paragraph has been wrong
+about it in both directions.** It first implied a missing row meant a missing file; the correction
+then overshot and asserted bowtie2/bwameth/blacklist were "still absent" with
+`/refs/genomes/GRCh38/index/` an empty directory. Re-checked with `bash bootstrap/04-refs.sh
+--dry-run` on 2026-08-07: **bowtie2 `OK` (6 entries), blacklist `OK`, E. coli fasta `OK`** —
+bwameth is the one still `NOT BUILT`, as is the E. coli bowtie2 index. Do not repeat any of these
+statuses from memory; the file-level list lives in `references/reference-store.md` and the dry-run
+outranks both documents.
 
 | Standard path | Mode | Needed by | Note |
 |---|---|---|---|
 | `genomes/GRCh38/index/bwa/` | build | chipseq (`--aligner bwa`), methylseq bwameth | the existing BWA index is on `GRCh38gatk`, a different FASTA |
-| `genomes/GRCh38/index/bwameth/` | build | methylseq `--aligner bwameth` | `bwameth.py index` |
-| `genomes/ECOLI_K12/index/bowtie2/` | build | cutandrun spike-in | fasta is now store-resident (manifest row added 2026-08-06); the bowtie2 index itself is still built fresh per-run (seconds, 4.6 Mb genome) unless a run promotes a built copy the way atacseq did for the human GRCh38 index |
 | `genomes/GRCh38/fasta/genome.dict` | build | any GATK-adjacent step on the UCSC build | already a `build` row; still absent |
 
 Everything already flagged missing in `references/reference-store.md` — both `.dict` files, the
