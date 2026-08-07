@@ -270,8 +270,32 @@ process reaching `[100%] N of N ✔`, `Completed at: …`, `Succeeded: N`, exit 
 | `Missing required parameter: --outdir` | params.yaml incomplete |
 | `does not exist` on a `/refs/...` path | manifest gap; run `bootstrap/04-refs.sh`, do not hand-place the file |
 | `Process 'X' doesn't have a stub block` | that module has no stub upstream. Not your bug; note it and rely on `-preview` plus a real 1-sample run for that branch |
-| `ERROR ~ Text must not be null or empty` at `fastq_qc_trim_filter_setstrandedness/main.nf` | **rnaseq only, and it is the samplesheet, not the pipeline.** `strandedness: auto` cannot be stubbed. `getSalmonInferredStrandedness()` runs `new JsonSlurper().parseText(json_file.text)` on salmon's `lib_format_counts.json`, and `SALMON_QUANT`'s stub block emits that file empty. Confirmed at 3.18.0, 2026-08-07. Stub with a **copy** of the samplesheet whose `strandedness` column is a concrete value (`sed 's/,auto$/,reverse/'`), which validates the identical topology, and keep `auto` in the real samplesheet |
+| `ERROR ~ Text must not be null or empty` at `fastq_qc_trim_filter_setstrandedness/main.nf` | **rnaseq only, and it is the samplesheet, not the pipeline.** `strandedness: auto` cannot be stubbed — see the note below the table for what to do and what it does *not* cover |
 | `Unable to pull docker image` | see failure taxonomy below; fix before the real launch, not during |
+
+**`strandedness: auto` and `-stub-run`, and why two stubs cover less than one whole run.**
+`getSalmonInferredStrandedness()` does `new JsonSlurper().parseText(json_file.text)` on salmon's
+`lib_format_counts.json`, and `SALMON_QUANT`'s stub block emits that file empty, so the parse
+throws. Confirmed at rnaseq 3.18.0 on 2026-08-07.
+
+The workaround is to stub a **copy** of the samplesheet whose `strandedness` column is a concrete
+value (`sed 's/,auto$/,reverse/' samplesheet.csv > "$STUBDIR/samplesheet.stub.csv"`) and keep
+`auto` in the real one. **That is a partial gate, not an equivalent one, and the difference is not
+cosmetic.** The subworkflow branches on `meta.strandedness == 'auto'` and feeds only the
+`auto_strand` branch into `FASTQ_SUBSAMPLE_FQ_SALMON`, so a concrete value leaves that branch
+empty and the inference path — the one that failed — is never entered. Measured on the two stub
+runs of `20260807-rnaseq-scer-gln3-ibutanol`, comparing `Submitted process` lines:
+
+| stub | covers | does not reach |
+|---|---|---|
+| `auto` (fails) | `FQ_SUBSAMPLE`, `SALMON_INDEX`, `SALMON_QUANT` — the inference branch **is** entered and wired | everything downstream; it dies at the parse, 56 tasks in |
+| concrete value | `STAR_ALIGN` → `TXIMETA_TXIMPORT` → `SE_*` → `DESEQ2_QC` → `MULTIQC`, 110 tasks | `FQ_SUBSAMPLE` and `SALMON_INDEX` never submit at all |
+
+So run **both**, and know what neither gives you: the join of
+`FASTQ_SUBSAMPLE_FQ_SALMON.out` back onto `auto_strand` and the strandedness assignment itself
+are exercised for the first time by the real run. Treat the first real sample to clear
+`FASTQ_SUBSAMPLE_FQ_SALMON` as the gate for that branch, and check the inferred value in
+MultiQC's strand-check table rather than assuming a passing stub covered it.
 
 A stub run that fails is a launch that would have failed after burning real hours. Fix, re-stub,
 then launch.
