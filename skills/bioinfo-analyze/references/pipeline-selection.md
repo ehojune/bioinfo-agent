@@ -567,8 +567,9 @@ $BIOINFO_REFS/genomes/ECOLI_K12/index/bowtie2/         manifest row present (bui
 list) for this pipeline.** nf-core/cutandrun 3.2.2's own `conf/igenomes.config` maps GRCh38 to its
 bundled `assets/blacklists/GRCh38-blacklist.bed` — a different, CUT&RUN-specific region set (1049
 regions vs 636 in the ENCODE ChIP-seq list; confirmed by diff 2026-08-05). As of 2026-08-06 this
-file is copied into the store at `genomes/GRCh38/bed/cutandrun_blacklist.bed` (manifest row +
-sha256 in `refs.manifest.tsv`) rather than left pointing at the pipeline's `NXF_ASSETS` clone
+file is copied into the store at `genomes/GRCh38/bed/cutandrun_blacklist.bed` (fetch-mode manifest
+row pinned to the 3.2.2 tag URL + sha256 in `refs.manifest.tsv`, so a fresh machine materialises
+it without a pipeline clone) rather than left pointing at the pipeline's `NXF_ASSETS` clone
 directory, which changes hash on every `nextflow pull`. Do not reuse the atacseq/chipseq row, and
 do not point atacseq/chipseq at this one either.
 
