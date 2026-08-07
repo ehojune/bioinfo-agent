@@ -317,12 +317,15 @@ section "the liveness scan must match the JVM, not the tmux server that outlives
 # section 9 reclaim above stops working. Stand in a non-JVM process carrying exactly that shape
 # and require the reclaim to still be allowed; then a real JVM would have to be `java` to block.
 if command -v pgrep >/dev/null 2>&1 && [ -r /proc/self/comm ]; then
-  # `bash -c <script> <name>` puts <name> in the process's own /proc/<pid>/cmdline, which is
-  # what pgrep -f reads — so this stand-in carries the tmux-server argv shape without being a
-  # JVM. `; true` defeats bash's exec optimisation for a single simple command, which would
-  # otherwise replace this process with `sleep` and take the argv with it.
-  bash -c 'sleep 60; true' \
-    "tmux new-session -d -s x -e NXF_HOME=/h/.nextflow bash $W/nxf/testrun/cmd.sh" &
+  # ONE process, not a wrapper plus a child. `exec -a` (bash, not POSIX sh — the earlier `sh -c`
+  # spelling of this failed with "exec: -a: not found" and the case went green while exercising
+  # nothing) replaces the shell with `sleep` itself, carrying the tmux-server argv shape as
+  # argv[0], which is what pgrep -f reads. So $! is the whole stand-in and killing it leaves
+  # nothing behind: a wrapper-plus-child version orphans `sleep 60` for a minute after the suite
+  # exits, still holding the harness's stdout. comm stays `sleep`, i.e. not `java`, which is the
+  # property under test. Descriptors closed anyway, belt and braces.
+  bash -c 'exec -a "tmux new-session -d -s x -e NXF_HOME=/h/.nextflow bash '"$W"'/nxf/testrun/cmd.sh" sleep 60' \
+    >/dev/null 2>&1 &
   _fakepid=$!
   trap 'kill '"$_fakepid"' 2>/dev/null; rm -rf "$TMP"' EXIT
   sleep 0.3
