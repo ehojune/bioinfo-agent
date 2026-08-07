@@ -152,10 +152,12 @@ and names here are for orientation, not for typing into a shell.
   pull old scripts and data out of it, never run a pipeline in it. It may be unset, in which case
   there is no archive distro on this machine.
 - **Profile**: `-profile docker`. Docker engine runs inside the distro, not Docker Desktop.
-- **ext4 vs drvfs**: `/mnt/c`, `/mnt/d`, `/mnt/e` are Windows drives through drvfs and are 5–10×
-  slower. The Nextflow **work directory, the launch directory** (it holds `.nextflow/cache`, which
-  `-resume` depends on), **container images, and index files must all be on ext4.** Only
-  sequentially-read reference files may be symlinked out to `/mnt/d`.
+- **ext4 vs drvfs**: `/mnt/c`, `/mnt/d`, `/mnt/e` are Windows drives through drvfs. The Nextflow
+  **work directory, the launch directory** (it holds `.nextflow/cache`, which `-resume` depends
+  on), **container images, and index files must all be on ext4.** Only sequentially-read reference
+  files may be symlinked out to `/mnt/d`. This is not a performance preference: drvfs has no FIFOs,
+  so **STAR dies on it before reading anything** — measured, `runbook.md` section 1. It is also
+  5–10× slower and makes `-resume` unreliable.
 - **Paths**: repo `$BIOINFO_HOME` = `/mnt/d/bioinfo-agent`; references `$BIOINFO_REFS` = `/refs`;
   work root `$BIOINFO_WORK` = `/work`; legacy reserve `$BIOINFO_RUNS` = `/runs`; run records
   `$BIOINFO_RUNLOG` = `/mnt/d/bioinfo-agent/runs`. Bootstrap exports all five for compatibility,
