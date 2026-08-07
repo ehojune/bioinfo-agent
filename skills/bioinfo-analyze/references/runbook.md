@@ -219,23 +219,37 @@ parsing, and the full topology end to end — in minutes, on kilobytes.
 
 ```bash
 NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
-mkdir -p "$NXFDIR"          # the launch dir only — NOT work/, the real launch creates that
+STUBDIR=${BIOINFO_WORK:-/work}/tmp/stub-$RUNID              # OUTSIDE the run tree, on purpose
+mkdir -p "$NXFDIR" "$STUBDIR"   # the launch dir only — NOT work/, the real launch creates that
 cd "$NXFDIR"
 nextflow run nf-core/rnaseq -r 3.18.0 -profile docker \
   -params-file $RUNDIR/params.yaml \
   -c $BIOINFO_HOME/config/local.config \
-  -work-dir "$NXFDIR/stub-work" \
-  --outdir "$NXFDIR/stub-results" \
+  -work-dir "$STUBDIR/work" \
+  --outdir "$STUBDIR/results" \
   -stub-run -ansi-log false
+
+rm -rf "$STUBDIR"               # before the real launch. See below.
 ```
 
-Use a **separate** `stub-work` directory. Stub outputs are empty files; if they land in the real
+Use a **separate** stub work directory. Stub outputs are empty files; if they land in the real
 work dir, a later `-resume` can cache-hit on them and you will ship a run full of zero-byte BAMs.
-Delete `stub-work` and `stub-results` before the real launch.
+Delete it before the real launch.
+
+**`$STUBDIR` is deliberately not `$NXFDIR/stub-work`.** Putting it under the run tree makes its
+deletion — the step that prevents those zero-byte BAMs — look exactly like deleting the run's
+work directory, and `hooks/guard-workdir.sh` blocks it on that basis: the resolved form
+`rm -rf /work/nxf/<runid>/stub-work` is refused for want of a `handoff.md` that cannot exist yet
+because the run has not started, and the `$NXFDIR/stub-work` spelling is refused as an
+unexpanded variable. Measured 2026-08-07 on run `20260807-rnaseq-scer-gln3-ibutanol`, both
+forms, and the only way past was to `mv` the directories out of the run tree and delete them
+from there. Keeping the stub artefacts outside `<root>/nxf/<runid>` from the start costs nothing,
+puts more distance between the empty files and the resume cache, and needs no change to the
+guard. Nothing else references `stub-work`/`stub-results`.
 
 **Pass looks like:** the nf-core ASCII header, a params summary listing your reference paths, every
 process reaching `[100%] N of N ✔`, `Completed at: …`, `Succeeded: N`, exit status 0, and
-`stub-results/` containing the expected directory tree of empty files.
+`$STUBDIR/results/` containing the expected directory tree of empty files.
 
 **Fail looks like:**
 
@@ -245,6 +259,7 @@ process reaching `[100%] N of N ✔`, `Completed at: …`, `Succeeded: N`, exit 
 | `Missing required parameter: --outdir` | params.yaml incomplete |
 | `does not exist` on a `/refs/...` path | manifest gap; run `bootstrap/04-refs.sh`, do not hand-place the file |
 | `Process 'X' doesn't have a stub block` | that module has no stub upstream. Not your bug; note it and rely on `-preview` plus a real 1-sample run for that branch |
+| `ERROR ~ Text must not be null or empty` at `fastq_qc_trim_filter_setstrandedness/main.nf` | **rnaseq only, and it is the samplesheet, not the pipeline.** `strandedness: auto` cannot be stubbed. `getSalmonInferredStrandedness()` runs `new JsonSlurper().parseText(json_file.text)` on salmon's `lib_format_counts.json`, and `SALMON_QUANT`'s stub block emits that file empty. Confirmed at 3.18.0, 2026-08-07. Stub with a **copy** of the samplesheet whose `strandedness` column is a concrete value (`sed 's/,auto$/,reverse/'`), which validates the identical topology, and keep `auto` in the real samplesheet |
 | `Unable to pull docker image` | see failure taxonomy below; fix before the real launch, not during |
 
 A stub run that fails is a launch that would have failed after burning real hours. Fix, re-stub,
@@ -403,8 +418,28 @@ ERUNID=$(printf '%s' "$RUNID" | sed 's/[][\.*^$+?()|{}]/\\&/g')
 # …-study-rerun): if this run's JVM has not appeared yet the file would hold the sibling's
 # pid and the stop command would kill the wrong experiment; if both appear, the file holds
 # two lines and `kill "$(cat …)"` fails on a multi-line operand.
+#
+# FILTER TO THE JVM, or this never records a pid at all. The Nextflow head process is always a
+# java process; nothing else here is. Two non-JVM processes match the pattern anyway, and one of
+# them is permanent:
+#   * the TMUX SERVER. `tmux new-session -d -s … -e VAR=value … "bash '$RUNDIR/cmd.sh'"` becomes
+#     the server's own command line and stays there for the life of the server. It carries
+#     NXF_HOME=…/.nextflow from the -e forwarding block above and $RUNDIR/cmd.sh from the
+#     command, so "nextflow.*/$RUNID/" matches it — and keeps matching it long after this run
+#     ends, poisoning every later run started on the same server.
+#   * the shell that ran this launcher, whose own command line names the run directory.
+# The result was `found 3`, no pid file written, and therefore hooks/guard-workdir.sh's pid
+# check — which the comment above calls NOT optional — reading a file that does not exist, on
+# every run. Measured 2026-08-07, run 20260807-rnaseq-scer-gln3-ibutanol: pids 131512
+# (`tmux: server`), 131517 (`java`, the real one), 131789 (`bash`). Note the interaction: the
+# -e forwarding block above is a correct fix for the stale-server-environment problem, and it is
+# what put the run id on the server's command line. Reading /proc/<pid>/comm settles it without
+# either fix having to know about the other.
 for _ in $(seq 30); do                             # up to ~30 s for the JVM to appear
-  mapfile -t _pids < <(pgrep -f "nextflow.*/$ERUNID/")
+  _pids=()
+  while IFS= read -r _p; do
+    [ -r "/proc/$_p/comm" ] && [ "$(cat "/proc/$_p/comm")" = java ] && _pids+=("$_p")
+  done < <(pgrep -f "nextflow.*/$ERUNID/")
   [ "${#_pids[@]}" -ge 1 ] && break
   sleep 1
 done
