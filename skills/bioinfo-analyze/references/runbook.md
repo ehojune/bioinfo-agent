@@ -228,13 +228,24 @@ nextflow run nf-core/rnaseq -r 3.18.0 -profile docker \
   -work-dir "$STUBDIR/work" \
   --outdir "$STUBDIR/results" \
   -stub-run -ansi-log false
-
-rm -rf "$STUBDIR"               # before the real launch. See below.
 ```
 
 Use a **separate** stub work directory. Stub outputs are empty files; if they land in the real
 work dir, a later `-resume` can cache-hit on them and you will ship a run full of zero-byte BAMs.
-Delete it before the real launch.
+
+**Then read the result, and only then delete it — as a separate command, after you have decided
+the stub passed:**
+
+```bash
+rm -rf "$STUBDIR"               # AFTER checking "Pass looks like" below, never before
+```
+
+It is a separate step on purpose. Appended to the snippet above it would run whichever way the
+stub went — that block has no `set -e` and `nextflow`'s exit status is not checked — and it would
+take the evidence with it: `$STUBDIR/results/` is what "Pass looks like" tells you to inspect, and
+`$STUBDIR/work/<hash>/.command.{sh,err,log}` is where a *failed* stub's diagnosis lives. Deleting
+before reading turns a cheap gate into no gate at all. If the stub failed, keep `$STUBDIR`, fix,
+re-stub, and delete only once it passes.
 
 **`$STUBDIR` is deliberately not `$NXFDIR/stub-work`.** Putting it under the run tree makes its
 deletion — the step that prevents those zero-byte BAMs — look exactly like deleting the run's
