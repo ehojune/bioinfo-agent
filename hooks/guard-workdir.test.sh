@@ -307,5 +307,37 @@ touch -d '30 days ago' "$W/nxf/testrun/handoff.md" 2>/dev/null \
   || touch -t "$(date -d '30 days ago' +%Y%m%d0000 2>/dev/null || echo 202001010000)" "$W/nxf/testrun/handoff.md"
 check allow "rm -rf $W/nxf/testrun/work" BIOINFO_WORK="$W"          # past the hold
 
+section "the liveness scan must match the JVM, not the tmux server that outlives it"
+# runbook section 5 launches every run as
+#   tmux new-session -d -s <name> -e NXF_HOME=…/.nextflow … "bash '<rundir>/cmd.sh'"
+# and that argv becomes the tmux SERVER's own command line for as long as the server lives —
+# which is longer than the run, and longer than the NEXT run, since a later session reuses the
+# same server while its argv still names the FIRST run. An unfiltered
+# `pgrep -f "nextflow.*/<runid>/"` therefore reports a finished run as live forever and the
+# section 9 reclaim above stops working. Stand in a non-JVM process carrying exactly that shape
+# and require the reclaim to still be allowed; then a real JVM would have to be `java` to block.
+if command -v pgrep >/dev/null 2>&1 && [ -r /proc/self/comm ]; then
+  # `bash -c <script> <name>` puts <name> in the process's own /proc/<pid>/cmdline, which is
+  # what pgrep -f reads — so this stand-in carries the tmux-server argv shape without being a
+  # JVM. `; true` defeats bash's exec optimisation for a single simple command, which would
+  # otherwise replace this process with `sleep` and take the argv with it.
+  bash -c 'sleep 60; true' \
+    "tmux new-session -d -s x -e NXF_HOME=/h/.nextflow bash $W/nxf/testrun/cmd.sh" &
+  _fakepid=$!
+  trap 'kill '"$_fakepid"' 2>/dev/null; rm -rf "$TMP"' EXIT
+  sleep 0.3
+  if pgrep -f "nextflow.*/testrun/" >/dev/null 2>&1; then
+    check allow "rm -rf $W/nxf/testrun/work" BIOINFO_WORK="$W"      # non-JVM match must not block
+  else
+    # The stand-in did not take, so an "allow" here would prove nothing. Say so rather than
+    # bank a vacuous pass — that is exactly how this case first went green while testing nothing.
+    fail=$((fail+1)); printf '  FAIL  stand-in process not visible to pgrep; case not exercised\n'
+  fi
+  kill "$_fakepid" 2>/dev/null
+  trap 'rm -rf "$TMP"' EXIT
+else
+  printf '  skip  no pgrep or no /proc — JVM-filter case not exercised\n'
+fi
+
 printf '\nguard-workdir: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
