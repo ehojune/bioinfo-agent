@@ -631,10 +631,39 @@ while IFS= read -r t; do
   # LITERAL ampersand — so the old form turned study.v2 into study&v2, a pattern that matches
   # nothing, and the guard then saw a live run as finished. `\\` emits one backslash, `&` the
   # matched character: study.v2 -> study\.v2.
+  #
+  # AND THE MATCH MUST BE A JVM. The Nextflow head process is always java; nothing else that
+  # matches this pattern is. Two other things do match, and one of them never goes away:
+  # references/runbook.md section 5 launches every run with
+  #   tmux new-session -d -s <name> -e NXF_HOME=…/.nextflow … "bash '<rundir>/cmd.sh'"
+  # and that argv becomes the tmux SERVER's own command line for the life of the server -- it
+  # holds "nextflow" (from the forwarded NXF_HOME) and "/<runid>/" (from the cmd.sh path), so
+  # this pattern hits it. The server outlives the run, and a LATER run's session keeps it alive
+  # while its argv still names the FIRST run, so without this filter run 1's work directory is
+  # reported live and refused for reclaim indefinitely -- the documented section 9 reclaim simply
+  # stops working. Measured 2026-08-07 on 20260807-rnaseq-scer-gln3-ibutanol: pgrep returned
+  # 131512 `tmux: server`, 131517 `java` (the run), 131789 `bash` (the launching shell).
+  # Same filter, same reason, as the pid-recording loop in runbook section 5.
+  #
+  # /proc only. On a host without it the filter cannot run, and the honest fallback is the old
+  # unfiltered behaviour: over-blocking a reclaim is the safe direction for a delete guard.
   esc_runid="$(printf '%s' "$runid" | sed 's/[][\.*^$+?()|{}]/\\&/g')"
-  if command -v pgrep >/dev/null 2>&1 && pgrep -f "nextflow.*/${esc_runid}/" >/dev/null 2>&1; then
-    deny "a nextflow process for run $runid is still running. Deleting its work directory now
+  if command -v pgrep >/dev/null 2>&1; then
+    live=0
+    while IFS= read -r scanpid; do
+      [ -n "$scanpid" ] || continue
+      if [ -r "/proc/$scanpid/comm" ]; then
+        [ "$(cat "/proc/$scanpid/comm" 2>/dev/null)" = java ] && { live=1; break; }
+      else
+        live=1; break                       # no /proc to check with — assume live
+      fi
+    done <<EOF
+$(pgrep -f "nextflow.*/${esc_runid}/" 2>/dev/null)
+EOF
+    if [ "$live" -eq 1 ]; then
+      deny "a nextflow process for run $runid is still running. Deleting its work directory now
       loses the run. If that process is stale, stop it first."
+    fi
   fi
 
   # Conditions 2-4 — handed off, and past the hold. The handoff note is the record that the run

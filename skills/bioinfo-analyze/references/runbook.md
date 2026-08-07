@@ -14,7 +14,8 @@ Docker **engine** inside the distro, distro ext4 on `D:\wsl\ubuntu-24.04\ext4.vh
 2. Write the run plan to `$RUNDIR/plan.md`. Get approval if the estimate exceeds 24 h.
 3. Write `samplesheet.csv`, `params.yaml`, `cmd.sh` into `$RUNDIR`.
 4. Preflight. Any FAIL is a hard stop.
-5. `-preview`, then `-stub-run`. Both must be clean.
+5. `-preview`, then `-stub-run`. Both must be clean — with exactly one waived exception, the
+   rnaseq `strandedness: auto` stub failure, defined in section 4.
 6. Launch on ext4 with reports and `-resume`, always through `tmux` (mandatory, not optional).
 7. Monitor the trace, not the terminal.
 8. On completion: read MultiQC, rsync results out to `/mnt/d`, write the handoff.
@@ -219,23 +220,56 @@ parsing, and the full topology end to end — in minutes, on kilobytes.
 
 ```bash
 NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
-mkdir -p "$NXFDIR"          # the launch dir only — NOT work/, the real launch creates that
+STUBROOT=${BIOINFO_WORK:-/work}/tmp/stub-$RUNID             # OUTSIDE the run tree, on purpose
+STUBDIR=$STUBROOT/main         # one subdirectory PER stub attempt — see "two stubs" below
+mkdir -p "$NXFDIR" "$STUBDIR"   # the launch dir only — NOT work/, the real launch creates that
 cd "$NXFDIR"
 nextflow run nf-core/rnaseq -r 3.18.0 -profile docker \
   -params-file $RUNDIR/params.yaml \
   -c $BIOINFO_HOME/config/local.config \
-  -work-dir "$NXFDIR/stub-work" \
-  --outdir "$NXFDIR/stub-results" \
+  -work-dir "$STUBDIR/work" \
+  --outdir "$STUBDIR/results" \
   -stub-run -ansi-log false
 ```
 
-Use a **separate** `stub-work` directory. Stub outputs are empty files; if they land in the real
+**One `$STUBDIR` per attempt, never a shared one.** Two stub runs pointed at the same work and
+results trees produce a *union* of their outputs, and a union can satisfy the output-tree
+inspection below even when neither run produced everything on its own — which is precisely the
+false pass a gate must not be able to give. It matters as soon as you run more than one stub, and
+the `strandedness: auto` case below forces exactly that. Give each attempt its own subdirectory of
+`$STUBROOT` and delete `$STUBROOT` once as the last step.
+
+Use a **separate** stub work directory. Stub outputs are empty files; if they land in the real
 work dir, a later `-resume` can cache-hit on them and you will ship a run full of zero-byte BAMs.
-Delete `stub-work` and `stub-results` before the real launch.
+
+**Then read the result, and only then delete it — as a separate command, after you have decided
+the stub passed:**
+
+```bash
+rm -rf "$STUBROOT"              # AFTER checking "Pass looks like" below, never before
+```
+
+It is a separate step on purpose. Appended to the snippet above it would run whichever way the
+stub went — that block has no `set -e` and `nextflow`'s exit status is not checked — and it would
+take the evidence with it: `$STUBDIR/results/` is what "Pass looks like" tells you to inspect, and
+`$STUBDIR/work/<hash>/.command.{sh,err,log}` is where a *failed* stub's diagnosis lives. Deleting
+before reading turns a cheap gate into no gate at all. If the stub failed, keep `$STUBROOT`, fix,
+re-stub into a **new** subdirectory, and delete `$STUBROOT` only once you are done with all of it.
+
+**`$STUBROOT` is deliberately not under `$NXFDIR`.** Putting it under the run tree makes its
+deletion — the step that prevents those zero-byte BAMs — look exactly like deleting the run's
+work directory, and `hooks/guard-workdir.sh` blocks it on that basis: the resolved form
+`rm -rf /work/nxf/<runid>/stub-work` is refused for want of a `handoff.md` that cannot exist yet
+because the run has not started, and the `$NXFDIR/stub-work` spelling is refused as an
+unexpanded variable. Measured 2026-08-07 on run `20260807-rnaseq-scer-gln3-ibutanol`, both
+forms, and the only way past was to `mv` the directories out of the run tree and delete them
+from there. Keeping the stub artefacts outside `<root>/nxf/<runid>` from the start costs nothing,
+puts more distance between the empty files and the resume cache, and needs no change to the
+guard. Nothing else references `stub-work`/`stub-results`.
 
 **Pass looks like:** the nf-core ASCII header, a params summary listing your reference paths, every
 process reaching `[100%] N of N ✔`, `Completed at: …`, `Succeeded: N`, exit status 0, and
-`stub-results/` containing the expected directory tree of empty files.
+`$STUBDIR/results/` containing the expected directory tree of empty files.
 
 **Fail looks like:**
 
@@ -245,7 +279,54 @@ process reaching `[100%] N of N ✔`, `Completed at: …`, `Succeeded: N`, exit 
 | `Missing required parameter: --outdir` | params.yaml incomplete |
 | `does not exist` on a `/refs/...` path | manifest gap; run `bootstrap/04-refs.sh`, do not hand-place the file |
 | `Process 'X' doesn't have a stub block` | that module has no stub upstream. Not your bug; note it and rely on `-preview` plus a real 1-sample run for that branch |
+| `ERROR ~ Text must not be null or empty` at `fastq_qc_trim_filter_setstrandedness/main.nf` | **rnaseq only, and it is the samplesheet, not the pipeline.** `strandedness: auto` cannot be stubbed — see the note below the table for what to do and what it does *not* cover |
 | `Unable to pull docker image` | see failure taxonomy below; fix before the real launch, not during |
+
+**`strandedness: auto` and `-stub-run`, and why two stubs cover less than one whole run.**
+`getSalmonInferredStrandedness()` does `new JsonSlurper().parseText(json_file.text)` on salmon's
+`lib_format_counts.json`, and `SALMON_QUANT`'s stub block emits that file empty, so the parse
+throws. Confirmed at rnaseq 3.18.0 on 2026-08-07.
+
+**This one failure is a waived exception to "a failed stub is a real failure", and it is the only
+one in this file.** With `strandedness: auto` the first stub is *guaranteed* to exit nonzero
+regardless of how correct your run is — there is nothing to fix and re-stubbing changes nothing.
+Waiving it is only legitimate because it is identifiable rather than merely tolerated: the waiver
+applies **only** when the error is exactly `Text must not be null or empty` raised from
+`fastq_qc_trim_filter_setstrandedness/main.nf`, **and** the tasks before it all exited 0, **and**
+the concrete-strandedness stub below then passes clean. Any other error, any earlier task failure,
+or a concrete stub that does not pass, and the ordinary rule applies in full: fix it, re-stub,
+do not launch.
+
+The second stub is a **copy** of the samplesheet whose `strandedness` column is a concrete value;
+`auto` stays in the real one. Both halves of the command matter: the source is in `$RUNDIR` (you
+are `cd`'d into `$NXFDIR`, so a bare `samplesheet.csv` is not there), and `--input` must be
+overridden on the command line — `$RUNDIR/params.yaml` carries the real, `auto` samplesheet and
+the params file wins otherwise, so without the override this fails at the same parse. It also
+gets its own `$STUBDIR`, per the rule above:
+
+```bash
+STUBDIR=$STUBROOT/concrete-strand          # NOT the same tree as the auto attempt
+mkdir -p "$STUBDIR"
+sed 's/,auto$/,reverse/' "$RUNDIR/samplesheet.csv" > "$STUBDIR/samplesheet.stub.csv"
+# ... then re-run the -stub-run invocation above with the new $STUBDIR, plus:
+#   --input "$STUBDIR/samplesheet.stub.csv"
+```
+
+**That is a partial gate, not an equivalent one, and the difference is not cosmetic.** The subworkflow branches on `meta.strandedness == 'auto'` and feeds only the
+`auto_strand` branch into `FASTQ_SUBSAMPLE_FQ_SALMON`, so a concrete value leaves that branch
+empty and the inference path — the one that failed — is never entered. Measured on the two stub
+runs of `20260807-rnaseq-scer-gln3-ibutanol`, comparing `Submitted process` lines:
+
+| stub | covers | does not reach |
+|---|---|---|
+| `auto` (fails) | `FQ_SUBSAMPLE`, `SALMON_INDEX`, `SALMON_QUANT` — the inference branch **is** entered and wired | everything downstream; it dies at the parse, 56 tasks in |
+| concrete value | `STAR_ALIGN` → `TXIMETA_TXIMPORT` → `SE_*` → `DESEQ2_QC` → `MULTIQC`, 110 tasks | `FQ_SUBSAMPLE` and `SALMON_INDEX` never submit at all |
+
+So run **both**, and know what neither gives you: the join of
+`FASTQ_SUBSAMPLE_FQ_SALMON.out` back onto `auto_strand` and the strandedness assignment itself
+are exercised for the first time by the real run. Treat the first real sample to clear
+`FASTQ_SUBSAMPLE_FQ_SALMON` as the gate for that branch, and check the inferred value in
+MultiQC's strand-check table rather than assuming a passing stub covered it.
 
 A stub run that fails is a launch that would have failed after burning real hours. Fix, re-stub,
 then launch.
@@ -403,8 +484,28 @@ ERUNID=$(printf '%s' "$RUNID" | sed 's/[][\.*^$+?()|{}]/\\&/g')
 # …-study-rerun): if this run's JVM has not appeared yet the file would hold the sibling's
 # pid and the stop command would kill the wrong experiment; if both appear, the file holds
 # two lines and `kill "$(cat …)"` fails on a multi-line operand.
+#
+# FILTER TO THE JVM, or this never records a pid at all. The Nextflow head process is always a
+# java process; nothing else here is. Two non-JVM processes match the pattern anyway, and one of
+# them is permanent:
+#   * the TMUX SERVER. `tmux new-session -d -s … -e VAR=value … "bash '$RUNDIR/cmd.sh'"` becomes
+#     the server's own command line and stays there for the life of the server. It carries
+#     NXF_HOME=…/.nextflow from the -e forwarding block above and $RUNDIR/cmd.sh from the
+#     command, so "nextflow.*/$RUNID/" matches it — and keeps matching it long after this run
+#     ends, poisoning every later run started on the same server.
+#   * the shell that ran this launcher, whose own command line names the run directory.
+# The result was `found 3`, no pid file written, and therefore hooks/guard-workdir.sh's pid
+# check — which the comment above calls NOT optional — reading a file that does not exist, on
+# every run. Measured 2026-08-07, run 20260807-rnaseq-scer-gln3-ibutanol: pids 131512
+# (`tmux: server`), 131517 (`java`, the real one), 131789 (`bash`). Note the interaction: the
+# -e forwarding block above is a correct fix for the stale-server-environment problem, and it is
+# what put the run id on the server's command line. Reading /proc/<pid>/comm settles it without
+# either fix having to know about the other.
 for _ in $(seq 30); do                             # up to ~30 s for the JVM to appear
-  mapfile -t _pids < <(pgrep -f "nextflow.*/$ERUNID/")
+  _pids=()
+  while IFS= read -r _p; do
+    [ -r "/proc/$_p/comm" ] && [ "$(cat "/proc/$_p/comm")" = java ] && _pids+=("$_p")
+  done < <(pgrep -f "nextflow.*/$ERUNID/")
   [ "${#_pids[@]}" -ge 1 ] && break
   sleep 1
 done

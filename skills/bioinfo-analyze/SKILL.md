@@ -93,6 +93,12 @@ Do them in order. Do not skip step 3 or step 4.
    samplesheet. Neither substitutes for the other: `-preview` resolves params and the DAG without
    running anything, `-stub-run` exercises the process wiring. A stub run that fails is a real
    failure — fix it, do not "try it for real and see". `references/runbook.md` section 4.
+   **One waived exception, and it is the only one:** an rnaseq samplesheet with
+   `strandedness: auto` makes the stub fail unavoidably, because the pipeline parses a
+   `lib_format_counts.json` that the stub emits empty. Runbook section 4 states the exact error,
+   the three conditions that must all hold for the waiver to apply, and the second stub against a
+   concrete-strandedness copy of the samplesheet that has to pass clean before you launch. Do not
+   generalise it: nothing else in this skill waives a failed stub.
 5. **Execution.** Launch from ext4, logging to file, always through `tmux` (`references/runbook.md`
    section 5) — not a bare foreground command, not `nohup … &`, and not your own backgrounded
    tool call that you separately wait for. All three have lost a real run on this host: `nohup`
