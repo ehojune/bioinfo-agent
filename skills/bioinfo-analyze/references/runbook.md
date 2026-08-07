@@ -219,7 +219,8 @@ parsing, and the full topology end to end — in minutes, on kilobytes.
 
 ```bash
 NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
-STUBDIR=${BIOINFO_WORK:-/work}/tmp/stub-$RUNID              # OUTSIDE the run tree, on purpose
+STUBROOT=${BIOINFO_WORK:-/work}/tmp/stub-$RUNID             # OUTSIDE the run tree, on purpose
+STUBDIR=$STUBROOT/main         # one subdirectory PER stub attempt — see "two stubs" below
 mkdir -p "$NXFDIR" "$STUBDIR"   # the launch dir only — NOT work/, the real launch creates that
 cd "$NXFDIR"
 nextflow run nf-core/rnaseq -r 3.18.0 -profile docker \
@@ -230,6 +231,13 @@ nextflow run nf-core/rnaseq -r 3.18.0 -profile docker \
   -stub-run -ansi-log false
 ```
 
+**One `$STUBDIR` per attempt, never a shared one.** Two stub runs pointed at the same work and
+results trees produce a *union* of their outputs, and a union can satisfy the output-tree
+inspection below even when neither run produced everything on its own — which is precisely the
+false pass a gate must not be able to give. It matters as soon as you run more than one stub, and
+the `strandedness: auto` case below forces exactly that. Give each attempt its own subdirectory of
+`$STUBROOT` and delete `$STUBROOT` once as the last step.
+
 Use a **separate** stub work directory. Stub outputs are empty files; if they land in the real
 work dir, a later `-resume` can cache-hit on them and you will ship a run full of zero-byte BAMs.
 
@@ -237,17 +245,17 @@ work dir, a later `-resume` can cache-hit on them and you will ship a run full o
 the stub passed:**
 
 ```bash
-rm -rf "$STUBDIR"               # AFTER checking "Pass looks like" below, never before
+rm -rf "$STUBROOT"              # AFTER checking "Pass looks like" below, never before
 ```
 
 It is a separate step on purpose. Appended to the snippet above it would run whichever way the
 stub went — that block has no `set -e` and `nextflow`'s exit status is not checked — and it would
 take the evidence with it: `$STUBDIR/results/` is what "Pass looks like" tells you to inspect, and
 `$STUBDIR/work/<hash>/.command.{sh,err,log}` is where a *failed* stub's diagnosis lives. Deleting
-before reading turns a cheap gate into no gate at all. If the stub failed, keep `$STUBDIR`, fix,
-re-stub, and delete only once it passes.
+before reading turns a cheap gate into no gate at all. If the stub failed, keep `$STUBROOT`, fix,
+re-stub into a **new** subdirectory, and delete `$STUBROOT` only once you are done with all of it.
 
-**`$STUBDIR` is deliberately not `$NXFDIR/stub-work`.** Putting it under the run tree makes its
+**`$STUBROOT` is deliberately not under `$NXFDIR`.** Putting it under the run tree makes its
 deletion — the step that prevents those zero-byte BAMs — look exactly like deleting the run's
 work directory, and `hooks/guard-workdir.sh` blocks it on that basis: the resolved form
 `rm -rf /work/nxf/<runid>/stub-work` is refused for want of a `handoff.md` that cannot exist yet
@@ -278,15 +286,28 @@ process reaching `[100%] N of N ✔`, `Completed at: …`, `Succeeded: N`, exit 
 `lib_format_counts.json`, and `SALMON_QUANT`'s stub block emits that file empty, so the parse
 throws. Confirmed at rnaseq 3.18.0 on 2026-08-07.
 
-The workaround is to stub a **copy** of the samplesheet whose `strandedness` column is a concrete
-value, and keep `auto` in the real one. Both halves matter: the source is in `$RUNDIR` (you are
-`cd`'d into `$NXFDIR`, so a bare `samplesheet.csv` is not there), and `--input` must be overridden
-on the command line — `$RUNDIR/params.yaml` carries the real, `auto` samplesheet and the params
-file wins otherwise, so without the override this fails at the same parse:
+**This one failure is a waived exception to "a failed stub is a real failure", and it is the only
+one in this file.** With `strandedness: auto` the first stub is *guaranteed* to exit nonzero
+regardless of how correct your run is — there is nothing to fix and re-stubbing changes nothing.
+Waiving it is only legitimate because it is identifiable rather than merely tolerated: the waiver
+applies **only** when the error is exactly `Text must not be null or empty` raised from
+`fastq_qc_trim_filter_setstrandedness/main.nf`, **and** the tasks before it all exited 0, **and**
+the concrete-strandedness stub below then passes clean. Any other error, any earlier task failure,
+or a concrete stub that does not pass, and the ordinary rule applies in full: fix it, re-stub,
+do not launch.
+
+The second stub is a **copy** of the samplesheet whose `strandedness` column is a concrete value;
+`auto` stays in the real one. Both halves of the command matter: the source is in `$RUNDIR` (you
+are `cd`'d into `$NXFDIR`, so a bare `samplesheet.csv` is not there), and `--input` must be
+overridden on the command line — `$RUNDIR/params.yaml` carries the real, `auto` samplesheet and
+the params file wins otherwise, so without the override this fails at the same parse. It also
+gets its own `$STUBDIR`, per the rule above:
 
 ```bash
+STUBDIR=$STUBROOT/concrete-strand          # NOT the same tree as the auto attempt
+mkdir -p "$STUBDIR"
 sed 's/,auto$/,reverse/' "$RUNDIR/samplesheet.csv" > "$STUBDIR/samplesheet.stub.csv"
-# ... then add to the -stub-run invocation above:
+# ... then re-run the -stub-run invocation above with the new $STUBDIR, plus:
 #   --input "$STUBDIR/samplesheet.stub.csv"
 ```
 
