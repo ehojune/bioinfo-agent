@@ -25,6 +25,7 @@ genomes/GRCh38/fasta/genome.dict	build	gatk CreateSequenceDictionary -R genome.f
 genomes/GRCh38/gtf/genes.gtf.gz	link	/mnt/d/gencode.v50.annotation.gtf.gz	GENCODE v50
 genomes/GRCh38/bed/genes.bed	link	/mnt/d/gencode.v50.genes.bed	GENCODE v50 gene intervals
 genomes/GRCh38/bed/blacklist.bed	fetch	https://raw.githubusercontent.com/Boyle-Lab/Blacklist/master/lists/hg38-blacklist.v2.bed.gz	ENCODE hg38 blacklist v2, gunzip'd on arrival; byte-identical to nf-core/atacseq's own assets/blacklists/v2.0/hg38-blacklist.v2.bed (diffed 2026-08-05); atacseq/chipseq --blacklist ONLY -- NOT cutandrun: nf-core/cutandrun 3.2.2's own conf/igenomes.config maps GRCh38 to its bundled assets/blacklists/GRCh38-blacklist.bed, a different, protocol-specific region set (1049 vs 636 regions, diffed 2026-08-05); routing cutandrun here would silently change its filtering	31c69342df43bbc19dd8ef2886611a8150cb53e90f341de14d30e742c9251737
+genomes/GRCh38/bed/cutandrun_blacklist.bed	fetch	https://raw.githubusercontent.com/nf-core/cutandrun/3.2.2/assets/blacklists/GRCh38-blacklist.bed	cutandrun's OWN bundled blacklist (1049 regions), first copied out of the pipeline's NXF_ASSETS clone 2026-08-06 instead of depending on a clone-hash directory that changes on re-pull; the URL is that same file at the pinned 3.2.2 tag, sha256-verified byte-identical 2026-08-07, so a fresh machine materialises it with no pipeline clone at all. NOT the same list as blacklist.bed above (see that row's note) -- do not point cutandrun at genomes/GRCh38/bed/blacklist.bed or atacseq/chipseq at this row	89bd06cf49b450855039ff59b85ae30cc5cd29142623418f7deab075efbd6455
 
 # GATK-flavoured analysis set, already BWA-indexed. Preferred for sarek.
 genomes/GRCh38gatk/fasta/genome.fa	link	/mnt/d/Research/references/Homo_sapiens_assembly38_noALT_noHLA_noDecoy.fasta	no ALT/HLA/decoy
@@ -64,6 +65,16 @@ genomes/R64-1-1/fasta/genome.fa.fai	build	nf-core/rnaseq SAMTOOLS_FAIDX (in-run)
 genomes/R64-1-1/gtf/genes.gtf.gz	fetch	https://ftp.ensembl.org/pub/release-116/gtf/saccharomyces_cerevisiae/Saccharomyces_cerevisiae.R64-1-1.63.gtf.gz	Ensembl annotation build 63 (fungi versioning, not release-116)	253bd4013785b3c85a6a488bd541c12d8264aa4989046c3530d0d9ea2ecc931e
 genomes/R64-1-1/index/star/	build	nf-core/rnaseq --save_reference	first rnaseq run at this build; genome is tiny (~12 Mb), build is minutes not hours
 genomes/R64-1-1/index/salmon/	build	nf-core/rnaseq --save_reference
+
+# ---------------------------------------------------------------- E. coli K12 MG1655 (cutandrun spike-in)
+# Added 2026-08-06 for the first nf-core/cutandrun run on this host
+# (20260806-cutandrun-hpsc-h3k27me3-smoke). NCBI RefSeq GCF_000005845.2 (ASM584v2),
+# a newer/patched assembly of the same strain nf-core/cutandrun's own igenomes.config
+# points 'K12-MG1655' at (an old 2001-10-15 NCBI build under an AWS iGenomes path we
+# do not have mirrored locally) -- fine for spike-in read recruitment, where exact
+# patch version does not matter. Single contig, NC_000913.3.
+genomes/ECOLI_K12/fasta/genome.fa	fetch	https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/005/845/GCF_000005845.2_ASM584v2/GCF_000005845.2_ASM584v2_genomic.fna.gz	gunzip'd on arrival; RefSeq ASM584v2	53bb6a51b6e92139ced1e38f74b7938781027c52200922ff03718c2237d23bb4
+genomes/ECOLI_K12/index/bowtie2/	build	nf-core/cutandrun --save_reference (or bowtie2-build)	spike-in alignment; genome is 4.6 Mb, build is seconds not minutes
 
 # ---------------------------------------------------------------- Korean reference
 genomes/KOREF1/fasta/genome.fa	link	/mnt/d/Research/references/KOREF1-Gp-TTAGGA.fa	Korean reference assembly

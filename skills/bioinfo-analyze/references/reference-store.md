@@ -107,12 +107,15 @@ Every `build` and `fetch` row in the manifest is a cost paid before the run, not
   (`gatk CreateSequenceDictionary`), but sarek will not start without one.
 - The GATK bundle is `fetch`: dbsnp + known_indels ≈ several GB, gnomAD af-only more. Sarek's BQSR
   and HaplotypeCaller need it.
-- `$BIOINFO_REFS/genomes/GRCh38/index/` is **empty**. No STAR, salmon, bismark, bwameth or bowtie2
-  index exists, so the first rnaseq/methylseq/atacseq/chipseq/cutandrun run pays the build (~1 h
-  each; the STAR build wants ~40 GB RAM, which is the entire Nextflow pool).
-- `genomes/GRCh38/bed/blacklist.bed` is a `fetch` row and the file is **not there** — only
-  `genes.bed` is in that directory. atacseq/chipseq `--blacklist` needs it. Not a manifest gap:
-  `bash bootstrap/04-refs.sh` fetches it.
+- `$BIOINFO_REFS/genomes/GRCh38/index/` carries **only** the bowtie2 index. No STAR, salmon,
+  bismark or bwameth index exists, so the first rnaseq/methylseq run pays the build (~1 h each;
+  the STAR build wants ~40 GB RAM, which is the entire Nextflow pool). bowtie2 is the exception —
+  built and promoted by the first atacseq run and reused by chipseq and cutandrun since, at zero
+  rebuild cost.
+- `genomes/ECOLI_K12/index/bowtie2/` (cutandrun spike-in) is `build` mode and genuinely absent —
+  the fasta itself was fetched and manifest-tracked 2026-08-06, but the bowtie2 index is rebuilt
+  fresh by every cutandrun run unless one promotes a built copy to the store (same pattern as the
+  GRCh38 bowtie2 index above). Trivial cost either way: the genome is 4.6 Mb.
 - `KOREF1` is FASTA only on disk — no `.fai`, no `.dict`, no BWA index. The manifest *does* carry
   all three as `build` rows, so nothing needs adding; they just have to be produced (the BWA index
   is ~1.5 h) before anything runs end to end on that build.
@@ -124,11 +127,14 @@ filesystem instead of reading:
 bash bootstrap/04-refs.sh --dry-run     # OK / NOT BUILT / MISSING / STALE, per row
 ```
 
-Verified against that command on 2026-08-06: 44 rows, 18 OK, 15 not built, 11 fetch-missing.
-Both `genomes/GRCh38/index/bowtie2/` and `genomes/GRCh38/bed/blacklist.bed` were listed here as
-manifest gaps long after their rows were added — but the rows are all they ever got, and the
-files are still absent today, which is why they are back on this list stated the other way round.
-`pipeline-selection.md` section 9 tracks the *rows*; this section tracks the *files*.
+Verified against that command on 2026-08-07: **47 rows, 25 OK, 14 not built, 8 fetch-missing.**
+Both directions of error have now happened here. This list first called the bowtie2 index and
+`genomes/GRCh38/bed/blacklist.bed` *manifest gaps* long after their rows were added; the correction
+to that then overshot and asserted the rows "are all they ever got, and the files are still absent
+today". Both files are in fact present — `blacklist.bed` since 2026-08-05, the bowtie2 index since
+the first atacseq run — and the dry-run reports both `OK`. Run the command instead of quoting
+either version. `pipeline-selection.md` section 9 tracks the *rows*; this section tracks the
+*files*.
 
 Flag whichever of these a request touches in the run plan and in the estimate, before the run — do
 not discover it twelve hours in.
