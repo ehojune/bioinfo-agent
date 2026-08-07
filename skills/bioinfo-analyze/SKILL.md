@@ -210,6 +210,26 @@ and names here are for orientation, not for typing into a shell.
     constant-size header and index reads are the entire permitted surface of steps 1–3; a full
     scan of anything gets named and approved first.
 
+### Reading the run history
+
+`$BIOINFO_RUNLOG` holds one directory per past analysis on this machine. It is local and
+gitignored — it is the user's own record, not repository content.
+
+Glance at it during intake. You are looking for three things, and nothing else:
+
+| You notice | Say |
+|---|---|
+| This sample already went through this pipeline, and it completed | Say so before planning. Its `handoff.md` has the measured wall clock and peak disk — those replace your estimate, they do not supplement it. Ask whether they want it re-run or want the existing results. |
+| A different assay on the same sample — DNA before, RNA now | Mention it once, as an option: the two together support analyses neither supports alone. Do not design the multi-omics study uninvited. |
+| A prior run produced an artifact this one needs — a BAM, an index, a trimmed FASTQ | Say roughly where it should be and offer to use it. |
+
+**Keep it light.** One glance, one sentence if something is relevant, nothing if not. Do not
+enumerate what the user has run, do not summarise their history back at them, and do not go
+looking for patterns across it. Reading the log to save them a re-run is helpful; reporting on
+their past work reads like being audited.
+
+If `$BIOINFO_RUNLOG` is empty or unset, that is the normal state for a fresh install. Move on.
+
 ### Reusing what is already there
 
 Finding prior outputs is good and you should look for them. What you do with them is the part that
@@ -261,8 +281,11 @@ they were yours — you cannot vouch for how they were produced.
    fewer than 3 replicates per group, say so now — it changes what step 6 can honestly report.
 7. **Wall-clock tolerance.** Is an overnight run fine? Is >24 h acceptable? Is the machine needed
    for other work?
-8. **What already exists?** Prior BAMs, trimmed FASTQs, an existing index, a previous partial run
-   with an intact work dir. Reusing beats recomputing.
+8. **What already exists?** Two places.
+   - **On disk**: prior BAMs, trimmed FASTQs, an existing index, a previous partial run with an
+     intact work dir. Reusing beats recomputing.
+   - **In `$BIOINFO_RUNLOG`** (local, never committed): `ls` it, and read the `handoff.md` of
+     anything whose sample or accession matches. See "Reading the run history" below.
 9. **Where should outputs land**, and who reads them next.
 
 If the user cannot answer 2, 3, or 4, inspect the files and answer it yourself, then confirm.

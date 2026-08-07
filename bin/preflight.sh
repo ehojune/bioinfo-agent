@@ -220,12 +220,12 @@ EOF
 }
 
 # BOTH files, not params.yaml alone. A run that passes its references as --fasta/--gtf
-# on the command line has no params.yaml at all (runs/20260804-rnaseq-scer-verify is one),
+# on the command line has no params.yaml at all (docs/examples/20260804-rnaseq-scer-verify is one),
 # and this block used to skip it while printing "checked via cmd.sh instead" -- a check
 # that did not exist anywhere in this script. Scan whichever of the two are present.
 #
 # COMMENTS ARE STRIPPED FIRST. A run record explains itself in prose, and that prose
-# names reference paths that are deliberately NOT arguments. runs/20260804-rnaseq-scer-verify
+# names reference paths that are deliberately NOT arguments. docs/examples/20260804-rnaseq-scer-verify
 # is the case that proves it: it passes --star_index false ON PURPOSE and its comment says why,
 # quoting '/refs/genomes/R64-1-1/index/star' as the directory that does not exist. Scanning the
 # comment turns a correct run into "ref MISSING" and fails preflight. Both # forms go: a line

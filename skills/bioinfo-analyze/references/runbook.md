@@ -56,9 +56,9 @@ sufficient:
 - **STAR cannot run there at all.** drvfs has no FIFOs, and STAR builds one per read file:
   `could not create FIFO file … SOLUTION: … Windows partitions FAT, NTFS … re-run on a Linux
   partition`. It is a `FATAL ERROR` before a single read is processed, not a slowdown. Measured
-  2026-08-07 on `-profile test` with `-work-dir /mnt/e/...` (`runs/20260807-rnaseq-testprofile-e`).
+  2026-08-07 on `-profile test` with `-work-dir /mnt/e/...` (`docs/examples/20260807-rnaseq-testprofile-e`).
   The pseudo-aligner path has no FIFOs and does complete on drvfs
-  (`runs/20260807-rnaseq-salmononly-e`) — which is the only reason the distinction is worth
+  (`docs/examples/20260807-rnaseq-salmononly-e`) — which is the only reason the distinction is worth
   writing down rather than just saying "drvfs is forbidden".
 - drvfs is 5–10× slower than ext4, and task scratch is the most I/O-intensive thing in the run.
 - Nextflow's resume cache is a LevelDB under the *launch* directory. LevelDB needs real POSIX file
