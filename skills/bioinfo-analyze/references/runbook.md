@@ -279,9 +279,18 @@ process reaching `[100%] N of N ✔`, `Completed at: …`, `Succeeded: N`, exit 
 throws. Confirmed at rnaseq 3.18.0 on 2026-08-07.
 
 The workaround is to stub a **copy** of the samplesheet whose `strandedness` column is a concrete
-value (`sed 's/,auto$/,reverse/' samplesheet.csv > "$STUBDIR/samplesheet.stub.csv"`) and keep
-`auto` in the real one. **That is a partial gate, not an equivalent one, and the difference is not
-cosmetic.** The subworkflow branches on `meta.strandedness == 'auto'` and feeds only the
+value, and keep `auto` in the real one. Both halves matter: the source is in `$RUNDIR` (you are
+`cd`'d into `$NXFDIR`, so a bare `samplesheet.csv` is not there), and `--input` must be overridden
+on the command line — `$RUNDIR/params.yaml` carries the real, `auto` samplesheet and the params
+file wins otherwise, so without the override this fails at the same parse:
+
+```bash
+sed 's/,auto$/,reverse/' "$RUNDIR/samplesheet.csv" > "$STUBDIR/samplesheet.stub.csv"
+# ... then add to the -stub-run invocation above:
+#   --input "$STUBDIR/samplesheet.stub.csv"
+```
+
+**That is a partial gate, not an equivalent one, and the difference is not cosmetic.** The subworkflow branches on `meta.strandedness == 'auto'` and feeds only the
 `auto_strand` branch into `FASTQ_SUBSAMPLE_FQ_SALMON`, so a concrete value leaves that branch
 empty and the inference path — the one that failed — is never entered. Measured on the two stub
 runs of `20260807-rnaseq-scer-gln3-ibutanol`, comparing `Submitted process` lines:
