@@ -1,0 +1,34 @@
+name: plugin version
+
+# Packaged plugin content (skills/, agents/, hooks/, .claude-plugin/plugin.json) is served to a
+# running agent out of a VERSION-NAMED cache directory. Changing that content without bumping the
+# version means an already-installed plugin keeps serving the old copy and the change never takes
+# effect — measured 2026-08-10, see the header of scripts/check-plugin-version.sh.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The gate diffs the PR head against its merge base, so the base branch history has to
+          # be present. A shallow default checkout has neither the base ref nor a merge base and
+          # the drift check would silently degrade to SKIP.
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        if: github.event_name == 'pull_request'
+        run: git fetch --no-tags origin "${{ github.event.pull_request.base.ref }}"
+
+      - name: Check plugin version
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.event.pull_request.base.ref }}"
+          else
+            base="origin/${{ github.event.repository.default_branch }}"
+          fi
+          bash scripts/check-plugin-version.sh "$base"

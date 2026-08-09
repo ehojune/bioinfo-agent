@@ -62,6 +62,13 @@ claude plugin install bioinfo@bioinfo
 > **설치 경로는 둘 중 하나만.** 위의 `claude plugin` 과 Windows용 `install.ps1` 은 같은 일을 하는
 > 두 방법이다. 둘 다 쓰면 스킬과 에이전트가 두 번 등록된다.
 
+> **업데이트는 `claude plugin update bioinfo@bioinfo`.** 설치된 플러그인은
+> `~/.claude/plugins/cache/bioinfo/bioinfo/<version>/` 처럼 **버전 이름 디렉터리**에 캐시된다.
+> repo에 머지된 스킬 수정은 버전이 올라가야 이미 설치된 쪽에 도달한다 — 2026-08-10에 실제로
+> 캐시된 0.1.0의 `runbook.md`가 repo보다 117줄 뒤처져 있었고, 그 상태로 실행 중이던 에이전트가
+> 머지된 수정 이전의 절차를 그대로 따랐다. `scripts/check-plugin-version.sh` 가 이 드리프트를
+> PR 단계에서 막는다.
+
 ### 실제로 파이프라인을 돌리려면
 
 Nextflow, 컨테이너 엔진, 레퍼런스가 필요하다. **직접 세팅하지 말고 Claude Code에게 시키면 된다.**
