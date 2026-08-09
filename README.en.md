@@ -64,6 +64,13 @@ estimates and a run plan come straight out. No `claude` CLI yet?
 > **Pick one install route.** The `claude plugin` commands above and the Windows `install.ps1` are
 > two ways of doing the same thing. Use both and the skill and agent get registered twice.
 
+> **Update with `claude plugin update bioinfo@bioinfo`.** An installed plugin is cached in a
+> **version-named** directory (`~/.claude/plugins/cache/bioinfo/bioinfo/<version>/`), so a skill
+> fix merged here only reaches an existing install once the version is bumped. Measured
+> 2026-08-10: the cached 0.1.0 `runbook.md` was 117 lines behind this repo's, and a running agent
+> loading the skill from that cache followed the pre-fix procedure.
+> `scripts/check-plugin-version.sh` catches that drift at PR time.
+
 ### To actually run pipelines
 
 You need Nextflow, a container engine, and references. **Do not set that up by hand — have Claude
