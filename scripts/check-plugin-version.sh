@@ -93,11 +93,18 @@ semver() {  # semver valid <v>  |  semver gt <a> <b>   -> exit status only
   python3 - "$@" <<'PY'
 import re, sys
 
+# [0-9] throughout, never \d: in Python \d matches any Unicode decimal digit, so
+# `1.2.3\u0662` would parse as SemVer -- and int() accepts that character too, so it would go on
+# to compare as a real number and report a successful increase. SemVer numeric identifiers are
+# ASCII 0-9 only. re.ASCII is set as well, belt and braces, since it also constrains the
+# \w-class shorthands if this pattern is ever extended.
 SEMVER = re.compile(
-    r'^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)'
-    r'(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)'
-    r'(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?'
-    r'(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$')
+    r'^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
+    r'(?:-((?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)'
+    r'(?:\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?'
+    r'(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$', re.ASCII)
+
+ASCII_DIGITS = re.compile(r'^[0-9]+$')
 
 def parse(v):
     m = SEMVER.match(v)
@@ -111,7 +118,10 @@ def key(m):
     ids = []
     for p in pre.split('.'):
         # Numeric identifiers compare numerically and always rank below alphanumeric ones.
-        ids.append((0, int(p), '') if p.isdigit() else (1, 0, p))
+        # str.isdigit() is likewise Unicode-aware ('\u0662'.isdigit() is True). The regex above
+        # already excludes those, but this classification decides numeric-vs-alphanumeric
+        # ORDERING, so it is checked against ASCII explicitly rather than resting on that.
+        ids.append((0, int(p), '') if ASCII_DIGITS.match(p) else (1, 0, p))
     return (core, tuple(ids))
 
 op = sys.argv[1]
