@@ -83,9 +83,60 @@ echo "== plugin version =="
 [ "$PLUGIN_VER" != "-" ] || bad "$PLUGIN_JSON declares no .version"
 [ "$PLUGIN_NAME" != "-" ] || bad "$PLUGIN_JSON declares no .name"
 
-semver_re='^[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$'
-if [[ ! "$PLUGIN_VER" =~ $semver_re ]]; then
-  bad "$PLUGIN_JSON version '$PLUGIN_VER' is not semver"
+# SemVer, by the published grammar rather than a loose shape check. A bash ERE of
+# `[0-9]+\.[0-9]+\.[0-9]+([-+].*)?` accepts `1.2.3-`, `1.2.3+` and `01.2.3` — a typo that would
+# sail through this gate and leave the manifests declaring a version that is not a version.
+# semver() also implements precedence comparison (numeric identifiers numerically, alphanumeric
+# ones lexically, a pre-release sorting BEFORE its own release), which the downgrade check below
+# needs and string comparison cannot express: "0.10.0" < "0.9.0" as strings.
+semver() {  # semver valid <v>  |  semver gt <a> <b>   -> exit status only
+  python3 - "$@" <<'PY'
+import re, sys
+
+SEMVER = re.compile(
+    r'^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)'
+    r'(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)'
+    r'(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?'
+    r'(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$')
+
+def parse(v):
+    m = SEMVER.match(v)
+    return m if m else None
+
+def key(m):
+    core = tuple(int(m.group(i)) for i in (1, 2, 3))
+    pre = m.group(4)
+    if pre is None:
+        return (core, ())            # no pre-release sorts above any pre-release
+    ids = []
+    for p in pre.split('.'):
+        # Numeric identifiers compare numerically and always rank below alphanumeric ones.
+        ids.append((0, int(p), '') if p.isdigit() else (1, 0, p))
+    return (core, tuple(ids))
+
+op = sys.argv[1]
+if op == 'valid':
+    sys.exit(0 if parse(sys.argv[2]) else 1)
+if op == 'gt':
+    a, b = parse(sys.argv[2]), parse(sys.argv[3])
+    if not a or not b:
+        sys.exit(2)                  # unparseable: caller reports it separately
+    ka, kb = key(a), key(b)
+    if ka[0] != kb[0]:
+        sys.exit(0 if ka[0] > kb[0] else 1)
+    # Equal cores: no pre-release outranks any pre-release. Build metadata (group 5) is
+    # explicitly ignored for precedence, per the spec.
+    if not ka[1] and kb[1]:
+        sys.exit(0)
+    if ka[1] and not kb[1]:
+        sys.exit(1)
+    sys.exit(0 if ka[1] > kb[1] else 1)
+sys.exit(2)
+PY
+}
+
+if ! semver valid "$PLUGIN_VER"; then
+  bad "$PLUGIN_JSON version '$PLUGIN_VER' is not valid SemVer (https://semver.org)"
 else
   ok "$PLUGIN_JSON version $PLUGIN_VER"
 fi
@@ -125,17 +176,25 @@ else
     | python3 -c 'import json,sys
 try: print(json.load(sys.stdin).get("version") or "")
 except Exception: print("")')
+  changed_list=$(printf '%s\n' "$changed" | sed 's/^/          /')
   if [ -z "$BASE_VER" ]; then
     note SKIP "cannot read $PLUGIN_JSON at $MERGE_BASE; drift check not run"
-  elif [ "$BASE_VER" = "$PLUGIN_VER" ]; then
-    bad "$n packaged file(s) changed but the version is still $PLUGIN_VER.
-        Bump .version in $PLUGIN_JSON and both version fields in $MARKET_JSON.
-        The plugin cache is version-named — an unchanged version means an installed
-        plugin keeps serving the old content and this change never takes effect.
-        Changed:
-$(printf '%s\n' "$changed" | sed 's/^/          /')"
+  elif ! semver valid "$BASE_VER"; then
+    bad "$PLUGIN_JSON at $MERGE_BASE declares '$BASE_VER', which is not valid SemVer,
+        so this gate cannot tell whether $PLUGIN_VER is an increase. Fix the base first."
+  elif semver gt "$PLUGIN_VER" "$BASE_VER"; then
+    ok "$n packaged file(s) changed; version raised $BASE_VER -> $PLUGIN_VER"
   else
-    ok "$n packaged file(s) changed; version bumped $BASE_VER -> $PLUGIN_VER"
+    # "different" is not enough. 0.2.0 -> 0.1.0 is a change, and it points every installer at a
+    # 0.1.0 cache directory that already exists and still holds the OLD content — precisely the
+    # failure this gate exists to prevent, dressed up as a bump.
+    bad "$n packaged file(s) changed but the version did not increase ($BASE_VER -> $PLUGIN_VER).
+        Raise .version in $PLUGIN_JSON and both version fields in $MARKET_JSON.
+        The plugin cache is version-named: a version that is unchanged — or moved BACKWARD to one
+        already on disk — means an installed plugin keeps serving the old content and this change
+        never takes effect.
+        Changed:
+$changed_list"
   fi
 fi
 
