@@ -544,9 +544,9 @@ own), per the skill's explicit `-stub-run` **or** `-preview` allowance.
 |---|---|---|
 | `--bowtie2` | store bowtie2 index path | **NOT** `--bowtie2_index` — that is chipseq's param name for the equivalent index. cutandrun's own is `--bowtie2`. Confirmed via `--help` and source, 2026-08-06 (run `20260806-cutandrun-hpsc-h3k27me3-smoke`); easy to get wrong copying a chipseq cmd.sh forward |
 | `--peakcaller` | `seacr` or `seacr,macs2` | order matters: the first listed is used for the consensus/reporting. Pipeline default is `seacr` alone |
-| `--normalisation_mode` | `Spikein` if a spike-in was used, else `CPM` | pipeline default is `Spikein`; declaring it with no real spike-in reads produces garbage scale factors — silently wrong, not an error. **Spike-in alignment and its QC metrics (spike-in fraction, scale factor) run unconditionally regardless of this setting** — confirmed via source read of `workflows/cutandrun.nf` (the spike-in `ALIGN_BOWTIE2` branch is gated only by `params.run_alignment` and `aligner=="bowtie2"`, never by `normalisation_mode`) — so choosing `CPM` over `Spikein` does not lose the §3.5 spike-in QC band, it only changes whether published tracks get scaled by the factor |
+| `--normalisation_mode` | `Spikein` if a spike-in was used, else `CPM` | pipeline default is `Spikein`; declaring it with no real spike-in reads produces garbage scale factors — silently wrong, not an error. **`CPM` switches the entire spike-in arm off: no spike-in alignment, no spike-in index build, and none of the `qc-interpretation.md` §3.5 spike-in QC band.** See the boxed correction below — an earlier version of this row claimed the opposite, and a completed run disproved it |
 | `--spikein_genome` | E. coli K12 by default | if the experiment used a different carrier, override. Ignored once `--spikein_fasta` is passed explicitly |
-| `--spikein_fasta` / `--spikein_bowtie2` | store paths | `--spikein_bowtie2` can be omitted — the pipeline builds it itself from `--spikein_fasta` via `BOWTIE2_BUILD_SPIKEIN` (confirmed via source read of `prepare_genome.nf`); trivial cost for the ~4.6 Mb E. coli genome |
+| `--spikein_fasta` / `--spikein_bowtie2` | store paths | **Both are inert unless `--normalisation_mode Spikein`.** Under `Spikein`, `--spikein_bowtie2` may be omitted and the pipeline builds the index itself from `--spikein_fasta` via `BOWTIE2_BUILD_SPIKEIN` (trivial, ~4.6 Mb). Under `CPM` neither is read: passing a valid `--spikein_fasta` produces no spike-in output and no error |
 | `--macs2_narrow_peak` | pipeline default `true` (narrow) | set `false` for broad marks (H3K27me3/H3K9me3/H3K36me3), same reasoning as chipseq's broad-mode choice |
 | `--use_control` / `--igg_scale_factor` | with IgG | controls how the IgG track is subtracted |
 | `--dedup_target_reads` | usually **off** for CUT&RUN | high-efficiency CUT&RUN produces genuine duplicate fragments; deduplicating them throws away signal. This is a real judgement call — state which way you went |
@@ -560,8 +560,53 @@ $BIOINFO_REFS/genomes/GRCh38/gtf/GRCh38.gtf.gz         alias, present
 $BIOINFO_REFS/genomes/GRCh38/index/bowtie2/            present — built by atacseq, reused by chipseq and cutandrun
 $BIOINFO_REFS/genomes/GRCh38/bed/cutandrun_blacklist.bed   present — added 2026-08-06, see below
 $BIOINFO_REFS/genomes/ECOLI_K12/fasta/genome.fa        present — added 2026-08-06 (NCBI RefSeq GCF_000005845.2)
-$BIOINFO_REFS/genomes/ECOLI_K12/index/bowtie2/         manifest row present (build mode) — index itself built per-run unless promoted after
+$BIOINFO_REFS/genomes/ECOLI_K12/index/bowtie2/         manifest row present (build mode) — built per-run ONLY under --normalisation_mode Spikein; a CPM run never builds it (see below)
 ```
+
+**`--normalisation_mode CPM` switches the whole spike-in arm off. Measured, and it corrects a
+claim this file previously made.** Until 2026-08-10 the `--normalisation_mode` row above said
+spike-in alignment and its QC metrics "run unconditionally regardless of this setting", citing a
+source read. Run `20260810-cutandrun-hpsc-h3k27me3` (cutandrun 3.2.2, `--normalisation_mode CPM`,
+a valid `--spikein_fasta` passed, `--save_reference true`) completed 146 tasks and **not one of
+them was a spike-in task** — no `BOWTIE2_BUILD_SPIKEIN`, no `BOWTIE2_SPIKEIN_ALIGN`, no
+`EXTRACT_BT2_SPIKEIN_META` (`grep -ci spikein` over the trace: 0). MultiQC emitted a
+`Bowtie2 (target)` general-stats column and no spike-in column at all,
+`02_alignment/bowtie2/` published only `target/log/*.bowtie2.log`, and
+`$BIOINFO_REFS/genomes/ECOLI_K12/index/bowtie2/` did not exist after the run.
+
+The old claim was half a reading. The `ALIGN_BOWTIE2` **call site**
+(`workflows/cutandrun.nf:260-262`) really is guarded only by `params.run_alignment` and
+`params.aligner == "bowtie2"` — that much was right. But the spike-in processes inside it are
+starved by a **data dependency** gated further upstream:
+
+```
+prepare_genome.nf:46    if (params.normalisation_mode == "Spikein") { ch_spikein_fasta = ... }
+                        -> under CPM, ch_spikein_fasta stays Channel.empty()
+prepare_genome.nf:152   if (normalisation_mode == "Spikein" && params.spikein_bowtie2) { ...untar/use... }
+                        else { BOWTIE2_BUILD_SPIKEIN(ch_spikein_fasta) }   <- empty in, no task out
+                        -> ch_bt2_spikein_index stays empty
+align_bowtie2.nf:36     BOWTIE2_SPIKEIN_ALIGN(reads, ch_spikein_index.collect{...}, ...)
+                        -> never receives a complete input tuple, so it never runs
+```
+
+Note the `else` on line 152: passing `--spikein_bowtie2` explicitly does **not** rescue this
+under `CPM` — the condition requires `Spikein` too, so control still falls to the build branch
+and that branch is fed the empty channel.
+
+Two consequences to carry into any plan:
+
+- **A `CPM` run cannot report the §3.5 spike-in fraction band.** There are no spike-in reads to
+  count. Do not promise that metric in a plan that selects `CPM`, and do not record its absence
+  as a failure — it is a direct consequence of the normalisation choice.
+- **A `CPM` run never builds the E. coli index**, so `--save_reference` has nothing to persist and
+  the `ECOLI_K12/index/bowtie2` manifest row stays unmaterialised no matter how many `CPM` runs go
+  through.
+
+The judgement itself is unchanged and still stands: `Spikein` with no real spike-in carrier
+produces scale factors from stray reads, which is silently wrong. The correction is only that
+choosing `CPM` to avoid that **also** costs the spike-in QC readout, rather than keeping it as a
+free diagnostic. If the spike-in fraction is wanted precisely *in order to decide* whether a
+spike-in was used, that has to be measured some other way — `CPM` will not measure it for you.
 
 **Do not point `--blacklist` at `genomes/GRCh38/bed/blacklist.bed` (the atacseq/chipseq ENCODE
 list) for this pipeline.** nf-core/cutandrun 3.2.2's own `conf/igenomes.config` maps GRCh38 to its
