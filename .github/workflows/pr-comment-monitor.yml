@@ -23,19 +23,24 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           script: |
+            // `issue_comment` also fires for plain issues, which have no `pull_request` key.
+            // Without this guard `pulls.get` 404s and the whole job fails on every issue comment.
+            const isPr = !!context.payload.pull_request || !!context.payload.issue?.pull_request;
             let prNumber = context.payload.pull_request?.number || context.payload.issue?.number;
-            if (!prNumber) {
+            if (!prNumber || !isPr) {
               console.log('Not a PR event, skipping');
               return;
             }
-            
+
             const pr = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: prNumber,
             });
-            
-            const reviewComments = await github.rest.pulls.listComments({
+
+            // Octokit names this `listReviewComments`; `pulls.listComments` does not exist
+            // and threw `TypeError: ... is not a function` on every run before this fix.
+            const reviewComments = await github.rest.pulls.listReviewComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: prNumber,
