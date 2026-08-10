@@ -297,7 +297,7 @@ process reaching `[100%] N of N ✔`, `Completed at: …`, `Succeeded: N`, exit 
 | `Process 'X' doesn't have a stub block` | that module has no stub upstream. Not your bug; note it and rely on `-preview` plus a real 1-sample run for that branch |
 | `ERROR ~ Text must not be null or empty` at `fastq_qc_trim_filter_setstrandedness/main.nf` | **rnaseq only, and it is the samplesheet, not the pipeline.** `strandedness: auto` cannot be stubbed — see the note below the table for what to do and what it does *not* cover |
 | `Error in read.table(file = file, ...) : no lines available in input` inside `VALIDATOR (samplesheet.csv)`, container `r-shinyngs` | **differentialabundance only, when launched with `--gtf` (the documented, default path).** See the note below the table |
-| `A USER ERROR has occurred: Cannot read file://<sample>.haplotypecaller.vcf.gz because no suitable codecs found`, process `CNNSCOREVARIANTS`, exit 2 | **sarek only, `--tools haplotypecaller` without `--dbsnp`/`--known_indels`.** See the note below the table |
+| `A USER ERROR has occurred: Cannot read file://<sample>.haplotypecaller.vcf.gz because no suitable codecs found`, process `CNNSCOREVARIANTS`, exit 2 | **sarek only, any `--tools haplotypecaller` stub-run at this pin (3.5.1) — with or without `--dbsnp`/`--known_indels` supplied.** The module has no `stub:` block regardless of bundle presence. See the note below the table |
 | `Unable to pull docker image` | see failure taxonomy below; fix before the real launch, not during |
 
 **`strandedness: auto` and `-stub-run`, and why two stubs cover less than one whole run.**
