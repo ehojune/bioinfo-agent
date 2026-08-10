@@ -62,6 +62,14 @@ if [[ "$PIPELINE" == fetchngs ]]; then
   NROW=$(wc -l < "$TMP")
   printf 'headerless accession list (no header row expected)\n'
   (( NROW > 0 )) && printf 'rows  %d accessions\n' "$NROW" || fail "no accessions (file empty after normalising)"
+
+  # fetchngs's schema is a single unnamed column (assets/schema_input.json) -- a comma anywhere
+  # in a line means an extra field the pipeline's own accession-regex check does not catch as
+  # cleanly (it only rejects the WHOLE line if the id pattern fails, which a line like
+  # "ERR1160846,unexpected" may still partially satisfy up to the comma). Catch it here instead
+  # of letting a malformed line reach the pipeline.
+  RAGGED=$(awk -F, 'NF!=1 {printf "line %d has %d fields; ", NR, NF}' "$TMP")
+  [[ -z "$RAGGED" ]] && ok "all lines are single-field (one accession per line)" || fail "ragged rows: $RAGGED"
 else
   HDR=$(head -1 "$TMP")
   IFS=, read -r -a COLS <<< "$HDR"

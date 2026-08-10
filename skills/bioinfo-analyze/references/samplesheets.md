@@ -341,10 +341,8 @@ before any download. Do not add a header line — not even `id`, and not even to
 self-documenting.
 
 `bin/preflight.sh`'s `== samplesheet ==` section and `scripts/check-samplesheet.sh`'s file-hygiene
-section both still treat line 1 as a header regardless of pipeline, so their reported row/sample
-count is one short of the true accession count for a fetchngs input file — cosmetic (fetchngs's
-own required-column check is separately, correctly, skipped for this pipeline) but worth knowing
-before trusting the printed count.
+section both special-case `fetchngs` and count every non-blank line as an accession (no line is
+treated as a header), so their reported count is the true accession count for this pipeline.
 
 Accepted accession families:
 

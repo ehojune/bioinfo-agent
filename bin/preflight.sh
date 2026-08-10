@@ -166,6 +166,10 @@ if [ -f "$SS" ]; then
     [ "$nrow" -gt 0 ] && ok "$nrow accessions, $nsamp distinct" || bad "no accessions"
     dups="$(sort "$SS" | uniq -d | tr '\n' ' ')"
     [ -z "$dups" ] || note "repeated accessions: $dups"
+    # schema_input.json's fetchngs schema is a single unnamed column -- a comma anywhere in a
+    # line is an extra field the pipeline's own accession regex does not cleanly reject.
+    ragged="$(awk -F, 'NF!=1{printf "line %d has %d fields; ", NR, NF}' "$SS")"
+    [ -z "$ragged" ] || bad "ragged rows (fetchngs takes one accession per line, no commas): $ragged"
   else
     hdr="$(head -1 "$SS")"
     ok "header: $hdr"
