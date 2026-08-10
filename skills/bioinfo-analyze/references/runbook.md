@@ -444,10 +444,24 @@ channel wiring, output propagation into the rest of `vcf_variant_filtering_gatk`
 consumption of their reports are never exercised by `-stub-run`, clean or not. The `completed=10
 failed=0` result above proves the rest of the pipeline wires correctly; it says nothing about this
 branch. The first real evidence that `VCF_VARIANT_FILTERING_GATK` is runnable is therefore the
-first *real* command that does not carry `haplotypecaller_filter` in its own `--skip_tools` — check
-that run's `CNNSCOREVARIANTS`/`FILTERVARIANTTRANCHES` task status and the filtered VCF's `FILTER`
-column (non-`.` values) as the actual gate for this branch, the same discipline as the rnaseq and
-differentialabundance cases above.
+first *real* command that does not carry `haplotypecaller_filter` in its own `--skip_tools` — but
+the gate that run must clear depends on whether calibration resources were supplied, not on the
+FILTER column alone:
+- **Wiring gate, always required:** both `CNNSCOREVARIANTS` and `FILTERVARIANTTRANCHES` complete
+  (`failed=0` on those two tasks) and the output VCF carries a `CNN_1D` key in its `INFO` field —
+  `modules/nf-core/gatk4/cnnscorevariants/main.nf` calls GATK's `CNNScoreVariants` with no
+  `--tensor-type` override, so it runs GATK's default 1D model and writes that annotation
+  unconditionally, with or without `--dbsnp`/`--known_indels`. Its presence is what proves the
+  branch is actually wired and running, not an artefact of calibration data existing.
+- **Filtering gate, only once `--dbsnp`/`--known_indels` are supplied:** non-`.` values in the
+  `FILTER` column. Without those resources `FilterVariantTranches` has nothing to calibrate
+  against and legitimately leaves every record `.` — as already measured on this exact host
+  (`runs/20260729-sarek-srr26793256/handoff.md`'s Ti/Tv row) — so requiring non-`.` on a
+  no-bundle run would fail a correctly-wired branch forever, not catch a real defect.
+
+Same discipline as the rnaseq and differentialabundance cases above: name the concrete signal that
+proves the branch ran, don't reuse a signal that depends on inputs this stub fix has nothing to do
+with.
 
 **Whether the *real* run also carries `haplotypecaller_filter` in `--skip_tools` is a separate,
 explicit methods decision — not implied by the stub fix above, and not something this file
