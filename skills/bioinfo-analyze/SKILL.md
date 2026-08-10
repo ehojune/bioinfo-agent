@@ -93,7 +93,7 @@ Do them in order. Do not skip step 3 or step 4.
    samplesheet. Neither substitutes for the other: `-preview` resolves params and the DAG without
    running anything, `-stub-run` exercises the process wiring. A stub run that fails is a real
    failure — fix it, do not "try it for real and see". `references/runbook.md` section 4.
-   **Two documented departures from "stub the real command as-is," and only these two —
+   **Three documented departures from "stub the real command as-is," and only these three —
    `references/runbook.md` section 4 is the canonical list, do not generalise beyond it:**
    - **A true waiver** (the failing stub is accepted, not avoided): an rnaseq samplesheet with
      `strandedness: auto` makes the real-command stub fail unavoidably, because the pipeline
@@ -107,10 +107,23 @@ Do them in order. Do not skip step 3 or step 4.
      Runbook section 4 states the exact error and the `--features`-substitute params file that
      must itself pass clean (`completed=N failed=0`) before you launch with the real, unmodified
      `--gtf` params — no failure is ever waived here, a different stub input is used instead.
-   Both are partial gates, not full substitutes for testing the real command — runbook section 4
-   states plainly what each one does not cover. Nothing else in this skill waives or substitutes
-   a stub; a third pipeline hitting a similar shape needs its own documented case here and in the
-   runbook, not an ad hoc workaround.
+   - **A stub-only flag addition, not a real-command change** (the stub is made to pass by adding
+     `haplotypecaller_filter` into a single, combined `--skip_tools` value — CLI `--skip_tools`
+     replaces rather than merges with a params file's existing value, so this store's already-
+     required `baserecalibrator` skip must be comma-joined in, not overwritten — required for
+     `-stub-run` alone and must not be assumed for the real command): sarek at this pin's `3.5.1`
+     (`config/pipelines.tsv`),
+     `--tools haplotypecaller`, routes into `GATK4_CNNSCOREVARIANTS`, which has no `stub:` block at
+     this revision regardless of whether `--dbsnp`/`--known_indels` are supplied, so it runs for
+     real against HaplotypeCaller's empty placeholder stub VCF and crashes. Runbook section 4
+     states the exact error and why the fix belongs in the stub invocation permanently at this
+     pin — carrying the same flag into the *real* command is a separate, explicit methods decision
+     (it silently drops CNN score annotations and `FilterVariantTranches`) that must be recorded in
+     that run's own `plan.md`, not inherited from this stub fix.
+   All three are partial gates, not full substitutes for testing the real command — runbook
+   section 4 states plainly what each one does not cover. Nothing else in this skill waives or
+   substitutes a stub; a fourth pipeline hitting a similar shape needs its own documented case
+   here and in the runbook, not an ad hoc workaround.
 5. **Execution.** Launch from ext4, logging to file, always through `tmux` (`references/runbook.md`
    section 5) — not a bare foreground command, not `nohup … &`, and not your own backgrounded
    tool call that you separately wait for. All three have lost a real run on this host: `nohup`
