@@ -295,6 +295,7 @@ process reaching `[100%] N of N ✔`, `Completed at: …`, `Succeeded: N`, exit 
 | `does not exist` on a `/refs/...` path | manifest gap; run `bootstrap/04-refs.sh`, do not hand-place the file |
 | `Process 'X' doesn't have a stub block` | that module has no stub upstream. Not your bug; note it and rely on `-preview` plus a real 1-sample run for that branch |
 | `ERROR ~ Text must not be null or empty` at `fastq_qc_trim_filter_setstrandedness/main.nf` | **rnaseq only, and it is the samplesheet, not the pipeline.** `strandedness: auto` cannot be stubbed — see the note below the table for what to do and what it does *not* cover |
+| `Error in read.table(file = file, ...) : no lines available in input` inside `VALIDATOR (samplesheet.csv)`, container `r-shinyngs` | **differentialabundance only, when launched with `--gtf` (the documented, default path).** See the note below the table |
 | `Unable to pull docker image` | see failure taxonomy below; fix before the real launch, not during |
 
 **`strandedness: auto` and `-stub-run`, and why two stubs cover less than one whole run.**
@@ -345,6 +346,39 @@ MultiQC's strand-check table rather than assuming a passing stub covered it.
 
 A stub run that fails is a launch that would have failed after burning real hours. Fix, re-stub,
 then launch.
+
+**`nf-core/differentialabundance` 1.5.0, `-stub-run`, and `--gtf`.** First run of this pipeline on
+this host, 2026-08-10 (`20260810-differentialabundance-gln3-ibutanol`). With the documented,
+default input shape (`--gtf`, not `--features`), the DAG is
+`GUNZIP_GTF → GTF_TO_TABLE → VALIDATOR → ...`. `GTF_TO_TABLE`'s stub block is a bare
+`touch genes.anno.tsv` — it does not write a header or any rows — and `VALIDATOR` (module
+`r-shinyngs`, script `validate_fom_components.R`) is not itself stubbed, so under `-stub-run` it
+runs for real against that empty file and dies in `read.table()` with
+`Error ... no lines available in input`. This is the same shape as the rnaseq
+`strandedness: auto` case above (a real script fed a deliberately-empty stub upstream output) but
+it is **not** a waived exception, because there is a clean workaround rather than a guaranteed
+failure: the workflow reads features from `--features` *instead of* `--gtf` when both would
+otherwise be derived from it (`workflows/differentialabundance.nf`, the `if (params.features) …
+else if (params.gtf) … GTF_TO_TABLE(...)` branch), and `--features` skips `GTF_TO_TABLE` entirely.
+
+```bash
+# Stub-only substitute — the REAL run keeps --gtf, exactly as planned. Derive a small, genuinely
+# non-empty feature table from the matrix itself (gene_id + gene_name columns are enough for the
+# stub to validate against); do not hand-write one, and do not point --gtf at anything but the
+# real reference. $MATRIX is whatever --matrix already names in $RUNDIR/params.yaml.
+cut -f1,2 "$MATRIX" > "$STUBDIR/stub_features.tsv"
+sed "s#^gtf:.*#features: $STUBDIR/stub_features.tsv#" "$RUNDIR/params.yaml" > "$STUBDIR/stub_params.yaml"
+# ... then run the -stub-run invocation with -params-file "$STUBDIR/stub_params.yaml" instead of
+# $RUNDIR/params.yaml, and the usual --outdir/-work-dir pointed at $STUBDIR.
+```
+
+**Partial gate, same as the strandedness case**: this substitution means the stub never exercises
+`GUNZIP_GTF`/`GTF_TO_TABLE` against the real `--gtf`, and `VALIDATOR` sees synthetic feature
+metadata rather than what the real GTF conversion produces. Verified clean end to end with the
+substitution (`completed=12 failed=0`, all downstream processes including `DESEQ2_DIFFERENTIAL`,
+`SHINYNGS_APP`, `RMARKDOWNNOTEBOOK`, `MAKE_REPORT_BUNDLE` reached). The real run, using the real
+`--gtf`, is what actually proves `GUNZIP_GTF`/`GTF_TO_TABLE` against real reference data — treat
+`VALIDATOR`'s first real-run pass as the gate for that branch, same discipline as the rnaseq case.
 
 ---
 

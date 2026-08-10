@@ -25,7 +25,7 @@ pipeline	revision	schema_checked	note
 rnaseq	3.18.0	no	columns unchanged across 3.14-3.19
 sarek	3.5.1	no	per-step schemas stable across 3.x
 fetchngs	1.12.0	no	input semantics changed in 1.11/1.12
-differentialabundance	1.5.0	no	params moved between 1.2 and 1.4
+differentialabundance	1.5.0	2026-08-10	schema_input.json re-read this run: sample id column only, free-form otherwise; contrasts has NO json schema (validated in R) -- see samplesheets.md. -stub-run needs --features workaround with the default --gtf path, see runbook.md sec 4
 methylseq	3.0.0	2026-08-05	3.0 is a template rewrite from 2.x - schema_input.json re-read this run: sample+fastq_1 required, fastq_2/genome optional -- matches 2.x
 atacseq	2.1.2	no	stable
 chipseq	2.1.0	no	samplesheet changed 1.x to 2.x; confirm replicate/control_replicate
