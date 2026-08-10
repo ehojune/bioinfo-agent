@@ -171,30 +171,24 @@ jobs:
             });
             
             if (pr.data.state === 'open') {
+              // This repo's convention (every PR merged so far, #4-#27) is a plain merge
+              // commit via `gh pr merge --merge`, not squash. Match it instead of rewriting
+              // history the bots and reviewers already reasoned about commit-by-commit.
               try {
                 await github.rest.pulls.merge({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   pull_number: prNumber,
-                  merge_method: 'squash',
+                  merge_method: 'merge',
                   commit_title: pr.data.title,
                   commit_message: `Auto-merged at 20 comments.\n\nPR: ${pr.data.html_url}`,
                 });
               } catch (error) {
-                try {
-                  await github.rest.pulls.merge({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    pull_number: prNumber,
-                    merge_method: 'merge',
-                  });
-                } catch (e) {
-                  await github.rest.issues.createComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: prNumber,
-                    body: `❌ Auto-merge failed. Manual merge needed.`
-                  });
-                }
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  body: `❌ Auto-merge failed. Manual merge needed.`
+                });
               }
             }
