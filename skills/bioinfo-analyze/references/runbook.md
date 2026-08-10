@@ -438,6 +438,17 @@ module is stubbed.) If a later sarek revision adds the missing `stub:` block (as
 has), re-check with the two-line `grep -rL --include='main.nf' 'stub:'` command above before
 carrying this forward again.
 
+**What this stub-only skip does NOT cover:** with `haplotypecaller_filter` in `--skip_tools`, the
+stub never instantiates `GATK4_CNNSCOREVARIANTS` or `GATK4_FILTERVARIANTTRANCHES` at all — their
+channel wiring, output propagation into the rest of `vcf_variant_filtering_gatk`, and MultiQC's
+consumption of their reports are never exercised by `-stub-run`, clean or not. The `completed=10
+failed=0` result above proves the rest of the pipeline wires correctly; it says nothing about this
+branch. The first real evidence that `VCF_VARIANT_FILTERING_GATK` is runnable is therefore the
+first *real* command that does not carry `haplotypecaller_filter` in its own `--skip_tools` — check
+that run's `CNNSCOREVARIANTS`/`FILTERVARIANTTRANCHES` task status and the filtered VCF's `FILTER`
+column (non-`.` values) as the actual gate for this branch, the same discipline as the rnaseq and
+differentialabundance cases above.
+
 **Whether the *real* run also carries `haplotypecaller_filter` in `--skip_tools` is a separate,
 explicit methods decision — not implied by the stub fix above, and not something this file
 recommends by default.** Codex also flagged this in review, correctly: adding the skip to the real
