@@ -367,6 +367,9 @@ else if (params.gtf) … GTF_TO_TABLE(...)` branch), and `--features` skips `GTF
 # non-empty feature table from the matrix itself (gene_id + gene_name columns are enough for the
 # stub to validate against); do not hand-write one, and do not point --gtf at anything but the
 # real reference.
+STUBDIR=$STUBROOT/features-substitute      # NOT $STUBROOT/main -- that is the failed --gtf attempt;
+mkdir -p "$STUBDIR"                        # reusing it would union this pass's outputs with the
+                                            # failed one's, same rule as the rnaseq case above
 MATRIX=$(grep -m1 '^matrix:' "$RUNDIR/params.yaml" | sed -E 's/^matrix:[[:space:]]*//; s/[[:space:]]+#.*$//' \
   | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//")
 # grep anchored to `^matrix:` picks the KEY, not any line merely containing the substring "matrix"
