@@ -422,7 +422,13 @@ silently regresses whenever the pin in `config/pipelines.tsv` points at an older
 prior run validated.
 
 **The stub-only fix, always required at this pin, independent of the bundle:** add
-`haplotypecaller_filter` to `--skip_tools` **for the `-stub-run` invocation**.
+`haplotypecaller_filter` to `--skip_tools` **for the `-stub-run` invocation**. **A CLI
+`--skip_tools` *replaces* whatever value a params file or config already set — it does not merge
+with it.** On this no-bundle store, `--skip_tools baserecalibrator` is already required (see
+`pipeline-selection.md`'s `--skip_tools baserecalibrator` row); pass one combined,
+comma-joined value — `--skip_tools baserecalibrator,haplotypecaller_filter` — not a second
+`--skip_tools` flag with only `haplotypecaller_filter` in it, which would silently re-enable
+BaseRecalibrator against resources the store does not have.
 `workflows/sarek/main.nf` reads `params.skip_tools` for `haplotypecaller_filter` specifically to
 gate the whole `VCF_VARIANT_FILTERING_GATK` call, so this skips `CNNSCOREVARIANTS`/
 `FILTERVARIANTTRANCHES` outright — it removes the reason the unstubbed module runs at all, rather

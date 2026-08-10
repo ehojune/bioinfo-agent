@@ -108,8 +108,11 @@ Do them in order. Do not skip step 3 or step 4.
      must itself pass clean (`completed=N failed=0`) before you launch with the real, unmodified
      `--gtf` params — no failure is ever waived here, a different stub input is used instead.
    - **A stub-only flag addition, not a real-command change** (the stub is made to pass by adding
-     `--skip_tools haplotypecaller_filter`, which is required for `-stub-run` alone and must not be
-     assumed for the real command): sarek at this pin's `3.5.1` (`config/pipelines.tsv`),
+     `haplotypecaller_filter` into a single, combined `--skip_tools` value — CLI `--skip_tools`
+     replaces rather than merges with a params file's existing value, so this store's already-
+     required `baserecalibrator` skip must be comma-joined in, not overwritten — required for
+     `-stub-run` alone and must not be assumed for the real command): sarek at this pin's `3.5.1`
+     (`config/pipelines.tsv`),
      `--tools haplotypecaller`, routes into `GATK4_CNNSCOREVARIANTS`, which has no `stub:` block at
      this revision regardless of whether `--dbsnp`/`--known_indels` are supplied, so it runs for
      real against HaplotypeCaller's empty placeholder stub VCF and crashes. Runbook section 4
