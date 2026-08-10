@@ -213,11 +213,15 @@ beyond the GSEA module it wraps; pathway interpretation is the user's job.
 
 **Minimum input** — three files:
 
-1. `--matrix` — the count matrix. From rnaseq: `star_salmon/salmon.merged.gene_counts.tsv`.
-   <!-- UNVERIFIED: whether to prefer salmon.merged.gene_counts.tsv (raw, tximport "no" scaling) or
-        salmon.merged.gene_counts_length_scaled.tsv for DESeq2 is a real judgement call and the
-        nf-core docs example has used both. Confirm against the -r you run, and say in the run plan
-        which one you used. -->
+1. `--matrix` — the **raw** count matrix, `star_salmon/salmon.merged.gene_counts.tsv`, paired with
+   `--transcript_length_matrix star_salmon/salmon.merged.gene_lengths.tsv`. **Resolved 2026-08-10**
+   (run `20260810-differentialabundance-gln3-ibutanol`, first run of this pipeline on this host):
+   confirmed against the pipeline's own `conf/test.config`, which exercises exactly this pair in
+   CI, and against `workflows/differentialabundance.nf`'s `ch_transcript_lengths` channel, which
+   feeds `DESEQ2_NORM`/`DESEQ2_DIFFERENTIAL` directly. Do **not** substitute
+   `salmon.merged.gene_counts_length_scaled.tsv` for the raw matrix — that is a different,
+   untested input shape; the raw-matrix-plus-length-matrix pair is the one this pipeline's own
+   test suite runs. See `references/samplesheets.md`'s differentialabundance section for detail.
 2. `--input` — observations/samplesheet CSV. Must contain one row per matrix **column**, with a
    sample-id column matching the matrix header exactly, plus the condition columns you will
    contrast on. The rnaseq samplesheet works as a base; add the metadata columns.
@@ -250,10 +254,13 @@ and every sign in the report is inverted.
 $BIOINFO_REFS/genomes/GRCh38/gtf/genes.gtf.gz    annotation only; no FASTA, no index
 ```
 
-**Key outputs:** `tables/differential/*.deseq2.results.tsv` (one per contrast),
-`tables/processed/` normalised matrices, `plots/` (PCA, MA, volcano, clustering), and the report
-HTML. <!-- UNVERIFIED: exact output subdirectory names shifted between 1.2 and 1.5; confirm with
-`ls` after the stub run rather than promising paths in advance. -->
+**Key outputs**, confirmed on disk at 1.5.0 (`20260810-differentialabundance-gln3-ibutanol`):
+`tables/differential/<contrast_id>.deseq2.results.tsv` (full) and
+`tables/differential/<contrast_id>.deseq2.results_filtered.tsv` (post `--differential_min_fold_change`/
+`--differential_max_qval`, one per contrast), `tables/processed_abundance/all.{normalised_counts,vst}.tsv`,
+`tables/annotation/genes.anno.tsv`, `plots/{qc,exploratory,differential}/`, `other/deseq2/` (size
+factors, `.rds` objects), and `report/<study_name>.html` (self-contained, plus a `.zip` bundle) —
+**no MultiQC**, confirmed by `qc-interpretation.md` §1.
 
 **QC verdict checklist:** does the PCA separate by the contrast variable or by a nuisance variable;
 is the dispersion fit sane; how many genes pass independent filtering; is the p-value histogram
@@ -739,9 +746,13 @@ nextflow run nf-core/differentialabundance -r 1.5.0 \
   --input  samples_with_metadata.csv \
   --contrasts contrasts.csv \
   --matrix "$OUT/rnaseq/star_salmon/salmon.merged.gene_counts.tsv" \
+  --transcript_length_matrix "$OUT/rnaseq/star_salmon/salmon.merged.gene_lengths.tsv" \
   --gtf    "$BIOINFO_REFS/genomes/GRCh38/gtf/genes.gtf.gz" \
   --outdir "$OUT/da"
 ```
+
+`--transcript_length_matrix` is optional per the schema but is what the pipeline's own CI profile
+pairs with the raw matrix (§4.2 above) — include it rather than passing the raw matrix alone.
 
 Three things break this chain, in order of frequency:
 

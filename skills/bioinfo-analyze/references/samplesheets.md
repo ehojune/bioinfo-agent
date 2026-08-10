@@ -274,10 +274,17 @@ the values in the id column** — same strings, same case, no extra suffixes. rn
 `sample` values from its own samplesheet as headers, so if the two sheets were built from the same
 source they match; if a human retyped one of them they do not.
 
-<!-- UNVERIFIED: whether to pass salmon.merged.gene_counts.tsv plus
-     --transcript_length_matrix salmon.merged.gene_lengths.tsv, or the length-scaled matrix
-     directly. Check `nextflow run nf-core/differentialabundance -r 1.5.0 --help | grep -i matrix`
-     and the pipeline's usage docs in the cloned asset dir. -->
+**Resolved 2026-08-10, run `20260810-differentialabundance-gln3-ibutanol`, first run of this
+pipeline on this host.** `--matrix` takes the raw `salmon.merged.gene_counts.tsv`, paired with
+`--transcript_length_matrix salmon.merged.gene_lengths.tsv` (same shape: `gene_id`, `gene_name`,
+then one average-transcript-length column per sample) — not the length-scaled matrix on its own.
+Confirmed against the pipeline's own `conf/test.config` (`matrix` + `transcript_length_matrix` +
+`contrasts` + `gtf` + `input`, the exact combination it exercises in CI) and against
+`workflows/differentialabundance.nf`'s `ch_transcript_lengths` channel, which is optional but
+feeds `DESEQ2_NORM`/`DESEQ2_DIFFERENTIAL` directly when supplied. `nextflow run
+nf-core/differentialabundance -r 1.5.0 --help` does not run standalone — it errors
+`Input samplesheet not specified!` with no other params given; `nextflow_schema.json`'s
+`abundance_values` group is the reliable source instead.
 
 ### `--contrasts` (contrasts.csv)
 
@@ -300,10 +307,15 @@ The design becomes roughly `~ batch + sex + condition`, with the log2 fold chang
 target relative to reference. Get `reference` and `target` backwards and the pipeline runs
 perfectly and reports every sign inverted.
 
-<!-- UNVERIFIED: 1.5.x may also accept `pairing`, `exclude_samples_col` and
-     `exclude_samples_values` columns. Verify with
-     `cat $NXF_ASSETS/.repos/nf-core/differentialabundance/clones/*/assets/schema_contrasts.json`
-     (filename may differ — list assets/ if it is not there). -->
+**Resolved 2026-08-10.** No `schema_contrasts.json` (or any other JSON schema for the contrasts
+file) exists in `assets/` at 1.5.0 (commit `3dd360fed0`) — `assets/` there holds only
+`schema_input.json`, which validates `--input`, not `--contrasts`. Contrasts validation happens in
+R, inside the `VALIDATOR` process (`validate_fom_components.R`) and the DESeq2/limma modules
+themselves, which is why a bad `variable`/`reference`/`target` surfaces as the R error text quoted
+below rather than a schema rejection. `blocking` is confirmed real and load-bearing — read
+directly off `modules/nf-core/deseq2/differential/templates/deseq_de.R`, which adds it to the
+design formula. No `pairing`, `exclude_samples_col` or `exclude_samples_values` columns exist at
+this revision; do not add them speculatively.
 
 Failure modes specific to this pipeline:
 
