@@ -162,9 +162,13 @@ if [ -f "$SS" ]; then
     # data rows" against a real 10-accession file.
     ok "fetchngs: headerless accession list, no header row expected"
     nrow="$(grep -c '[^[:space:]]' "$SS" || true)"
-    nsamp="$(sort -u "$SS" | grep -c '[^[:space:]]' || true)"
+    # Strip per-line whitespace before comparing accessions -- the pipeline's own
+    # .splitCsv(..., strip:true) treats " SRR15498316 " and "SRR15498316" as the same accession,
+    # so a raw sort/uniq here would undercount duplicates and report a false distinct count.
+    stripped_ss="$(sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' "$SS")"
+    nsamp="$(printf '%s\n' "$stripped_ss" | sort -u | grep -c '[^[:space:]]' || true)"
     [ "$nrow" -gt 0 ] && ok "$nrow accessions, $nsamp distinct" || bad "no accessions"
-    dups="$(sort "$SS" | uniq -d | tr '\n' ' ')"
+    dups="$(printf '%s\n' "$stripped_ss" | sort | uniq -d | tr '\n' ' ')"
     [ -z "$dups" ] || note "repeated accessions: $dups"
     # schema_input.json's fetchngs schema is a single unnamed column -- a comma anywhere in a
     # line is an extra field the pipeline's own accession regex does not cleanly reject.
@@ -174,7 +178,7 @@ if [ -f "$SS" ]; then
     # and still be rejected by fetchngs's own isSraId() before any download. Same pattern as
     # assets/schema_input.json. Strip per-line whitespace first, matching the pipeline's own
     # .splitCsv(..., strip:true), so " SRR15498316 " is not flagged when fetchngs would accept it.
-    badacc="$( (sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' "$SS" | grep -nvE '^(((SR|ER|DR)[APRSX])|(SAM(N|EA|D))|(PRJ(NA|EB|DB))|(GS[EM]))[0-9]+$' || true) | tr '\n' ' ')"
+    badacc="$( (printf '%s\n' "$stripped_ss" | grep -nvE '^(((SR|ER|DR)[APRSX])|(SAM(N|EA|D))|(PRJ(NA|EB|DB))|(GS[EM]))[0-9]+$' || true) | tr '\n' ' ')"
     [ -z "$badacc" ] || bad "invalid accession(s) (fails SRA/ENA/DDBJ/BioProject/BioSample/GEO pattern): $badacc"
   else
     hdr="$(head -1 "$SS")"
