@@ -172,8 +172,9 @@ if [ -f "$SS" ]; then
     [ -z "$ragged" ] || bad "ragged rows (fetchngs takes one accession per line, no commas): $ragged"
     # Single-field is necessary but not sufficient -- "id"/"sample"/a typo would pass that check
     # and still be rejected by fetchngs's own isSraId() before any download. Same pattern as
-    # assets/schema_input.json.
-    badacc="$( (grep -nvE '^(((SR|ER|DR)[APRSX])|(SAM(N|EA|D))|(PRJ(NA|EB|DB))|(GS[EM]))[0-9]+$' "$SS" || true) | tr '\n' ' ')"
+    # assets/schema_input.json. Strip per-line whitespace first, matching the pipeline's own
+    # .splitCsv(..., strip:true), so " SRR15498316 " is not flagged when fetchngs would accept it.
+    badacc="$( (sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' "$SS" | grep -nvE '^(((SR|ER|DR)[APRSX])|(SAM(N|EA|D))|(PRJ(NA|EB|DB))|(GS[EM]))[0-9]+$' || true) | tr '\n' ' ')"
     [ -z "$badacc" ] || bad "invalid accession(s) (fails SRA/ENA/DDBJ/BioProject/BioSample/GEO pattern): $badacc"
   else
     hdr="$(head -1 "$SS")"
@@ -204,8 +205,15 @@ else
   fi
   # fetchngs plans count "accessions", not "samples" -- the word this repo's fetchngs run plans
   # actually use (an accession list resolves to an unknown-in-advance number of runs/samples, so
-  # "sample count" is the wrong noun for it). Recognise both.
-  planN="$(grep -oiE '([0-9]+[[:space:]]+(samples?|accessions?)|(samples?|accessions?)[[:space:]]*[:=][[:space:]]*[0-9]+)' "$PLAN" | head -1 | tr -dc '0-9' || true)"
+  # "sample count" is the wrong noun for it). Only look for "accessions" on a fetchngs run: on
+  # any other pipeline a plan can legitimately mention an accession total (e.g. "derived from a
+  # 100-accession fetchngs pull") well before its own "Sample count: 20", and matching the first
+  # one found would compare the wrong number against the sheet.
+  if [ "$PIPE" = fetchngs ]; then
+    planN="$(grep -oiE '([0-9]+[[:space:]]+accessions?|accessions?[[:space:]]*[:=][[:space:]]*[0-9]+)' "$PLAN" | head -1 | tr -dc '0-9' || true)"
+  else
+    planN="$(grep -oiE '([0-9]+[[:space:]]+samples?|samples?[[:space:]]*[:=][[:space:]]*[0-9]+)' "$PLAN" | head -1 | tr -dc '0-9' || true)"
+  fi
   if [ -z "$planN" ]; then
     note "plan.md states no sample count — sheet size not cross-checked"
   elif [ -z "$nrow" ]; then

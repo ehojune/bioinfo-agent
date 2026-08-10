@@ -75,8 +75,11 @@ if [[ "$PIPELINE" == fetchngs ]]; then
   # would pass the field-count check above and this script would report PASS even though
   # fetchngs's own isSraId() (subworkflows/local/utils_nfcore_fetchngs_pipeline/main.nf) rejects
   # it and aborts the whole run before any download. Same pattern as assets/schema_input.json.
+  # The pipeline itself reads --input with .splitCsv(header:false, sep:'', strip:true) -- strip
+  # leading/trailing whitespace per line before matching, the same way, so " SRR15498316 " is not
+  # flagged as invalid here only for the pipeline to accept it.
   ACCPAT='^(((SR|ER|DR)[APRSX])|(SAM(N|EA|D))|(PRJ(NA|EB|DB))|(GS[EM]))[0-9]+$'
-  BADACC=$( (grep -nvE "$ACCPAT" "$TMP" || true) | sed 's/^/line /; s/:/ not a valid accession: /' | tr '\n' '; ')
+  BADACC=$( (sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' "$TMP" | grep -nvE "$ACCPAT" || true) | sed 's/^/line /; s/:/ not a valid accession: /' | tr '\n' '; ')
   [[ -z "$BADACC" ]] && ok "all lines match a valid SRA/ENA/DDBJ/BioProject/BioSample/GEO accession" \
                      || fail "invalid accession(s): $BADACC"
 else
