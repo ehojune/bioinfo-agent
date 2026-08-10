@@ -170,6 +170,11 @@ if [ -f "$SS" ]; then
     # line is an extra field the pipeline's own accession regex does not cleanly reject.
     ragged="$(awk -F, 'NF!=1{printf "line %d has %d fields; ", NR, NF}' "$SS")"
     [ -z "$ragged" ] || bad "ragged rows (fetchngs takes one accession per line, no commas): $ragged"
+    # Single-field is necessary but not sufficient -- "id"/"sample"/a typo would pass that check
+    # and still be rejected by fetchngs's own isSraId() before any download. Same pattern as
+    # assets/schema_input.json.
+    badacc="$( (grep -nvE '^(((SR|ER|DR)[APRSX])|(SAM(N|EA|D))|(PRJ(NA|EB|DB))|(GS[EM]))[0-9]+$' "$SS" || true) | tr '\n' ' ')"
+    [ -z "$badacc" ] || bad "invalid accession(s) (fails SRA/ENA/DDBJ/BioProject/BioSample/GEO pattern): $badacc"
   else
     hdr="$(head -1 "$SS")"
     ok "header: $hdr"
