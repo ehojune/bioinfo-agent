@@ -377,6 +377,11 @@ MATRIX=$(grep -m1 '^matrix:' "$RUNDIR/params.yaml" | sed -E 's/^matrix:[[:space:
 # left in place, `cut -f1,2 "$MATRIX"` fails to open a filename literally prefixed with a quote.
 # Does not handle escaped quotes inside the path itself -- this repo's own params.yaml files never
 # quote paths (see any existing runs/*/params.yaml), so an unquoted path remains the common case.
+# `cut` below needs a coreutils-openable path (local ext4/drvfs), not a remote URI -- true of
+# every --matrix this repo has ever passed (always an rnaseq run's own results/ output on
+# $BIOINFO_WORK). The s3:// example above is there ONLY to prove the colon-splitting bug is
+# fixed, not because this repo stages matrices from object storage; if that ever changes, stage
+# the remote file locally first and point $MATRIX at the local copy.
 cut -f1,2 "$MATRIX" > "$STUBDIR/stub_features.tsv"
 sed "s#^gtf:.*#features: $STUBDIR/stub_features.tsv#" "$RUNDIR/params.yaml" > "$STUBDIR/stub_params.yaml"
 # ... then run the -stub-run invocation with -params-file "$STUBDIR/stub_params.yaml" instead of
