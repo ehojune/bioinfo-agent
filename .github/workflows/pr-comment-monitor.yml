@@ -23,19 +23,24 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           script: |
+            // `issue_comment` also fires for plain issues, which have no `pull_request` key.
+            // Without this guard `pulls.get` 404s and the whole job fails on every issue comment.
+            const isPr = !!context.payload.pull_request || !!context.payload.issue?.pull_request;
             let prNumber = context.payload.pull_request?.number || context.payload.issue?.number;
-            if (!prNumber) {
+            if (!prNumber || !isPr) {
               console.log('Not a PR event, skipping');
               return;
             }
-            
+
             const pr = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: prNumber,
             });
-            
-            const reviewComments = await github.rest.pulls.listComments({
+
+            // Octokit names this `listReviewComments`; `pulls.listComments` does not exist
+            // and threw `TypeError: ... is not a function` on every run before this fix.
+            const reviewComments = await github.rest.pulls.listReviewComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: prNumber,
@@ -49,11 +54,14 @@ jobs:
               per_page: 100,
             });
             
+            // This workflow's own comments (the 🟡/⏰/🟢 status posts below) must not count
+            // toward the threshold they are announcing — otherwise each status post pulls the
+            // real limit in by one, and repeated posts (the warn step is not idempotent across
+            // runs the moment its own dedupe check is skipped) could compound that further.
+            // Filtering by author, not by body text, is what actually excludes them.
             const allComments = [...reviewComments.data, ...issueComments.data];
-            const comments = allComments.filter(c => 
-              c.body && 
-              !c.body.includes('<!-- -->') &&
-              !c.body.match(/^Merge|^Auto-merge|^This branch/)
+            const comments = allComments.filter(c =>
+              c.body && c.user.login !== 'github-actions[bot]'
             );
             
             const commentCount = comments.length;
@@ -166,30 +174,24 @@ jobs:
             });
             
             if (pr.data.state === 'open') {
+              // This repo's convention (every PR merged so far, #4-#27) is a plain merge
+              // commit via `gh pr merge --merge`, not squash. Match it instead of rewriting
+              // history the bots and reviewers already reasoned about commit-by-commit.
               try {
                 await github.rest.pulls.merge({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   pull_number: prNumber,
-                  merge_method: 'squash',
+                  merge_method: 'merge',
                   commit_title: pr.data.title,
                   commit_message: `Auto-merged at 20 comments.\n\nPR: ${pr.data.html_url}`,
                 });
               } catch (error) {
-                try {
-                  await github.rest.pulls.merge({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    pull_number: prNumber,
-                    merge_method: 'merge',
-                  });
-                } catch (e) {
-                  await github.rest.issues.createComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: prNumber,
-                    body: `❌ Auto-merge failed. Manual merge needed.`
-                  });
-                }
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  body: `❌ Auto-merge failed. Manual merge needed.`
+                });
               }
             }
