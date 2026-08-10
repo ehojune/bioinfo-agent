@@ -421,25 +421,45 @@ config-specific: the `3.9.0` clone from the prior sarek run on this host
 silently regresses whenever the pin in `config/pipelines.tsv` points at an older tag than what a
 prior run validated.
 
-Unlike the rnaseq case, this is not a waived exception — like the differentialabundance case, there
-is a clean fix, and it is not merely a stub substitute: **add `haplotypecaller_filter` to
-`--skip_tools` in the real command, not only the stub.** `workflows/sarek/main.nf` reads
-`params.skip_tools` for `haplotypecaller_filter` specifically to gate the whole
-`VCF_VARIANT_FILTERING_GATK` call, so this skips `CNNSCOREVARIANTS`/`FILTERVARIANTTRANCHES`
-outright — it does not route around the missing stub, it removes the reason the module runs at
-all. This changes nothing material about the real run's output: `FilterVariantTranches` produces no
-usable filtering when it has no `--dbsnp`/`--known_indels` to calibrate against in the first place
-(every FILTER field comes out `.`, confirmed in `runs/20260729-sarek-srr26793256/handoff.md`'s Ti/Tv
-row) — `haplotypecaller_filter` just stops the pipeline spending two process invocations on a step
-that was never going to filter anything. Verified clean end to end with the skip added
-(`completed=10 failed=0 cached=0`, `20260810-sarek-srr26793256-revalidate`).
+**The stub-only fix, always required at this pin, independent of the bundle:** add
+`haplotypecaller_filter` to `--skip_tools` **for the `-stub-run` invocation**.
+`workflows/sarek/main.nf` reads `params.skip_tools` for `haplotypecaller_filter` specifically to
+gate the whole `VCF_VARIANT_FILTERING_GATK` call, so this skips `CNNSCOREVARIANTS`/
+`FILTERVARIANTTRANCHES` outright — it removes the reason the unstubbed module runs at all, rather
+than routing around it. Verified clean end to end (`completed=10 failed=0 cached=0`,
+`20260810-sarek-srr26793256-revalidate`). **This is a property of the 3.5.1 module, not of whether
+a GATK bundle exists** — `GATK4_CNNSCOREVARIANTS` has no `stub:` block regardless of what
+`--dbsnp`/`--known_indels` you pass, so it still runs for real (and still gets fed the same empty
+placeholder VCF) under `-stub-run` even once the bundle is fetched and a real run passes those
+flags. **Keep this skip in the stub invocation permanently, at this pin — do not remove it "once
+the bundle exists."** (Codex flagged this exact trap in review: dropping it from the stub the day
+the bundle lands reopens the same crash, because nothing about having `--dbsnp` changes whether the
+module is stubbed.) If a later sarek revision adds the missing `stub:` block (as 3.9.0 already
+has), re-check with the two-line `grep -rL --include='main.nf' 'stub:'` command above before
+carrying this forward again.
 
-This affects **every** sarek run through this store's current pin, in this store's current state
-(GATK bundle absent), that reaches `haplotypecaller` without this skip already set — which, until
-the bundle is fetched, is effectively every germline HaplotypeCaller run on this host. Once
-`dbsnp`/`known_indels` exist in the store and a run passes them, `haplotypecaller_filter` should be
-dropped from `--skip_tools` again so real filtering runs; this workaround is a function of the
-missing bundle, not a permanent property of the pipeline.
+**Whether the *real* run also carries `haplotypecaller_filter` in `--skip_tools` is a separate,
+explicit methods decision — not implied by the stub fix above, and not something this file
+recommends by default.** Codex also flagged this in review, correctly: adding the skip to the real
+command does not merely dodge a stub artefact, it removes `CNNSCOREVARIANTS`/
+`FILTERVARIANTTRANCHES` from the actual pipeline, which changes the produced VCF (no CNN score
+annotations, no `FilterVariantTranches` pass at all, however uninformative that pass would have
+been). The "this changes nothing material" reasoning only holds while the store genuinely has no
+`--dbsnp`/`--known_indels` to give `FilterVariantTranches` anything to calibrate against (confirmed
+for a 3.9.0 run, `runs/20260729-sarek-srr26793256/handoff.md`'s Ti/Tv row — FILTER came out `.` on
+every record regardless) — it stops holding the moment a run actually passes real `--dbsnp`/
+`--known_indels`. Decide and record this per run, in that run's own `plan.md`, as a bounded choice
+with the reasoning stated, not by copying `--skip_tools` wholesale from this section. Two concrete
+cases:
+
+- **Bundle still absent** (this store's state as of this writing): `FilterVariantTranches` will not
+  filter anything either way. Adding `haplotypecaller_filter` to the real run only saves the two
+  wasted process invocations — legitimate, but still a choice to state, not a default to inherit
+  silently.
+- **Bundle present, real `--dbsnp`/`--known_indels` supplied**: do **not** carry
+  `haplotypecaller_filter` into the real run's `--skip_tools` — that would silently discard working
+  GATK filtering for no reason connected to the stub problem. Keep it in the stub invocation only;
+  the real command runs the full `VCF_VARIANT_FILTERING_GATK` branch as sarek intends.
 
 ---
 
