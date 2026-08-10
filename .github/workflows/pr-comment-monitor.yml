@@ -54,11 +54,14 @@ jobs:
               per_page: 100,
             });
             
+            // This workflow's own comments (the 🟡/⏰/🟢 status posts below) must not count
+            // toward the threshold they are announcing — otherwise each status post pulls the
+            // real limit in by one, and repeated posts (the warn step is not idempotent across
+            // runs the moment its own dedupe check is skipped) could compound that further.
+            // Filtering by author, not by body text, is what actually excludes them.
             const allComments = [...reviewComments.data, ...issueComments.data];
-            const comments = allComments.filter(c => 
-              c.body && 
-              !c.body.includes('<!-- -->') &&
-              !c.body.match(/^Merge|^Auto-merge|^This branch/)
+            const comments = allComments.filter(c =>
+              c.body && c.user.login !== 'github-actions[bot]'
             );
             
             const commentCount = comments.length;
