@@ -365,7 +365,8 @@ else if (params.gtf) … GTF_TO_TABLE(...)` branch), and `--features` skips `GTF
 # Stub-only substitute — the REAL run keeps --gtf, exactly as planned. Derive a small, genuinely
 # non-empty feature table from the matrix itself (gene_id + gene_name columns are enough for the
 # stub to validate against); do not hand-write one, and do not point --gtf at anything but the
-# real reference. $MATRIX is whatever --matrix already names in $RUNDIR/params.yaml.
+# real reference.
+MATRIX=$(awk -F': *' '$1=="matrix"{print $2; exit}' "$RUNDIR/params.yaml")   # read --matrix's own path out of params.yaml, do not retype it
 cut -f1,2 "$MATRIX" > "$STUBDIR/stub_features.tsv"
 sed "s#^gtf:.*#features: $STUBDIR/stub_features.tsv#" "$RUNDIR/params.yaml" > "$STUBDIR/stub_params.yaml"
 # ... then run the -stub-run invocation with -params-file "$STUBDIR/stub_params.yaml" instead of
