@@ -93,12 +93,24 @@ Do them in order. Do not skip step 3 or step 4.
    samplesheet. Neither substitutes for the other: `-preview` resolves params and the DAG without
    running anything, `-stub-run` exercises the process wiring. A stub run that fails is a real
    failure — fix it, do not "try it for real and see". `references/runbook.md` section 4.
-   **One waived exception, and it is the only one:** an rnaseq samplesheet with
-   `strandedness: auto` makes the stub fail unavoidably, because the pipeline parses a
-   `lib_format_counts.json` that the stub emits empty. Runbook section 4 states the exact error,
-   the three conditions that must all hold for the waiver to apply, and the second stub against a
-   concrete-strandedness copy of the samplesheet that has to pass clean before you launch. Do not
-   generalise it: nothing else in this skill waives a failed stub.
+   **Two documented departures from "stub the real command as-is," and only these two —
+   `references/runbook.md` section 4 is the canonical list, do not generalise beyond it:**
+   - **A true waiver** (the failing stub is accepted, not avoided): an rnaseq samplesheet with
+     `strandedness: auto` makes the real-command stub fail unavoidably, because the pipeline
+     parses a `lib_format_counts.json` that the stub emits empty. Runbook section 4 states the
+     exact error, the three conditions that must all hold for the waiver to apply, and the second
+     stub against a concrete-strandedness copy of the samplesheet that has to pass clean before
+     you launch.
+   - **A substitute stub, not a waiver** (the stub is made to pass, not excused for failing): a
+     differentialabundance run using `--gtf` (the documented default) makes `GTF_TO_TABLE`'s stub
+     emit an empty feature file that the unstubbed `VALIDATOR` process then fails to read.
+     Runbook section 4 states the exact error and the `--features`-substitute params file that
+     must itself pass clean (`completed=N failed=0`) before you launch with the real, unmodified
+     `--gtf` params — no failure is ever waived here, a different stub input is used instead.
+   Both are partial gates, not full substitutes for testing the real command — runbook section 4
+   states plainly what each one does not cover. Nothing else in this skill waives or substitutes
+   a stub; a third pipeline hitting a similar shape needs its own documented case here and in the
+   runbook, not an ad hoc workaround.
 5. **Execution.** Launch from ext4, logging to file, always through `tmux` (`references/runbook.md`
    section 5) — not a bare foreground command, not `nohup … &`, and not your own backgrounded
    tool call that you separately wait for. All three have lost a real run on this host: `nohup`

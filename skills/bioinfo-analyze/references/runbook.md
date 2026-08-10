@@ -14,8 +14,9 @@ Docker **engine** inside the distro, distro ext4 on `D:\wsl\ubuntu-24.04\ext4.vh
 2. Write the run plan to `$RUNDIR/plan.md`. Get approval if the estimate exceeds 24 h.
 3. Write `samplesheet.csv`, `params.yaml`, `cmd.sh` into `$RUNDIR`.
 4. Preflight. Any FAIL is a hard stop.
-5. `-preview`, then `-stub-run`. Both must be clean — with exactly one waived exception, the
-   rnaseq `strandedness: auto` stub failure, defined in section 4.
+5. `-preview`, then `-stub-run`. Both must be clean — with exactly two documented departures, the
+   rnaseq `strandedness: auto` waived stub failure and the differentialabundance `--features`
+   substitute stub, both defined in section 4.
 6. Launch on ext4 with reports and `-resume`, always through `tmux` (mandatory, not optional).
 7. Monitor the trace, not the terminal.
 8. On completion: read MultiQC, rsync results out to `/mnt/d`, write the handoff.
