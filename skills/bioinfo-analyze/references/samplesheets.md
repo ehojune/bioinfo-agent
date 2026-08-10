@@ -332,9 +332,19 @@ SRR15498317
 GSE214215
 ```
 
-<!-- UNVERIFIED: whether 1.12.x tolerates or requires an `id` header row. Check
-     assets/schema_input.json before the first run; adding a header when none is expected turns
-     the word "id" into an accession and produces a confusing lookup failure. -->
+**Confirmed at 1.12.0 (run 20260810-fetchngs-citest, first execution of this pipeline on this
+host): no header row is tolerated.** `subworkflows/local/utils_nfcore_fetchngs_pipeline/main.nf`
+reads `--input` with `.splitCsv(header:false, sep:'', strip:true)` and validates every line
+against the accession regex via `isSraId()`; a literal `id` (or any other header word) does not
+match it, so `isSraId()` raises `Mixture of ids provided via --input: id` and the run aborts
+before any download. Do not add a header line — not even `id`, and not even to make the file
+self-documenting.
+
+`bin/preflight.sh`'s `== samplesheet ==` section and `scripts/check-samplesheet.sh`'s file-hygiene
+section both still treat line 1 as a header regardless of pipeline, so their reported row/sample
+count is one short of the true accession count for a fetchngs input file — cosmetic (fetchngs's
+own required-column check is separately, correctly, skipped for this pipeline) but worth knowing
+before trusting the printed count.
 
 Accepted accession families:
 

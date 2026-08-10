@@ -53,18 +53,29 @@ else ok "ASCII only"; fi
 TMP=$(mktemp); trap 'rm -f "$TMP"' EXIT
 sed -e '1s/^\xEF\xBB\xBF//' -e 's/\r$//' "$SHEET" | grep -v '^[[:space:]]*$' > "$TMP"
 
-HDR=$(head -1 "$TMP")
-IFS=, read -r -a COLS <<< "$HDR"
-NCOL=${#COLS[@]}
-printf 'cols  %s  (%d)\n' "$HDR" "$NCOL"
-NROW=$(( $(wc -l < "$TMP") - 1 ))
-(( NROW > 0 )) && printf 'rows  %d data rows\n' "$NROW" || fail "no data rows (header only)"
+if [[ "$PIPELINE" == fetchngs ]]; then
+  # fetchngs takes a HEADERLESS accession list (references/samplesheets.md) -- line 1 is a real
+  # accession, not a column header. Treating it as one, as every other pipeline here does,
+  # undercounts by one accession and prints an SRR/GSE id as if it were a header name. Measured
+  # 20260810-fetchngs-citest: this block reported "9 data rows" against a real 10-accession file.
+  NCOL=1
+  NROW=$(wc -l < "$TMP")
+  printf 'headerless accession list (no header row expected)\n'
+  (( NROW > 0 )) && printf 'rows  %d accessions\n' "$NROW" || fail "no accessions (file empty after normalising)"
+else
+  HDR=$(head -1 "$TMP")
+  IFS=, read -r -a COLS <<< "$HDR"
+  NCOL=${#COLS[@]}
+  printf 'cols  %s  (%d)\n' "$HDR" "$NCOL"
+  NROW=$(( $(wc -l < "$TMP") - 1 ))
+  (( NROW > 0 )) && printf 'rows  %d data rows\n' "$NROW" || fail "no data rows (header only)"
 
-DUP=$(printf '%s\n' "${COLS[@]}" | sort | uniq -d | paste -sd, -)
-[[ -z "$DUP" ]] && ok "header names unique" || fail "duplicate header names: $DUP"
+  DUP=$(printf '%s\n' "${COLS[@]}" | sort | uniq -d | paste -sd, -)
+  [[ -z "$DUP" ]] && ok "header names unique" || fail "duplicate header names: $DUP"
 
-RAGGED=$(awk -F, -v n="$NCOL" 'NR>1 && NF!=n {printf "line %d has %d fields; ", NR, NF}' "$TMP")
-[[ -z "$RAGGED" ]] && ok "all rows have $NCOL fields" || fail "ragged rows: $RAGGED"
+  RAGGED=$(awk -F, -v n="$NCOL" 'NR>1 && NF!=n {printf "line %d has %d fields; ", NR, NF}' "$TMP")
+  [[ -z "$RAGGED" ]] && ok "all rows have $NCOL fields" || fail "ragged rows: $RAGGED"
+fi
 
 colidx() { awk -F, -v w="$1" 'NR==1{for(i=1;i<=NF;i++) if($i==w){print i; exit}}' "$TMP"; }
 colvals(){ local i; i=$(colidx "$1"); [[ -n "$i" ]] || return 0; awk -F, -v i="$i" 'NR>1{print $i}' "$TMP"; }

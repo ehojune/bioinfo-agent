@@ -155,13 +155,26 @@ if [ -f "$SS" ]; then
   else
     ok "LF line endings"
   fi
-  hdr="$(head -1 "$SS")"
-  ok "header: $hdr"
-  nrow="$(tail -n +2 "$SS" | grep -c '[^[:space:]]' || true)"
-  nsamp="$(tail -n +2 "$SS" | cut -d, -f1 | sort -u | grep -c '[^[:space:]]' || true)"
-  [ "$nrow" -gt 0 ] && ok "$nrow data rows, $nsamp distinct first-column IDs" || bad "no data rows"
-  dups="$(tail -n +2 "$SS" | cut -d, -f1 | sort | uniq -d | tr '\n' ' ')"
-  [ -z "$dups" ] || note "repeated first-column IDs: $dups (legitimate for merged tech reps; confirm it is intended)"
+  if [ "$PIPE" = fetchngs ]; then
+    # fetchngs takes a HEADERLESS accession list (references/samplesheets.md) -- treating line 1
+    # as a header, as every other pipeline's samplesheet does, undercounts by one accession and
+    # mislabels an SRR/GSE id as a column name. Measured 20260810-fetchngs-citest: reported "9
+    # data rows" against a real 10-accession file.
+    ok "fetchngs: headerless accession list, no header row expected"
+    nrow="$(grep -c '[^[:space:]]' "$SS" || true)"
+    nsamp="$(sort -u "$SS" | grep -c '[^[:space:]]' || true)"
+    [ "$nrow" -gt 0 ] && ok "$nrow accessions, $nsamp distinct" || bad "no accessions"
+    dups="$(sort "$SS" | uniq -d | tr '\n' ' ')"
+    [ -z "$dups" ] || note "repeated accessions: $dups"
+  else
+    hdr="$(head -1 "$SS")"
+    ok "header: $hdr"
+    nrow="$(tail -n +2 "$SS" | grep -c '[^[:space:]]' || true)"
+    nsamp="$(tail -n +2 "$SS" | cut -d, -f1 | sort -u | grep -c '[^[:space:]]' || true)"
+    [ "$nrow" -gt 0 ] && ok "$nrow data rows, $nsamp distinct first-column IDs" || bad "no data rows"
+    dups="$(tail -n +2 "$SS" | cut -d, -f1 | sort | uniq -d | tr '\n' ' ')"
+    [ -z "$dups" ] || note "repeated first-column IDs: $dups (legitimate for merged tech reps; confirm it is intended)"
+  fi
   while read -r p; do
     [ -n "$p" ] || continue
     if [ -e "$p" ]; then ok "input exists: $p"; else bad "input MISSING: $p"; fi
@@ -180,7 +193,10 @@ else
     if grep -qF -- "$REV" "$PLAN"; then ok "plan.md names the revision cmd.sh pins ($REV)"
     else bad "plan.md never names revision $REV — the approved plan and cmd.sh describe different runs"; fi
   fi
-  planN="$(grep -oiE '([0-9]+[[:space:]]+samples?|samples?[[:space:]]*[:=][[:space:]]*[0-9]+)' "$PLAN" | head -1 | tr -dc '0-9' || true)"
+  # fetchngs plans count "accessions", not "samples" -- the word this repo's fetchngs run plans
+  # actually use (an accession list resolves to an unknown-in-advance number of runs/samples, so
+  # "sample count" is the wrong noun for it). Recognise both.
+  planN="$(grep -oiE '([0-9]+[[:space:]]+(samples?|accessions?)|(samples?|accessions?)[[:space:]]*[:=][[:space:]]*[0-9]+)' "$PLAN" | head -1 | tr -dc '0-9' || true)"
   if [ -z "$planN" ]; then
     note "plan.md states no sample count — sheet size not cross-checked"
   elif [ -z "$nrow" ]; then
@@ -285,7 +301,13 @@ if [ "${#refsrc[@]}" -gt 0 ]; then
   done < <(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "${refsrc[@]}" \
            | sed -E "s#\\\$\\{?(BIOINFO_)?REFS\\}?/#${REFS_SED}/#g" \
            | grep -oE "(^|[^A-Za-z0-9_./-])${REFS_RE}[^\"' ]*" | sed -E 's#^[^/]*(/.*)#\1#' | sed 's/[,:]$//' | sort -u)
-  [ "$nref" -gt 0 ] || note "no $REFS path appears in params.yaml/cmd.sh outside comments — this run references nothing from the store"
+  if [ "$nref" -eq 0 ]; then
+    if [ "$PIPE" = fetchngs ]; then
+      ok "fetchngs touches no genome — no $REFS path expected (references/pipeline-selection.md §4.3)"
+    else
+      note "no $REFS path appears in params.yaml/cmd.sh outside comments — this run references nothing from the store"
+    fi
+  fi
 else
   note "neither params.yaml nor cmd.sh present; reference paths not checked"
 fi
