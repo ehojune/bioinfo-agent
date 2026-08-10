@@ -367,7 +367,12 @@ else if (params.gtf) … GTF_TO_TABLE(...)` branch), and `--features` skips `GTF
 # non-empty feature table from the matrix itself (gene_id + gene_name columns are enough for the
 # stub to validate against); do not hand-write one, and do not point --gtf at anything but the
 # real reference.
-MATRIX=$(awk -F': *' '$1=="matrix"{print $2; exit}' "$RUNDIR/params.yaml")   # read --matrix's own path out of params.yaml, do not retype it
+MATRIX=$(awk -F': *' '$1=="matrix"{print $2; exit}' "$RUNDIR/params.yaml" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//")
+# strips one layer of YAML quoting (matrix: "/path" or matrix: '/path') -- awk on ': *' alone
+# leaves the quote characters in $MATRIX, and `cut -f1,2 "$MATRIX"` then fails to open a filename
+# that literally starts/ends with a quote. Does not handle escaped quotes inside the path itself;
+# this repo's own params.yaml files never quote paths (see any existing runs/*/params.yaml), so
+# an unquoted path remains the common case this reduces to.
 cut -f1,2 "$MATRIX" > "$STUBDIR/stub_features.tsv"
 sed "s#^gtf:.*#features: $STUBDIR/stub_features.tsv#" "$RUNDIR/params.yaml" > "$STUBDIR/stub_params.yaml"
 # ... then run the -stub-run invocation with -params-file "$STUBDIR/stub_params.yaml" instead of
