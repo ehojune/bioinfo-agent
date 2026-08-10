@@ -218,6 +218,21 @@ nextflow run nf-core/rnaseq -r 3.18.0 -profile docker \
 the real command. It creates empty output files, so it validates channel wiring, samplesheet
 parsing, and the full topology end to end — in minutes, on kilobytes.
 
+**That "minutes, on kilobytes" claim assumes every process defines a `stub:` block. It is a
+per-process property, not a pipeline-wide guarantee, and Nextflow's own documented fallback for a
+process with none is to run its real `script:` unchanged under `-stub-run`.** Measured on
+nf-core/fetchngs 1.12.0 (run 20260810-fetchngs-citest): several of its download modules define no
+stub, so the "stub" run genuinely downloaded 939 MB over ~7 minutes before any real launch — see
+`references/pipeline-selection.md` §4.3 for the specifics and the sizing consequence. Before
+trusting this step is cheap for a pipeline you have not stubbed before on this host, a quick check
+for which modules are missing a `stub:` block is worth the 30 seconds it costs — `-L`
+(capital, "files WITHOUT a match"), not `-l`, and restricted to `main.nf` so it does not also list
+every `README`/`meta.yml` in the tree as if they were unstubbed processes:
+
+```bash
+grep -rL --include='main.nf' 'stub:' <clone>/modules/
+```
+
 ```bash
 NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
 STUBROOT=${BIOINFO_WORK:-/work}/tmp/stub-$RUNID             # OUTSIDE the run tree, on purpose

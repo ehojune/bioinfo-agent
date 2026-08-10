@@ -270,10 +270,38 @@ methods: it retrieves whatever metadata the submitter uploaded, which is frequen
 strandedness and sometimes wrong about pairing.
 
 **Minimum input:** `--input ids.csv` — a file with one accession per line (`SRRxxxxxxx`,
-`SRXxxxxxxx`, `SRPxxxxxx`, `PRJNAxxxxxx`, `GSExxxxxx`, `GSMxxxxxxx`).
-<!-- UNVERIFIED: GEO (GSE/GSM) handling has been reworked more than once and at least one release
-     deprecated part of it. Confirm with `nextflow run nf-core/fetchngs -r <rev> --help` before
-     promising GSE support. -->
+`SRXxxxxxxx`, `SRPxxxxxx`, `PRJNAxxxxxx`, `GSExxxxxx`, `GSMxxxxxxx`). **No header row** — see
+`references/samplesheets.md`; a header line makes the pipeline abort before any download.
+
+**Confirmed working at 1.12.0** (run 20260810-fetchngs-citest, first execution of this pipeline
+on this host — the GSE/GSM UNVERIFIED note this comment used to carry is now settled): both `GSE`
+and `GSM` accessions resolve correctly and expand to the right per-run granularity — a `GSM`
+mapping to several sequencing runs of the same biosample produced one samplesheet row per run, not
+one collapsed row, matching the "occasionally non-unique" warning below.
+
+**`-stub-run` is not free for this pipeline — budget it like a real run.** Several of the download
+modules (`modules/local/sra_fastq_ftp`, `modules/nf-core/sratools/prefetch`,
+`modules/nf-core/sratools/fasterqdump`) define no Nextflow `stub:` block. Under Nextflow's
+documented fallback, `-stub-run` then executes their real `script:` unchanged — i.e. the
+mandatory stub step in `references/runbook.md` §4 performs the actual FASTQ download for this
+pipeline. Measured on 20260810-fetchngs-citest: the "stub" run downloaded the full 939 MB in
+~7m18s.
+
+**That download is only free for the real launch if you keep the stub's work directory around and
+point the real run at it — which is the opposite of `references/runbook.md` §4's general "two
+stubs" rule.** On 20260810-fetchngs-citest the real launch reused the stub's downloaded FASTQ via
+`-resume`/cache in 26 s, but only because its `-work-dir` was left pointed at the same tree the
+stub had used — not the isolated, later-deleted `$STUBROOT` §4 otherwise mandates. Follow §4's
+general procedure (separate `$STUBROOT`, deleted after validation) as written and this reuse does
+not happen: the real launch's `-work-dir` has nothing cached, and the full download runs a
+**second** time. That general isolation rule exists to stop a *different* pipeline's empty stub
+outputs from being cached into a real run — a failure mode that cannot occur here, since
+fetchngs's stub outputs are real data, not empty placeholders. For fetchngs specifically, and only
+because of that, it is reasonable to deliberately keep (not delete) the stub's `-work-dir` and
+point the real launch's `-work-dir` at the same tree, to avoid paying for the download twice; if
+you do, say so in the run plan, since it is a deviation from the documented default. If you follow
+the default (isolated, deleted) stub procedure instead, budget the download time **twice**, not
+once, when estimating a large accession list.
 
 **Parameters that matter here:**
 

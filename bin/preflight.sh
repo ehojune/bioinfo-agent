@@ -155,13 +155,40 @@ if [ -f "$SS" ]; then
   else
     ok "LF line endings"
   fi
-  hdr="$(head -1 "$SS")"
-  ok "header: $hdr"
-  nrow="$(tail -n +2 "$SS" | grep -c '[^[:space:]]' || true)"
-  nsamp="$(tail -n +2 "$SS" | cut -d, -f1 | sort -u | grep -c '[^[:space:]]' || true)"
-  [ "$nrow" -gt 0 ] && ok "$nrow data rows, $nsamp distinct first-column IDs" || bad "no data rows"
-  dups="$(tail -n +2 "$SS" | cut -d, -f1 | sort | uniq -d | tr '\n' ' ')"
-  [ -z "$dups" ] || note "repeated first-column IDs: $dups (legitimate for merged tech reps; confirm it is intended)"
+  if [ "$PIPE" = fetchngs ]; then
+    # fetchngs takes a HEADERLESS accession list (references/samplesheets.md) -- treating line 1
+    # as a header, as every other pipeline's samplesheet does, undercounts by one accession and
+    # mislabels an SRR/GSE id as a column name. Measured 20260810-fetchngs-citest: reported "9
+    # data rows" against a real 10-accession file.
+    ok "fetchngs: headerless accession list, no header row expected"
+    nrow="$(grep -c '[^[:space:]]' "$SS" || true)"
+    # Strip per-line whitespace before comparing accessions -- the pipeline's own
+    # .splitCsv(..., strip:true) treats " SRR15498316 " and "SRR15498316" as the same accession,
+    # so a raw sort/uniq here would undercount duplicates and report a false distinct count.
+    stripped_ss="$(sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' "$SS")"
+    nsamp="$(printf '%s\n' "$stripped_ss" | sort -u | grep -c '[^[:space:]]' || true)"
+    [ "$nrow" -gt 0 ] && ok "$nrow accessions, $nsamp distinct" || bad "no accessions"
+    dups="$(printf '%s\n' "$stripped_ss" | sort | uniq -d | tr '\n' ' ')"
+    [ -z "$dups" ] || note "repeated accessions: $dups"
+    # schema_input.json's fetchngs schema is a single unnamed column -- a comma anywhere in a
+    # line is an extra field the pipeline's own accession regex does not cleanly reject.
+    ragged="$(awk -F, 'NF!=1{printf "line %d has %d fields; ", NR, NF}' "$SS")"
+    [ -z "$ragged" ] || bad "ragged rows (fetchngs takes one accession per line, no commas): $ragged"
+    # Single-field is necessary but not sufficient -- "id"/"sample"/a typo would pass that check
+    # and still be rejected by fetchngs's own isSraId() before any download. Same pattern as
+    # assets/schema_input.json. Strip per-line whitespace first, matching the pipeline's own
+    # .splitCsv(..., strip:true), so " SRR15498316 " is not flagged when fetchngs would accept it.
+    badacc="$( (printf '%s\n' "$stripped_ss" | grep -nvE '^(((SR|ER|DR)[APRSX])|(SAM(N|EA|D))|(PRJ(NA|EB|DB))|(GS[EM]))[0-9]+$' || true) | tr '\n' ' ')"
+    [ -z "$badacc" ] || bad "invalid accession(s) (fails SRA/ENA/DDBJ/BioProject/BioSample/GEO pattern): $badacc"
+  else
+    hdr="$(head -1 "$SS")"
+    ok "header: $hdr"
+    nrow="$(tail -n +2 "$SS" | grep -c '[^[:space:]]' || true)"
+    nsamp="$(tail -n +2 "$SS" | cut -d, -f1 | sort -u | grep -c '[^[:space:]]' || true)"
+    [ "$nrow" -gt 0 ] && ok "$nrow data rows, $nsamp distinct first-column IDs" || bad "no data rows"
+    dups="$(tail -n +2 "$SS" | cut -d, -f1 | sort | uniq -d | tr '\n' ' ')"
+    [ -z "$dups" ] || note "repeated first-column IDs: $dups (legitimate for merged tech reps; confirm it is intended)"
+  fi
   while read -r p; do
     [ -n "$p" ] || continue
     if [ -e "$p" ]; then ok "input exists: $p"; else bad "input MISSING: $p"; fi
@@ -180,7 +207,17 @@ else
     if grep -qF -- "$REV" "$PLAN"; then ok "plan.md names the revision cmd.sh pins ($REV)"
     else bad "plan.md never names revision $REV — the approved plan and cmd.sh describe different runs"; fi
   fi
-  planN="$(grep -oiE '([0-9]+[[:space:]]+samples?|samples?[[:space:]]*[:=][[:space:]]*[0-9]+)' "$PLAN" | head -1 | tr -dc '0-9' || true)"
+  # fetchngs plans count "accessions", not "samples" -- the word this repo's fetchngs run plans
+  # actually use (an accession list resolves to an unknown-in-advance number of runs/samples, so
+  # "sample count" is the wrong noun for it). Only look for "accessions" on a fetchngs run: on
+  # any other pipeline a plan can legitimately mention an accession total (e.g. "derived from a
+  # 100-accession fetchngs pull") well before its own "Sample count: 20", and matching the first
+  # one found would compare the wrong number against the sheet.
+  if [ "$PIPE" = fetchngs ]; then
+    planN="$(grep -oiE '([0-9]+[[:space:]]+accessions?|accessions?[[:space:]]*[:=][[:space:]]*[0-9]+)' "$PLAN" | head -1 | tr -dc '0-9' || true)"
+  else
+    planN="$(grep -oiE '([0-9]+[[:space:]]+samples?|samples?[[:space:]]*[:=][[:space:]]*[0-9]+)' "$PLAN" | head -1 | tr -dc '0-9' || true)"
+  fi
   if [ -z "$planN" ]; then
     note "plan.md states no sample count — sheet size not cross-checked"
   elif [ -z "$nrow" ]; then
@@ -285,7 +322,13 @@ if [ "${#refsrc[@]}" -gt 0 ]; then
   done < <(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "${refsrc[@]}" \
            | sed -E "s#\\\$\\{?(BIOINFO_)?REFS\\}?/#${REFS_SED}/#g" \
            | grep -oE "(^|[^A-Za-z0-9_./-])${REFS_RE}[^\"' ]*" | sed -E 's#^[^/]*(/.*)#\1#' | sed 's/[,:]$//' | sort -u)
-  [ "$nref" -gt 0 ] || note "no $REFS path appears in params.yaml/cmd.sh outside comments — this run references nothing from the store"
+  if [ "$nref" -eq 0 ]; then
+    if [ "$PIPE" = fetchngs ]; then
+      ok "fetchngs touches no genome — no $REFS path expected (references/pipeline-selection.md §4.3)"
+    else
+      note "no $REFS path appears in params.yaml/cmd.sh outside comments — this run references nothing from the store"
+    fi
+  fi
 else
   note "neither params.yaml nor cmd.sh present; reference paths not checked"
 fi

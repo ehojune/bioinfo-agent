@@ -53,18 +53,49 @@ else ok "ASCII only"; fi
 TMP=$(mktemp); trap 'rm -f "$TMP"' EXIT
 sed -e '1s/^\xEF\xBB\xBF//' -e 's/\r$//' "$SHEET" | grep -v '^[[:space:]]*$' > "$TMP"
 
-HDR=$(head -1 "$TMP")
-IFS=, read -r -a COLS <<< "$HDR"
-NCOL=${#COLS[@]}
-printf 'cols  %s  (%d)\n' "$HDR" "$NCOL"
-NROW=$(( $(wc -l < "$TMP") - 1 ))
-(( NROW > 0 )) && printf 'rows  %d data rows\n' "$NROW" || fail "no data rows (header only)"
+if [[ "$PIPELINE" == fetchngs ]]; then
+  # fetchngs takes a HEADERLESS accession list (references/samplesheets.md) -- line 1 is a real
+  # accession, not a column header. Treating it as one, as every other pipeline here does,
+  # undercounts by one accession and prints an SRR/GSE id as if it were a header name. Measured
+  # 20260810-fetchngs-citest: this block reported "9 data rows" against a real 10-accession file.
+  NCOL=1
+  NROW=$(wc -l < "$TMP")
+  printf 'headerless accession list (no header row expected)\n'
+  (( NROW > 0 )) && printf 'rows  %d accessions\n' "$NROW" || fail "no accessions (file empty after normalising)"
 
-DUP=$(printf '%s\n' "${COLS[@]}" | sort | uniq -d | paste -sd, -)
-[[ -z "$DUP" ]] && ok "header names unique" || fail "duplicate header names: $DUP"
+  # fetchngs's schema is a single unnamed column (assets/schema_input.json) -- a comma anywhere
+  # in a line means an extra field the pipeline's own accession-regex check does not catch as
+  # cleanly (it only rejects the WHOLE line if the id pattern fails, which a line like
+  # "ERR1160846,unexpected" may still partially satisfy up to the comma). Catch it here instead
+  # of letting a malformed line reach the pipeline.
+  RAGGED=$(awk -F, 'NF!=1 {printf "line %d has %d fields; ", NR, NF}' "$TMP")
+  [[ -z "$RAGGED" ]] && ok "all lines are single-field (one accession per line)" || fail "ragged rows: $RAGGED"
 
-RAGGED=$(awk -F, -v n="$NCOL" 'NR>1 && NF!=n {printf "line %d has %d fields; ", NR, NF}' "$TMP")
-[[ -z "$RAGGED" ]] && ok "all rows have $NCOL fields" || fail "ragged rows: $RAGGED"
+  # A single-field line still is not necessarily a valid accession -- "id", "sample", or a typo
+  # would pass the field-count check above and this script would report PASS even though
+  # fetchngs's own isSraId() (subworkflows/local/utils_nfcore_fetchngs_pipeline/main.nf) rejects
+  # it and aborts the whole run before any download. Same pattern as assets/schema_input.json.
+  # The pipeline itself reads --input with .splitCsv(header:false, sep:'', strip:true) -- strip
+  # leading/trailing whitespace per line before matching, the same way, so " SRR15498316 " is not
+  # flagged as invalid here only for the pipeline to accept it.
+  ACCPAT='^(((SR|ER|DR)[APRSX])|(SAM(N|EA|D))|(PRJ(NA|EB|DB))|(GS[EM]))[0-9]+$'
+  BADACC=$( (sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' "$TMP" | grep -nvE "$ACCPAT" || true) | sed 's/^/line /; s/:/ not a valid accession: /' | tr '\n' '; ')
+  [[ -z "$BADACC" ]] && ok "all lines match a valid SRA/ENA/DDBJ/BioProject/BioSample/GEO accession" \
+                     || fail "invalid accession(s): $BADACC"
+else
+  HDR=$(head -1 "$TMP")
+  IFS=, read -r -a COLS <<< "$HDR"
+  NCOL=${#COLS[@]}
+  printf 'cols  %s  (%d)\n' "$HDR" "$NCOL"
+  NROW=$(( $(wc -l < "$TMP") - 1 ))
+  (( NROW > 0 )) && printf 'rows  %d data rows\n' "$NROW" || fail "no data rows (header only)"
+
+  DUP=$(printf '%s\n' "${COLS[@]}" | sort | uniq -d | paste -sd, -)
+  [[ -z "$DUP" ]] && ok "header names unique" || fail "duplicate header names: $DUP"
+
+  RAGGED=$(awk -F, -v n="$NCOL" 'NR>1 && NF!=n {printf "line %d has %d fields; ", NR, NF}' "$TMP")
+  [[ -z "$RAGGED" ]] && ok "all rows have $NCOL fields" || fail "ragged rows: $RAGGED"
+fi
 
 colidx() { awk -F, -v w="$1" 'NR==1{for(i=1;i<=NF;i++) if($i==w){print i; exit}}' "$TMP"; }
 colvals(){ local i; i=$(colidx "$1"); [[ -n "$i" ]] || return 0; awk -F, -v i="$i" 'NR>1{print $i}' "$TMP"; }

@@ -1,0 +1,4 @@
+input: /mnt/d/bioinfo-agent/runs/20260810-fetchngs-citest/samplesheet.csv
+download_method: ftp
+nf_core_pipeline: rnaseq
+nf_core_rnaseq_strandedness: auto
