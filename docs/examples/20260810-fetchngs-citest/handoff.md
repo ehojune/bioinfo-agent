@@ -2,8 +2,10 @@
 
 **Inputs**       10 accessions (SRR/ERR/DRR run ids, one GSM, one GSE) — nf-core's own official
 CI smoke-test fixture for this pin, reused verbatim rather than invented (see plan.md). Expanded
-to 15 underlying sequencing runs / 13 SRA experiments at resolve time. Samplesheet (accession
-list, headerless): `/mnt/d/bioinfo-agent/runs/20260810-fetchngs-citest/samplesheet.csv`
+to 14 underlying sequencing runs / 11 SRA experiments at resolve time (re-counted directly from
+`results/fastq/` and `results/samplesheet/samplesheet.csv` for this correction — the number
+first reported here was wrong, see the git history on this file). Samplesheet (accession list,
+headerless): `/mnt/d/bioinfo-agent/runs/20260810-fetchngs-citest/samplesheet.csv`
 **Reference**    none — fetchngs touches no genome (confirmed against `--help`, no `--genome`/
 `--fasta` param exists)
 **Command**      `/mnt/d/bioinfo-agent/runs/20260810-fetchngs-citest/cmd.sh`
@@ -31,9 +33,9 @@ opening file contents:
 | Check | Expected | Measured | Verdict |
 |---|---|---|---|
 | Input accessions | 10 | 10 (`metadata/*.runinfo_ftp.tsv` = 10 files, one per input line) | PASS |
-| FASTQ files | one per run × PE/SE | 22 files (8 SE + 7 PE pairs = 15 runs) | PASS |
+| FASTQ files | one per run × PE/SE | 22 files (6 SE + 8 PE pairs = 14 runs) | PASS |
 | ENA-supplied md5 (FTP-sourced files only) | all OK | 17/17 `md5sum -c` OK, 0 FAILED | PASS |
-| Downstream samplesheet rows | one per SRA experiment | 13 (matches 13 distinct SRX ids; `id_mappings.csv` agrees, 13 rows) | PASS |
+| Downstream samplesheet rows | one per underlying run (not per experiment — see GSM row below) | 14 rows / 11 distinct experiment (SRX/ERX/DRX) ids; `id_mappings.csv` agrees, 14 rows | PASS |
 | GSM4907283 → runs | — | resolved to experiment SRX9504942, 4 underlying paired-end runs (SRR13055517–520), all 4 kept as separate samplesheet rows, not collapsed | PASS — matches samplesheets.md's warning that GEO-derived samples are "occasionally non-unique across runs of the same biosample" |
 | GSE214215 → runs | — | resolved to 2 experiments (SRX17709227, SRX17709228), single-end, 447 MB and 530 MB respectively | PASS |
 | SRR14593545 / SRR14709033 (no ENA FTP path, sratools fallback) | fallback works | downloaded via `SRATOOLS_PREFETCH`+`FASTERQDUMP`, 0 exit, but files are 150–473 bytes — essentially empty reads | Flagging, not failing: consistent with these being subsampled-to-near-nothing CI fixtures (nf-core picks minimal accessions on purpose for GH Actions runtime/disk budgets), not a pipeline defect. Not independently confirmed against the original SRA record — say so rather than guess. |
@@ -68,7 +70,15 @@ your call, and it likely reflects the CI fixture's intentional design, not a dow
   `-resume`/cache, 26 s). For a large accession list, following runbook.md section 4's mandatory
   stub-run step as written would silently perform the full download under the belief that it's a
   free wiring check — filed as a PR against `references/runbook.md` / `references/pipeline-
-  selection.md` (see below), not fixed by working around it quietly.
+  selection.md` (see below), not fixed by working around it quietly. That reuse-on-real-launch
+  behavior was itself an accident of leaving `-work-dir` pointed at the stub's tree rather than
+  the isolated, deleted-after `$STUBROOT` `runbook.md` §4 otherwise mandates — following the
+  documented default would have downloaded the same 939 MB a second time. See the PR discussion
+  (Codex round 4) for the corrected guidance now in `pipeline-selection.md` §4.3.
+- This handoff originally reported 15 underlying sequencing runs / 13 SRA experiments; re-counted
+  directly from `results/fastq/` and `results/samplesheet/samplesheet.csv` during PR review and
+  corrected to the true 14 runs / 11 experiments (see the numbers above and in the QC table).
+  Noting the correction here rather than silently editing history.
 - `bin/preflight.sh`'s `== samplesheet ==` section and `scripts/check-samplesheet.sh`'s file-
   hygiene section both treat samplesheet line 1 as a header even for `fetchngs`'s headerless
   accession list — reported "9 data rows" / "header: SRR9984183" against an actual 10-accession

@@ -285,10 +285,23 @@ modules (`modules/local/sra_fastq_ftp`, `modules/nf-core/sratools/prefetch`,
 documented fallback, `-stub-run` then executes their real `script:` unchanged — i.e. the
 mandatory stub step in `references/runbook.md` §4 performs the actual FASTQ download for this
 pipeline. Measured on 20260810-fetchngs-citest: the "stub" run downloaded the full 939 MB in
-~7m18s; the subsequent real launch then reused it via `-resume`/cache in 26 s. For a large
-accession list, do not assume the stub step is a cheap wiring check here — it is a real download,
-sized and timed like one, and should be weighed against the 24 h / disk-estimate rules before
-launching, not treated as free preflight.
+~7m18s.
+
+**That download is only free for the real launch if you keep the stub's work directory around and
+point the real run at it — which is the opposite of `references/runbook.md` §4's general "two
+stubs" rule.** On 20260810-fetchngs-citest the real launch reused the stub's downloaded FASTQ via
+`-resume`/cache in 26 s, but only because its `-work-dir` was left pointed at the same tree the
+stub had used — not the isolated, later-deleted `$STUBROOT` §4 otherwise mandates. Follow §4's
+general procedure (separate `$STUBROOT`, deleted after validation) as written and this reuse does
+not happen: the real launch's `-work-dir` has nothing cached, and the full download runs a
+**second** time. That general isolation rule exists to stop a *different* pipeline's empty stub
+outputs from being cached into a real run — a failure mode that cannot occur here, since
+fetchngs's stub outputs are real data, not empty placeholders. For fetchngs specifically, and only
+because of that, it is reasonable to deliberately keep (not delete) the stub's `-work-dir` and
+point the real launch's `-work-dir` at the same tree, to avoid paying for the download twice; if
+you do, say so in the run plan, since it is a deviation from the documented default. If you follow
+the default (isolated, deleted) stub procedure instead, budget the download time **twice**, not
+once, when estimating a large accession list.
 
 **Parameters that matter here:**
 
