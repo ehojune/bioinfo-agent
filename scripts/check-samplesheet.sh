@@ -118,6 +118,7 @@ case "$PIPELINE" in
   fetchngs)              REQ='' ;;                              # headerless accession list, not a CSV
   ampliseq)              REQ='' ;;                              # two column forms; see below
   mag)                   REQ='sample group' ;;                  # plus short_reads_1 or long_reads, below
+  taxprofiler)           REQ='sample run_accession instrument_platform' ;;  # fastq_1/fastq_2/fasta NOT in schema's required[] -- see below
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
@@ -230,6 +231,68 @@ elif [[ -n "$REQ" ]]; then
                     || fail "mag: duplicate sample value(s) with no run column (uniqueEntries [sample,run] collapses to sample alone): $D"
     fi
   fi
+  if [[ "$PIPELINE" == taxprofiler ]]; then
+    # schema_input.json (2.0.1) required[] is ONLY sample/run_accession/instrument_platform --
+    # fastq_1, fastq_2, fasta are all optional at the schema level. Empirically confirmed via
+    # -preview (2026-08-12): a row with none of fastq_1/fastq_2/fasta VALIDATES CLEANLY (no
+    # error, completed=0 failed=0) -- the schema alone will not catch a metadata-only row with
+    # nothing for the pipeline to actually profile. FAIL, not warn: a mixed sheet where only
+    # SOME rows are empty would otherwise still print PASS overall (Codex review, PR #36) --
+    # the pipeline schedules nothing for that row and an automated/warning-tolerant launch
+    # would silently drop a sample with no launch-time error anywhere.
+    F1I=$(colidx fastq_1); F2I=$(colidx fastq_2); FAI=$(colidx fasta)
+    if [[ -z "$F1I$F2I$FAI" ]]; then
+      fail "taxprofiler: sheet has none of fastq_1/fastq_2/fasta columns at all -- nothing to profile"
+    else
+      # ${VAR:-0}, not `$(colidx X || echo 0)` -- colidx exits 0 with EMPTY stdout when the
+      # column is absent (it never actually fails), so the `||` form silently never fires and
+      # awk receives an empty string, not "0"; awk then does a STRING compare of "" against
+      # numeric 0 for f1==0, which is false, so a genuinely-missing column was never flagged
+      # (caught only by hand-testing a two-column-family mixed sheet, not by any single-family
+      # sheet -- fixed after Codex review, PR #36, flagged the row-level check as too weak,
+      # though this exact bug was found independently while addressing that finding).
+      NOREADS=$(awk -F, -v f1="${F1I:-0}" -v f2="${F2I:-0}" -v fa="${FAI:-0}" \
+                'NR>1 && (f1==0||$f1=="") && (f2==0||$f2=="") && (fa==0||$fa=="") {print NR-1}' \
+                "$TMP" | paste -sd' ' -)
+      [[ -z "$NOREADS" ]] && ok "taxprofiler: every row has fastq_1/fastq_2 and/or fasta" \
+                          || fail "taxprofiler: row(s) with NEITHER fastq_1/fastq_2 NOR fasta (schema accepts this silently -- pipeline has nothing to profile for that row): $NOREADS"
+    fi
+    # instrument_platform is a closed enum in schema_input.json.
+    if [[ -n "$(colidx instrument_platform)" ]]; then
+      B=$(colvals instrument_platform | grep -vE '^(ABI_SOLID|BGISEQ|CAPILLARY|COMPLETE_GENOMICS|DNBSEQ|HELICOS|ILLUMINA|ION_TORRENT|LS454|OXFORD_NANOPORE|PACBIO_SMRT)$' | sort -u | paste -sd, - || true)
+      [[ -z "$B" ]] && ok "taxprofiler instrument_platform values valid" \
+                    || fail "taxprofiler: bad instrument_platform (schema enum): $B"
+    fi
+    # uniqueEntries [sample, run_accession] -- empirically confirmed COMPOSITE (2026-08-12,
+    # same shape as mag's [sample,run]): same sample with a different run_accession passes,
+    # same sample+run_accession pair repeated fails. run_accession is REQUIRED (unlike mag's
+    # optional `run`), so there is no "collapses to sample alone" branch to worry about here.
+    if [[ -n "$(colidx sample)" && -n "$(colidx run_accession)" ]]; then
+      D=$(awk -F, -v s="$(colidx sample)" -v r="$(colidx run_accession)" 'NR>1{print $s"/"$r}' "$TMP" \
+          | sort | uniq -d | paste -sd' ' -)
+      [[ -z "$D" ]] && ok "taxprofiler sample/run_accession pairs unique" \
+                    || fail "taxprofiler: duplicate sample/run_accession pair (uniqueEntries composite key): $D"
+    fi
+    # uniqueEntries [fastq_1], [fastq_2], [fasta] are each SEPARATE per-field constraints in
+    # schema_input.json (not folded into the composite above) -- empirically confirmed: two
+    # rows with different sample/run_accession but the SAME fastq_1 path both fail schema
+    # validation ("Detected duplicate entries: [fastq_1:...]"). A shared input file across two
+    # sheet rows is therefore always a hard error here, unlike mag/rnaseq where reusing a FASTQ
+    # path across rows is unremarkable.
+    for C in fastq_1 fastq_2 fasta; do
+      I=$(colidx "$C"); [[ -n "$I" ]] || continue
+      # `grep -v '^$'` exits 1 (no match) when EVERY value in this column is empty -- e.g. a
+      # supported single-end/long-read sheet with fastq_2 present but blank on every row.
+      # Under `set -euo pipefail` that unguarded exit 1 aborted the whole checker right here,
+      # silently, with no FAIL/PASS message at all (Codex review, PR #36, P1: reproduced with a
+      # one-row OXFORD_NANOPORE sheet with an empty fastq_2 column). `|| true` tolerates the
+      # no-match case the same way this file already does elsewhere (e.g. the `B=... || true`
+      # pattern in the enum checks above).
+      D=$(colvals "$C" | { grep -v '^$' || true; } | sort | uniq -d | paste -sd' ' -)
+      [[ -z "$D" ]] && ok "taxprofiler $C values unique" \
+                    || fail "taxprofiler: duplicate $C value(s) (schema rejects unconditionally): $D"
+    done
+  fi
 elif [[ -z "$PIPELINE" ]]; then
   ID=''
   for C in sample patient group id; do [[ -z "$(colidx "$C")" ]] || { ID="$C"; break; }; done
@@ -238,7 +301,12 @@ elif [[ -z "$PIPELINE" ]]; then
 fi
 
 # ---- 3. path columns --------------------------------------------------------
-for C in fastq_1 fastq_2 bam bai cram crai vcf table spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads; do
+# fasta: taxprofiler-only column, added here (not earlier) so the loop below actually
+# validates it -- previously absent from this list entirely (Codex review, PR #36): a
+# fasta-only taxprofiler sheet pointing at a nonexistent/relative/zero-byte/wrong-suffix path
+# reported PASS, because this loop is what does path-exists/suffix/gzip checking and `fasta`
+# was never in it.
+for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads; do
   I=$(colidx "$C"); [[ -n "$I" ]] || continue
   N=0
   while IFS= read -r P; do
@@ -259,6 +327,17 @@ for C in fastq_1 fastq_2 bam bai cram crai vcf table spring_1 spring_2 forwardRe
       fastq_1|fastq_2|forwardReads|reverseReads|short_reads_1|short_reads_2|long_reads)
         if [[ ! "$P" =~ \.f(ast)?q\.gz$ ]]; then
           fail "$C: does not match the required .f(ast)?q.gz suffix: $P"
+          continue
+        fi ;;
+      fasta)
+        # schema_input.json's own pattern is `\.(fasta|fas|fna|fa)\.gz?$` (only the trailing
+        # "z" optional, not the whole ".gz" -- almost certainly an authoring typo upstream),
+        # but empirically confirmed via -preview (2026-08-12) that a plain, non-gzipped `.fa`
+        # is REJECTED ("does not match regular expression") -- the schema behaves as
+        # gzip-required in practice regardless of what the literal regex appears to allow.
+        # Enforce the same real-world requirement here.
+        if [[ ! "$P" =~ \.(fasta|fas|fna|fa)\.gz$ ]]; then
+          fail "$C: does not match the required .(fasta|fas|fna|fa).gz suffix: $P"
           continue
         fi ;;
     esac
@@ -330,7 +409,7 @@ elif [[ -n "$(colidx patient)" && -n "$(colidx sample)" ]]; then  # sarek restar
         'NR>1{print $p"/"$s}' "$TMP" | sort | uniq -d | paste -sd' ' -)
   [[ -z "$D" ]] && ok "patient/sample pairs unique" \
                 || fail "duplicate patient/sample: $D"
-elif [[ "$PIPELINE" == ampliseq || "$PIPELINE" == mag ]]; then
+elif [[ "$PIPELINE" == ampliseq || "$PIPELINE" == mag || "$PIPELINE" == taxprofiler ]]; then
   : # already checked as a hard FAIL, correctly, in the pipeline-specific branch above -- this
     # generic branch's WARN ("merged as technical replicates") is the wrong severity here and
     # would be a redundant, softer second message for the same row
@@ -373,7 +452,7 @@ if [[ "$PIPELINE" == mag ]]; then
 fi
 
 # ---- 7. footprint -----------------------------------------------------------
-PATHS=$( { for C in fastq_1 fastq_2 bam cram forwardReads reverseReads short_reads_1 short_reads_2 long_reads; do colvals "$C"; done; } | grep '^/' | sort -u || true )
+PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram forwardReads reverseReads short_reads_1 short_reads_2 long_reads; do colvals "$C"; done; } | grep '^/' | sort -u || true )
 if [[ -z "$PATHS" ]]; then
   printf 'size  nothing to size (no absolute fastq/bam/cram paths)\n'
 else

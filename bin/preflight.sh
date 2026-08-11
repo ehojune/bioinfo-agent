@@ -197,6 +197,71 @@ else
   bad "missing $SS"
 fi
 
+# taxprofiler (and potentially a future pipeline) takes a SECOND csv, --databases, whose own
+# db_path column is where the actual reference (e.g. a Kraken2 DB directory under $REFS) lives.
+# The reference-store gate below (== references ==) only text-scans params.yaml/cmd.sh for a
+# literal $REFS-anchored path -- on a taxprofiler run that path is one file removed, inside
+# databases.csv, and invisible to a plain grep of params.yaml/cmd.sh. Without this block,
+# preflight reported "this run references nothing from the store" and passed even with the
+# Kraken2 DB entirely absent -- the failure would only surface mid-launch when the pipeline
+# itself reads databases.csv (Codex review, PR #36). Generic on the param NAME, not hardcoded
+# to taxprofiler, so any future pipeline with the same two-CSV shape is covered automatically.
+DBCSV="$(grep -hoE '(^|[[:space:]])--?databases[[:space:]]+["'"'"']?[^"'"'"'[:space:]]+' "$RUNDIR/params.yaml" "$RUNDIR/cmd.sh" 2>/dev/null \
+         | sed -E 's/^[[:space:]]*--?databases[[:space:]]+["'"'"']?//' | head -1 || true)"
+if [ -z "$DBCSV" ] && [ -f "$RUNDIR/params.yaml" ]; then
+  DBCSV="$(grep -E '^[[:space:]]*databases:' "$RUNDIR/params.yaml" | head -1 | sed -E 's/^[[:space:]]*databases:[[:space:]]*["'"'"']?//; s/["'"'"']?[[:space:]]*$//' || true)"
+fi
+# The value found above is TEXT from a shell script or a YAML file, not an evaluated shell
+# expression -- `--databases "$RUNDIR/databases.csv"` (a legitimate, in-repo cmd.sh style, see
+# runbook.md section 5's own template) leaves the literal string "$RUNDIR/databases.csv" in
+# $DBCSV, which then never matches a real file. Expand the one variable this repo's cmd.sh
+# templates actually use for this purpose. Not a general shell evaluator on purpose --
+# `eval`-ing arbitrary cmd.sh/params.yaml content read from a run directory would execute
+# whatever text is in there.
+DBCSV="${DBCSV//\$\{RUNDIR\}/$RUNDIR}"
+DBCSV="${DBCSV//\$RUNDIR/$RUNDIR}"
+if [ -n "$DBCSV" ]; then
+  echo "== databases csv =="
+  if [ -f "$DBCSV" ]; then
+    ok "found $DBCSV"
+    # db_path BY HEADER COLUMN, not "any field containing a slash" -- schema_database.json's
+    # own optional db_params column legitimately carries slash-bearing CLI args (e.g.
+    # "--taxonomy /refs/taxonomy"), which a slash-grep would misreport as a broken db_path; the
+    # same slash-grep also silently skips a genuinely missing bare (no-slash) db_path like
+    # "kraken_db". Same colidx-by-header approach as scripts/check-samplesheet.sh.
+    DBHDR="$(head -1 "$DBCSV")"
+    DBPI="$(printf '%s' "$DBHDR" | awk -F, '{for(i=1;i<=NF;i++) if($i=="db_path"){print i; exit}}')"
+    if [ -z "$DBPI" ]; then
+      bad "$DBCSV has no db_path column (header: $DBHDR)"
+    else
+      DBROWS=$(tail -n +2 "$DBCSV" | awk -F, -v i="$DBPI" '$i!=""' | grep -c . || true)
+      # A header-only databases.csv (0 data rows) reaches this block with DBPI found but the
+      # process substitution below yielding nothing to iterate over -- no failure gets
+      # recorded, and preflight would otherwise pass a run where every --run_<tool> flag is
+      # silently a no-op for lack of any matching database row (Codex review, PR #36 round 7).
+      [ "$DBROWS" -gt 0 ] || bad "$DBCSV has a db_path column but zero non-empty data rows -- every enabled --run_<tool> flag is a silent no-op with no database to use"
+      while read -r p; do
+        [ -n "$p" ] || continue
+        # bootstrap/04-refs.sh's own do_fetch(), for a directory-mode (trailing-slash) manifest
+        # row, `mkdir -p`s the empty destination BEFORE reporting it MISSING -- an empty dir
+        # left by an interrupted or not-yet-run fetch is 04-refs.sh's own definition of
+        # "absent", not merely `[ ! -e ]`. A plain `[ -e "$p" ]` here would accept that same
+        # empty placeholder as a valid database and pass, only for Kraken2 to fail mid-launch
+        # on a directory with no index in it (Codex review, PR #36 round 6). Match 04-refs.sh's
+        # own OK/MISSING test: for a directory, require it to be non-empty; for a file, plain
+        # existence is still correct.
+        if [ -d "$p" ]; then
+          if [ -n "$(ls -A "$p" 2>/dev/null)" ]; then ok "db_path exists: $p ($(ls -A "$p" | wc -l) entries)"
+          else bad "db_path is an EMPTY directory: $p (referenced from $DBCSV -- bootstrap/04-refs.sh creates this placeholder before a fetch runs; run it, or fetch the database, before launch)"; fi
+        elif [ -e "$p" ]; then ok "db_path exists: $p"
+        else bad "db_path MISSING: $p (referenced from $DBCSV, not visible to a plain grep of params.yaml/cmd.sh)"; fi
+      done < <(tail -n +2 "$DBCSV" | awk -F, -v i="$DBPI" '{print $i}' | tr -d '"' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | sort -u)
+    fi
+  else
+    bad "--databases/params.yaml names $DBCSV, which does not exist"
+  fi
+fi
+
 echo "== plan =="
 PLAN="$RUNDIR/plan.md"
 if [ ! -f "$PLAN" ]; then

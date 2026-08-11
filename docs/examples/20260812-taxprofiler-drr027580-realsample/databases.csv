@@ -1,0 +1,2 @@
+tool,db_name,db_path,db_params,db_type
+kraken2,k2standard08gb,/refs/db/kraken2/k2_standard_08gb,,short
