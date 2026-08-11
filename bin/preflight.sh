@@ -234,6 +234,12 @@ if [ -n "$DBCSV" ]; then
     if [ -z "$DBPI" ]; then
       bad "$DBCSV has no db_path column (header: $DBHDR)"
     else
+      DBROWS=$(tail -n +2 "$DBCSV" | awk -F, -v i="$DBPI" '$i!=""' | grep -c . || true)
+      # A header-only databases.csv (0 data rows) reaches this block with DBPI found but the
+      # process substitution below yielding nothing to iterate over -- no failure gets
+      # recorded, and preflight would otherwise pass a run where every --run_<tool> flag is
+      # silently a no-op for lack of any matching database row (Codex review, PR #36 round 7).
+      [ "$DBROWS" -gt 0 ] || bad "$DBCSV has a db_path column but zero non-empty data rows -- every enabled --run_<tool> flag is a silent no-op with no database to use"
       while read -r p; do
         [ -n "$p" ] || continue
         # bootstrap/04-refs.sh's own do_fetch(), for a directory-mode (trailing-slash) manifest
