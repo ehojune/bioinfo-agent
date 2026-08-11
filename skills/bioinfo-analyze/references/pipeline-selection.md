@@ -566,12 +566,15 @@ run: `grep -n 'optional true' $(find "$NXF_ASSETS" -path '*nf-core/cutandrun*' -
 it still matches, reapply the same two-line edit (or check whether a newer cutandrun/Nextflow
 pairing has fixed it upstream first).
 
-**`-stub-run` is not a cheap gate for this pipeline.** `FASTQC_TRIMGALORE:TRIMGALORE` has no
-`stub:` block, so `-stub-run` silently falls back to running the *real* `trim_galore` on the
-*real*, full-size input fastqs (confirmed by watching multi-hundred-MB real trimmed outputs and
-trimming reports appear in the stub work dir) — the same class of issue the chipseq run hit with
-`GENOME_BLACKLIST_REGIONS`. Rely on `-preview` as the gate instead (must be a clean pass on its
-own), per the skill's explicit `-stub-run` **or** `-preview` allowance.
+**`-stub-run` is not a cheap gate for this pipeline — budget it, do not skip it.**
+`FASTQC_TRIMGALORE:TRIMGALORE` has no `stub:` block, so `-stub-run` silently falls back to running
+the *real* `trim_galore` on the *real*, full-size input fastqs (confirmed by watching
+multi-hundred-MB real trimmed outputs and trimming reports appear in the stub work dir) — the same
+class of issue the chipseq run hit with `GENOME_BLACKLIST_REGIONS`, and the same shape as fetchngs
+in §4.3. Both `-preview` and `-stub-run` are still mandatory (SKILL.md step 4, `runbook.md` §4);
+this pipeline has no waiver. What changes is the estimate: put the real trimming cost of the
+samplesheet's fastqs into the plan as part of the gate, and expect the stub to take run-scale time
+rather than minutes. `runbook.md` §4 has the 30-second check for which modules lack a `stub:` block.
 
 **Parameters that matter here:**
 
