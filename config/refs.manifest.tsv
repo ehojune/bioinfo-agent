@@ -93,3 +93,6 @@ catalogs/str/eh_catalog.disease.GRCh38.json	link	/mnt/d/hg38_EH_variant_catalog.
 # ---------------------------------------------------------------- annotation caches
 cache/vep/	fetch	sarek --vep_cache / vep_install	~25G for GRCh38, only if annotating
 cache/snpeff/	fetch	sarek --snpeff_cache	alternative to VEP
+
+# ---------------------------------------------------------------- ampliseq taxonomy DBs
+ampliseq/tax-db/	fetch	ampliseq --ref_taxonomy_storage (resolves --dada_ref_taxonomy/--qiime_ref_taxonomy names, e.g. gtdb=R07-RS207, greengenes85, via the pipeline's own PREPTAX subworkflow)	not a direct URL -- 04-refs.sh only reports presence, same as every other fetch row; the pipeline populates this path itself on first run. ~21 MB at CI-fixture scale, measured 2026-08-10

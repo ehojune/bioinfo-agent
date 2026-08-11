@@ -116,11 +116,43 @@ case "$PIPELINE" in
   cutandrun)             REQ='group replicate fastq_1 fastq_2 control' ;;   # paired-end only at 3.2.2
   differentialabundance) REQ='sample' ;;                        # or whatever --observations_id_col says
   fetchngs)              REQ='' ;;                              # headerless accession list, not a CSV
+  ampliseq)              REQ='' ;;                              # two column forms; see below
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
 if [[ "$PIPELINE" == fetchngs ]]; then
   warn "fetchngs takes a headerless accession list; the column checks below do not apply to it"
+elif [[ "$PIPELINE" == ampliseq ]]; then
+  # assets/schema_input.json (2.18.0) accepts two column forms, checked here since the plain
+  # AND-of-REQ check above can't express "one of two sets" -- same reason sarek's --step branch
+  # gets its own follow-up check below rather than living in REQ.
+  HAS_LEGACY=$([[ -n "$(colidx sampleID)$(colidx forwardReads)$(colidx reverseReads)" ]] && echo 1 || echo 0)
+  HAS_STD=$([[ -n "$(colidx sample)$(colidx fastq_1)$(colidx fastq_2)" ]] && echo 1 || echo 0)
+  if [[ "$HAS_LEGACY" == 1 && "$HAS_STD" == 1 ]]; then
+    # schema_input.json's oneOf carries a `not: anyOf` on the other family's names for exactly
+    # this reason -- confirmed empirically (nextflow -preview) that mixing them is a hard schema
+    # failure, not just an nf-core style preference this checker could let slide.
+    fail "ampliseq: mixed legacy (sampleID/forwardReads/reverseReads) and standardized (sample/fastq_1/fastq_2) columns -- the schema rejects this outright, pick one family"
+  elif [[ "$HAS_LEGACY" == 1 && -n "$(colidx sampleID)" && -n "$(colidx forwardReads)" ]]; then
+    ok "ampliseq required columns present (sampleID/forwardReads form)"
+  elif [[ "$HAS_STD" == 1 && -n "$(colidx sample)" && -n "$(colidx fastq_1)" ]]; then
+    ok "ampliseq required columns present (sample/fastq_1 form)"
+  else
+    fail "ampliseq needs sampleID+forwardReads, or sample+fastq_1"
+  fi
+  # schema_input.json's allOf enforces uniqueEntries on "sample" AND separately on "sampleID" --
+  # confirmed empirically (nextflow -preview on a same-sample-different-run sheet: "Detected
+  # duplicate entries: [sample:S1]") that this is a per-field constraint, NOT a sample+run
+  # composite key. "run" tags which sequencing batch a row's error model belongs to; it does not
+  # license repeating a sample/sampleID value. Every ampliseq ID column must be FAIL, not the
+  # generic branch's WARN below, which exists for pipelines where repeated IDs across lanes are
+  # an intentional, supported merge.
+  for C in sample sampleID; do
+    I=$(colidx "$C"); [[ -n "$I" ]] || continue
+    D=$(colvals "$C" | sort | uniq -d | paste -sd' ' -)
+    [[ -z "$D" ]] && ok "ampliseq $C values unique" \
+                  || fail "ampliseq: duplicate $C value(s) (schema rejects unconditionally, regardless of run): $D"
+  done
 elif [[ -n "$REQ" ]]; then
   MISS=''
   for C in $REQ; do [[ -n "$(colidx "$C")" ]] || MISS="$MISS $C"; done
@@ -138,7 +170,7 @@ elif [[ -z "$PIPELINE" ]]; then
 fi
 
 # ---- 3. path columns --------------------------------------------------------
-for C in fastq_1 fastq_2 bam bai cram crai vcf table spring_1 spring_2; do
+for C in fastq_1 fastq_2 bam bai cram crai vcf table spring_1 spring_2 forwardReads reverseReads; do
   I=$(colidx "$C"); [[ -n "$I" ]] || continue
   N=0
   while IFS= read -r P; do
@@ -165,7 +197,10 @@ done
 (( DEEP )) || warn "truncated .gz files are NOT detected without --deep"
 
 # ---- 4. mate orientation and pairing (fastq only, skipped for bam/cram input) --
+# ampliseq's sampleID/forwardReads/reverseReads form carries the same mate-pair shape as
+# fastq_1/fastq_2 -- fall back to it so this gate isn't silently skipped on that column set.
 I1=$(colidx fastq_1); I2=$(colidx fastq_2)
+if [[ -z "$I1" ]]; then I1=$(colidx forwardReads); I2=$(colidx reverseReads); fi
 if [[ -n "$I1" && -n "$I2" ]]; then
   while IFS=$'\t' read -r R1 R2; do
     [[ -n "$R2" && -r "$R1" && -r "$R2" ]] || continue
@@ -195,7 +230,7 @@ if [[ -n "$I1" && -n "$I2" ]]; then
 fi
 
 # ---- 5. identifiers ---------------------------------------------------------
-for C in sample group patient; do
+for C in sample group patient sampleID; do
   I=$(colidx "$C"); [[ -n "$I" ]] || continue
   BADID=$(colvals "$C" | grep -vE '^[A-Za-z][A-Za-z0-9_]{0,30}$' | sort -u | paste -sd, - || true)
   [[ -z "$BADID" ]] || warn "$C values outside ^[A-Za-z][A-Za-z0-9_]{0,30}\$ (R will rename these downstream): $BADID"
@@ -213,6 +248,10 @@ elif [[ -n "$(colidx patient)" && -n "$(colidx sample)" ]]; then  # sarek restar
         'NR>1{print $p"/"$s}' "$TMP" | sort | uniq -d | paste -sd' ' -)
   [[ -z "$D" ]] && ok "patient/sample pairs unique" \
                 || fail "duplicate patient/sample: $D"
+elif [[ "$PIPELINE" == ampliseq ]]; then
+  : # already checked as a hard FAIL, correctly, in the ampliseq branch above -- this generic
+    # branch's WARN ("merged as technical replicates") is the wrong severity here and would be
+    # a redundant, softer second message for the same row
 elif [[ -n "$(colidx sample)" ]]; then
   D=$(colvals sample | sort | uniq -d | paste -sd' ' -)
   [[ -z "$D" ]] && ok "sample ids unique" \
@@ -239,7 +278,7 @@ if [[ -n "$(colidx sex)" ]]; then
 fi
 
 # ---- 7. footprint -----------------------------------------------------------
-PATHS=$( { for C in fastq_1 fastq_2 bam cram; do colvals "$C"; done; } | grep '^/' | sort -u || true )
+PATHS=$( { for C in fastq_1 fastq_2 bam cram forwardReads reverseReads; do colvals "$C"; done; } | grep '^/' | sort -u || true )
 if [[ -z "$PATHS" ]]; then
   printf 'size  nothing to size (no absolute fastq/bam/cram paths)\n'
 else
