@@ -197,6 +197,33 @@ else
   bad "missing $SS"
 fi
 
+# taxprofiler (and potentially a future pipeline) takes a SECOND csv, --databases, whose own
+# db_path column is where the actual reference (e.g. a Kraken2 DB directory under $REFS) lives.
+# The reference-store gate below (== references ==) only text-scans params.yaml/cmd.sh for a
+# literal $REFS-anchored path -- on a taxprofiler run that path is one file removed, inside
+# databases.csv, and invisible to a plain grep of params.yaml/cmd.sh. Without this block,
+# preflight reported "this run references nothing from the store" and passed even with the
+# Kraken2 DB entirely absent -- the failure would only surface mid-launch when the pipeline
+# itself reads databases.csv (Codex review, PR #36). Generic on the param NAME, not hardcoded
+# to taxprofiler, so any future pipeline with the same two-CSV shape is covered automatically.
+DBCSV="$(grep -hoE '(^|[[:space:]])--?databases[[:space:]]+"?[^"[:space:]]+' "$RUNDIR/params.yaml" "$RUNDIR/cmd.sh" 2>/dev/null \
+         | sed -E 's/^[[:space:]]*--?databases[[:space:]]+"?//' | head -1 || true)"
+if [ -z "$DBCSV" ] && [ -f "$RUNDIR/params.yaml" ]; then
+  DBCSV="$(grep -E '^[[:space:]]*databases:' "$RUNDIR/params.yaml" | head -1 | sed -E 's/^[[:space:]]*databases:[[:space:]]*"?//; s/"?[[:space:]]*$//' || true)"
+fi
+if [ -n "$DBCSV" ]; then
+  echo "== databases csv =="
+  if [ -f "$DBCSV" ]; then
+    ok "found $DBCSV"
+    while read -r p; do
+      [ -n "$p" ] || continue
+      if [ -e "$p" ]; then ok "db_path exists: $p"; else bad "db_path MISSING: $p (referenced from $DBCSV, not visible to a plain grep of params.yaml/cmd.sh)"; fi
+    done < <(tail -n +2 "$DBCSV" | tr ',' '\n' | tr -d '"' | grep '/' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | sort -u)
+  else
+    bad "--databases/params.yaml names $DBCSV, which does not exist"
+  fi
+fi
+
 echo "== plan =="
 PLAN="$RUNDIR/plan.md"
 if [ ! -f "$PLAN" ]; then
