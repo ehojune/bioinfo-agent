@@ -474,11 +474,11 @@ explicit `not: anyOf` on the other set's names — a sheet mixing `sampleID` wit
 | legacy | `sampleID`, `forwardReads` | `reverseReads` |
 | standardized | `sample`, `fastq_1` | `fastq_2` |
 
-Both forms also accept `run` (multi-run/multi-lane support, defaults to `"1"` if omitted — rows
-sharing a `sample`/`sampleID` but different `run` values are treated as re-sequencing of the same
-biological sample and merged before DADA2), and `control`/`quant_reading` (only used by the
-decontam module, gated behind `--filter_extra_data`/related params). `reverseReads`/`fastq_2` are
-optional — single-end amplicon designs are supported.
+Both forms also accept `run` (tags which sequencing batch a **different** sample's row belongs to
+— per-run DADA2 error models, not a way to repeat a sample; see uniqueness below — defaults to
+`"1"` if omitted) and `control`/`quant_reading` (only used by the decontam module, gated behind
+`--filter_extra_data`/related params). `reverseReads`/`fastq_2` are optional — single-end amplicon
+designs are supported.
 
 ```csv
 sample,fastq_1,fastq_2
@@ -487,8 +487,14 @@ gut_case_04,/data/16s/gut_case_04_R1.fastq.gz,/data/16s/gut_case_04_R2.fastq.gz
 ```
 
 **ID uniqueness**: the schema enforces `uniqueEntries` on **both** `sample` and `sampleID`
-natively (not left to a downstream dedup step the way rnaseq merges duplicate sample IDs) — a
-repeated ID in either column fails validation before any process runs.
+independently, per-field — not a composite with `run`, and not left to a downstream dedup step the
+way rnaseq merges duplicate sample IDs across lanes. Confirmed empirically (`nextflow -preview` on
+a two-row sheet with the same `sample` and different `run` values): `Detected duplicate entries:
+[sample:S1]`, hard failure. **`run` does not license repeating a `sample`/`sampleID` value** — it
+tags which sequencing batch a distinct sample's row came from, matching the pipeline's own docs
+("sample: required, **Unique** sample identifiers" — `docs/usage.md`), so re-sequencing the same
+biological sample needs a distinct `sample`/`sampleID` value per row regardless of `run`.
+`scripts/check-samplesheet.sh --pipeline ampliseq` fails on any duplicate before Nextflow starts.
 
 **Silent-failure note**: `--FW_primer`/`--RV_primer` do not validate against the actual read
 content — a wrong primer pair passes schema validation and launches cleanly, then cutadapt

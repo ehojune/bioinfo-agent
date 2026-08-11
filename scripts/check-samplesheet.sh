@@ -126,13 +126,33 @@ elif [[ "$PIPELINE" == ampliseq ]]; then
   # assets/schema_input.json (2.18.0) accepts two column forms, checked here since the plain
   # AND-of-REQ check above can't express "one of two sets" -- same reason sarek's --step branch
   # gets its own follow-up check below rather than living in REQ.
-  if [[ -n "$(colidx sampleID)" && -n "$(colidx forwardReads)" ]]; then
+  HAS_LEGACY=$([[ -n "$(colidx sampleID)$(colidx forwardReads)$(colidx reverseReads)" ]] && echo 1 || echo 0)
+  HAS_STD=$([[ -n "$(colidx sample)$(colidx fastq_1)$(colidx fastq_2)" ]] && echo 1 || echo 0)
+  if [[ "$HAS_LEGACY" == 1 && "$HAS_STD" == 1 ]]; then
+    # schema_input.json's oneOf carries a `not: anyOf` on the other family's names for exactly
+    # this reason -- confirmed empirically (nextflow -preview) that mixing them is a hard schema
+    # failure, not just an nf-core style preference this checker could let slide.
+    fail "ampliseq: mixed legacy (sampleID/forwardReads/reverseReads) and standardized (sample/fastq_1/fastq_2) columns -- the schema rejects this outright, pick one family"
+  elif [[ "$HAS_LEGACY" == 1 && -n "$(colidx sampleID)" && -n "$(colidx forwardReads)" ]]; then
     ok "ampliseq required columns present (sampleID/forwardReads form)"
-  elif [[ -n "$(colidx sample)" && -n "$(colidx fastq_1)" ]]; then
+  elif [[ "$HAS_STD" == 1 && -n "$(colidx sample)" && -n "$(colidx fastq_1)" ]]; then
     ok "ampliseq required columns present (sample/fastq_1 form)"
   else
     fail "ampliseq needs sampleID+forwardReads, or sample+fastq_1"
   fi
+  # schema_input.json's allOf enforces uniqueEntries on "sample" AND separately on "sampleID" --
+  # confirmed empirically (nextflow -preview on a same-sample-different-run sheet: "Detected
+  # duplicate entries: [sample:S1]") that this is a per-field constraint, NOT a sample+run
+  # composite key. "run" tags which sequencing batch a row's error model belongs to; it does not
+  # license repeating a sample/sampleID value. Every ampliseq ID column must be FAIL, not the
+  # generic branch's WARN below, which exists for pipelines where repeated IDs across lanes are
+  # an intentional, supported merge.
+  for C in sample sampleID; do
+    I=$(colidx "$C"); [[ -n "$I" ]] || continue
+    D=$(colvals "$C" | sort | uniq -d | paste -sd' ' -)
+    [[ -z "$D" ]] && ok "ampliseq $C values unique" \
+                  || fail "ampliseq: duplicate $C value(s) (schema rejects unconditionally, regardless of run): $D"
+  done
 elif [[ -n "$REQ" ]]; then
   MISS=''
   for C in $REQ; do [[ -n "$(colidx "$C")" ]] || MISS="$MISS $C"; done
@@ -228,6 +248,10 @@ elif [[ -n "$(colidx patient)" && -n "$(colidx sample)" ]]; then  # sarek restar
         'NR>1{print $p"/"$s}' "$TMP" | sort | uniq -d | paste -sd' ' -)
   [[ -z "$D" ]] && ok "patient/sample pairs unique" \
                 || fail "duplicate patient/sample: $D"
+elif [[ "$PIPELINE" == ampliseq ]]; then
+  : # already checked as a hard FAIL, correctly, in the ampliseq branch above -- this generic
+    # branch's WARN ("merged as technical replicates") is the wrong severity here and would be
+    # a redundant, softer second message for the same row
 elif [[ -n "$(colidx sample)" ]]; then
   D=$(colvals sample | sort | uniq -d | paste -sd' ' -)
   [[ -z "$D" ]] && ok "sample ids unique" \
