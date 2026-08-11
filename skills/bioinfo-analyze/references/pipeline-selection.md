@@ -761,10 +761,14 @@ diversity artifacts (`.qza`/`.qzv`), phyloseq/TreeSummarizedExperiment RDS, `ove
 **QC verdict checklist:** per-sample read retention through cutadapt → DADA2 filtering → merging →
 chimera removal → length/SSU filtering → taxonomy filtering (`overall_summary.tsv` has all of it);
 diversity/PERMANOVA completion for each grouping variable in `--metadata`. **No real-sample QC
-band exists yet** — `references/qc-interpretation.md` has no §3.7 for amplicon; this repo's only
-run so far (`runs/20260810-ampliseq-testprofile-procurement/`) is a 4-sample CI fixture smoke, not
-enough to establish one. Report retention percentages as measurements, not against a threshold,
-until a real-sample run does that work.
+band exists yet** — `references/qc-interpretation.md` has no §3.7 for amplicon. Two runs exist so
+far: the 4-sample CI fixture (`runs/20260810-ampliseq-testprofile-procurement/`) and one real,
+ungrouped clinical sample (`runs/20260811-ampliseq-drr033717-realsample/`, DRR033717, cutadapt
+56.1% pass). Neither establishes a band on its own — the CI fixture isn't real data, and one
+ungrouped sample has no cohort to set a range against, and never exercised the diversity/
+PERMANOVA branch at all (`--metadata` needs ≥2 samples). Report retention percentages as
+measurements, not against a threshold, until a real **multi-sample** run with `--metadata` does
+that work.
 
 ---
 
