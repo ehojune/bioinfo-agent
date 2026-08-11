@@ -236,7 +236,19 @@ if [ -n "$DBCSV" ]; then
     else
       while read -r p; do
         [ -n "$p" ] || continue
-        if [ -e "$p" ]; then ok "db_path exists: $p"; else bad "db_path MISSING: $p (referenced from $DBCSV, not visible to a plain grep of params.yaml/cmd.sh)"; fi
+        # bootstrap/04-refs.sh's own do_fetch(), for a directory-mode (trailing-slash) manifest
+        # row, `mkdir -p`s the empty destination BEFORE reporting it MISSING -- an empty dir
+        # left by an interrupted or not-yet-run fetch is 04-refs.sh's own definition of
+        # "absent", not merely `[ ! -e ]`. A plain `[ -e "$p" ]` here would accept that same
+        # empty placeholder as a valid database and pass, only for Kraken2 to fail mid-launch
+        # on a directory with no index in it (Codex review, PR #36 round 6). Match 04-refs.sh's
+        # own OK/MISSING test: for a directory, require it to be non-empty; for a file, plain
+        # existence is still correct.
+        if [ -d "$p" ]; then
+          if [ -n "$(ls -A "$p" 2>/dev/null)" ]; then ok "db_path exists: $p ($(ls -A "$p" | wc -l) entries)"
+          else bad "db_path is an EMPTY directory: $p (referenced from $DBCSV -- bootstrap/04-refs.sh creates this placeholder before a fetch runs; run it, or fetch the database, before launch)"; fi
+        elif [ -e "$p" ]; then ok "db_path exists: $p"
+        else bad "db_path MISSING: $p (referenced from $DBCSV, not visible to a plain grep of params.yaml/cmd.sh)"; fi
       done < <(tail -n +2 "$DBCSV" | awk -F, -v i="$DBPI" '{print $i}' | tr -d '"' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | sort -u)
     fi
   else
