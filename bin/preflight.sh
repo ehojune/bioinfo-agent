@@ -206,19 +206,39 @@ fi
 # Kraken2 DB entirely absent -- the failure would only surface mid-launch when the pipeline
 # itself reads databases.csv (Codex review, PR #36). Generic on the param NAME, not hardcoded
 # to taxprofiler, so any future pipeline with the same two-CSV shape is covered automatically.
-DBCSV="$(grep -hoE '(^|[[:space:]])--?databases[[:space:]]+"?[^"[:space:]]+' "$RUNDIR/params.yaml" "$RUNDIR/cmd.sh" 2>/dev/null \
-         | sed -E 's/^[[:space:]]*--?databases[[:space:]]+"?//' | head -1 || true)"
+DBCSV="$(grep -hoE '(^|[[:space:]])--?databases[[:space:]]+["'"'"']?[^"'"'"'[:space:]]+' "$RUNDIR/params.yaml" "$RUNDIR/cmd.sh" 2>/dev/null \
+         | sed -E 's/^[[:space:]]*--?databases[[:space:]]+["'"'"']?//' | head -1 || true)"
 if [ -z "$DBCSV" ] && [ -f "$RUNDIR/params.yaml" ]; then
-  DBCSV="$(grep -E '^[[:space:]]*databases:' "$RUNDIR/params.yaml" | head -1 | sed -E 's/^[[:space:]]*databases:[[:space:]]*"?//; s/"?[[:space:]]*$//' || true)"
+  DBCSV="$(grep -E '^[[:space:]]*databases:' "$RUNDIR/params.yaml" | head -1 | sed -E 's/^[[:space:]]*databases:[[:space:]]*["'"'"']?//; s/["'"'"']?[[:space:]]*$//' || true)"
 fi
+# The value found above is TEXT from a shell script or a YAML file, not an evaluated shell
+# expression -- `--databases "$RUNDIR/databases.csv"` (a legitimate, in-repo cmd.sh style, see
+# runbook.md section 5's own template) leaves the literal string "$RUNDIR/databases.csv" in
+# $DBCSV, which then never matches a real file. Expand the one variable this repo's cmd.sh
+# templates actually use for this purpose. Not a general shell evaluator on purpose --
+# `eval`-ing arbitrary cmd.sh/params.yaml content read from a run directory would execute
+# whatever text is in there.
+DBCSV="${DBCSV//\$\{RUNDIR\}/$RUNDIR}"
+DBCSV="${DBCSV//\$RUNDIR/$RUNDIR}"
 if [ -n "$DBCSV" ]; then
   echo "== databases csv =="
   if [ -f "$DBCSV" ]; then
     ok "found $DBCSV"
-    while read -r p; do
-      [ -n "$p" ] || continue
-      if [ -e "$p" ]; then ok "db_path exists: $p"; else bad "db_path MISSING: $p (referenced from $DBCSV, not visible to a plain grep of params.yaml/cmd.sh)"; fi
-    done < <(tail -n +2 "$DBCSV" | tr ',' '\n' | tr -d '"' | grep '/' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | sort -u)
+    # db_path BY HEADER COLUMN, not "any field containing a slash" -- schema_database.json's
+    # own optional db_params column legitimately carries slash-bearing CLI args (e.g.
+    # "--taxonomy /refs/taxonomy"), which a slash-grep would misreport as a broken db_path; the
+    # same slash-grep also silently skips a genuinely missing bare (no-slash) db_path like
+    # "kraken_db". Same colidx-by-header approach as scripts/check-samplesheet.sh.
+    DBHDR="$(head -1 "$DBCSV")"
+    DBPI="$(printf '%s' "$DBHDR" | awk -F, '{for(i=1;i<=NF;i++) if($i=="db_path"){print i; exit}}')"
+    if [ -z "$DBPI" ]; then
+      bad "$DBCSV has no db_path column (header: $DBHDR)"
+    else
+      while read -r p; do
+        [ -n "$p" ] || continue
+        if [ -e "$p" ]; then ok "db_path exists: $p"; else bad "db_path MISSING: $p (referenced from $DBCSV, not visible to a plain grep of params.yaml/cmd.sh)"; fi
+      done < <(tail -n +2 "$DBCSV" | awk -F, -v i="$DBPI" '{print $i}' | tr -d '"' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | sort -u)
+    fi
   else
     bad "--databases/params.yaml names $DBCSV, which does not exist"
   fi
