@@ -292,8 +292,54 @@ done
 
 # ============================================================ 8. repo + refs
 head_ 'Repo and reference store'
-if [ -d "$BIOINFO_HOME_V" ]; then ok "BIOINFO_HOME = $BIOINFO_HOME_V"
-else fail "BIOINFO_HOME=$BIOINFO_HOME_V does not exist"; fi
+if [ ! -d "$BIOINFO_HOME_V" ]; then
+  fail "BIOINFO_HOME=$BIOINFO_HOME_V does not exist"
+else
+  ok "BIOINFO_HOME = $BIOINFO_HOME_V"
+
+  # `-d` is not enough, and this is not hypothetical. On this host the environment
+  # contract pointed BIOINFO_HOME at a Claude Code session worktree for eight days: the
+  # directory still existed, so the check above said ok, while its git registration had
+  # been removed and its files sat 216 lines (bin/preflight.sh) and 95 lines
+  # (config/genomes.config) behind main. Every command the skill composes from
+  # $BIOINFO_HOME — preflight, `-c $BIOINFO_HOME/config/local.config` — ran the stale
+  # copy. Same failure shape as the version-named plugin cache scripts/
+  # check-plugin-version.sh guards, and nothing was watching this one.
+
+  # A session worktree is never a durable BIOINFO_HOME. They are created per Claude Code
+  # session under .claude/worktrees/ and detached when it ends, and the files stay on disk
+  # afterwards looking perfectly healthy — which is exactly how this one went unnoticed.
+  #
+  # Checked by path, deliberately, NOT by inspecting .git. The obvious test — read the
+  # `gitdir:` pointer and see whether it resolves — cannot work on this repo's own layout:
+  # the checkout is on NTFS and runs happen in WSL, so a worktree Windows git created
+  # carries `gitdir: D:/bioinfo-agent/.git/worktrees/<name>`, which Linux git treats as a
+  # RELATIVE path and appends to the worktree. Measured: a freshly created, perfectly
+  # healthy worktree and the detached one both come back `fatal: not a git repository`.
+  # A test that cannot tell those two apart can only produce false NOT READY verdicts.
+  case "$BIOINFO_HOME_V" in
+    */.claude/worktrees/*)
+      fail "BIOINFO_HOME is a Claude Code session worktree. Those are temporary: when the
+          session ends the worktree is detached but its files remain, so runs keep reading
+          a frozen copy while looking healthy. Point BIOINFO_HOME at the real checkout and
+          re-run bootstrap/03-nextflow.sh."
+      ;;
+  esac
+
+  # Not fatal: running this script from a worktree while BIOINFO_HOME names the main
+  # checkout is a normal thing to do. But a run uses BIOINFO_HOME, not the tree this
+  # script came from, so say which one is which rather than leaving them assumed equal.
+  SELFREPO=$(cd "$SELFDIR/.." 2>/dev/null && pwd)
+  HOMEREPO=$(cd "$BIOINFO_HOME_V" 2>/dev/null && pwd)
+  if [ -n "$SELFREPO" ] && [ -n "$HOMEREPO" ] && [ "$SELFREPO" != "$HOMEREPO" ]; then
+    warn "this script runs from $SELFREPO but a run would use BIOINFO_HOME=$HOMEREPO.
+          Verifying one tree and executing another is how the two drift apart."
+  fi
+
+  for f in config/pipelines.tsv config/local.config bin/preflight.sh; do
+    [ -f "$BIOINFO_HOME_V/$f" ] || fail "BIOINFO_HOME is missing $f — it is not a bioinfo-agent checkout"
+  done
+fi
 
 MANIFEST="$BIOINFO_HOME_V/config/refs.manifest.tsv"
 REFSCRIPT="$BIOINFO_HOME_V/bootstrap/04-refs.sh"
