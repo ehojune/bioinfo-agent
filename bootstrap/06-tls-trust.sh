@@ -54,8 +54,9 @@ done
 # Accept a fingerprint pasted in any of the forms the tools print it.
 EXPECT_FP="$(printf '%s' "$EXPECT_FP" | tr -d ': \t' | tr 'a-f' 'A-F')"
 
-# config/host.env — per-machine overrides, sourced before the default so the docker/pipeline
-# user here is a genuine fallback. `|| true`: an unquoted value there must not stop the run.
+# config/host.env — per-machine overrides, read before the default so the docker/pipeline
+# user here is a genuine fallback. load_host_env always returns 0: an unquoted value there
+# is skipped, never fatal.
 HOST_ENV="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}/config/host.env"
 . "$(dirname "$0")/lib/host-env.sh"      # parses; never executes host.env
 load_host_env "$HOST_ENV"

@@ -1,8 +1,9 @@
 # Worked examples
 
-Seven real runs, kept as documentation of what a run record looks like. Each is the five-file set
-the agent writes into `runs/<runid>/`: `plan.md`, `samplesheet.csv`, `params.yaml`, `cmd.sh`,
-`handoff.md`.
+Seven real runs, kept as documentation of what a run record looks like. A full record in
+`runs/<runid>/` is five files — `plan.md`, `samplesheet.csv`, `params.yaml`, `cmd.sh`, `handoff.md`
+— but not every example carries all five: `20260804-rnaseq-scer-verify` passes its references on the
+command line and so has no `params.yaml`, and the two `-e` runs kept only `cmd.sh` and `handoff.md`.
 
 | Example | Shows |
 |---|---|
@@ -14,8 +15,8 @@ the agent writes into `runs/<runid>/`: `plan.md`, `samplesheet.csv`, `params.yam
 | `20260807-rnaseq-salmononly-e` | the same data completing via the pseudo-aligner path |
 | `20260810-fetchngs-citest` | first run of nf-core/fetchngs on this host — headerless accession list, GSE/GEO resolution, and the discovery that `-stub-run` downloads real data for this pipeline |
 
-The last two are the evidence behind the ext4 rule in
-`skills/bioinfo-analyze/references/runbook.md` section 1.
+`20260807-rnaseq-testprofile-e` and `20260807-rnaseq-salmononly-e` are the evidence behind the ext4
+rule in `skills/bioinfo-analyze/references/runbook.md` section 1.
 
 **Your own runs do not go here.** They land in `runs/`, which is gitignored — see the comment in
 `.gitignore`. The agent reads that directory locally when planning, to notice a sample it has seen

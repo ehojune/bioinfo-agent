@@ -38,8 +38,8 @@ watches it, and reads MultiQC to give you a QC verdict. **It runs on a personal 
 a shared server or an HPC cluster too** — the only things that change are the container engine and
 the executor setting.
 
-**What it will not do**: interpret biology. `the expression percentage of NF1 gene isoform NF1-201
-is 17%` is where this agent's job ends; what that means for your research is yours.
+**What it will not do**: interpret biology. `the expression percentage of NF1 gene isoform NF1-202
+is 18%` is where this agent's job ends; what that means for your research is yours.
 
 <p align="center">
   <img src="docs/how-it-works.en.svg" width="704"
@@ -143,16 +143,18 @@ cd ~/bioinfo-agent
 cp config/host.env.example config/host.env   # set the distro name, paths and caps for this machine
 set -a; . config/host.env; set +a
 
-bash bootstrap/01-wsl-base.sh    # 00-windows-wsl.ps1 first, on Windows
-bash bootstrap/02-docker.sh
-bash bootstrap/03-nextflow.sh    # writes ~/.config/bioinfo/env.sh
+sudo -E bash bootstrap/01-wsl-base.sh   # 00-windows-wsl.ps1 first, on Windows
+sudo -E bash bootstrap/02-docker.sh
+bash bootstrap/03-nextflow.sh    # writes ~/.config/bioinfo/env.sh; refuses to run as root
 bash bootstrap/06-tls-trust.sh   # before 04: fetching references needs working TLS
 bash bootstrap/04-refs.sh
 bash bootstrap/05-verify.sh      # until this prints READY, the install is not done
 ```
 
-All of them are idempotent, so re-running is safe. What each script does, and which to skip on which
-host, is in [docs/agent-setup.md](docs/agent-setup.md).
+All of them are idempotent, so re-running is safe. **01 and 02 run as root; 03, 04, 05 and 06 run as
+the pipeline user** — 01 refuses to run without root, and 03 refuses to run with it. Which script
+runs as whom, and which to skip on which host, is in the table in
+[docs/agent-setup.md](docs/agent-setup.md).
 
 > **WSL users, read this** — you must configure `.wslconfig` (see `config/wslconfig.example`).
 > Without it WSL2 takes only 50% of host RAM, while a human STAR index wants ~38 GB: it dies of OOM

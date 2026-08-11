@@ -119,7 +119,7 @@ run and destroys trust in the next estimate.
 | **`-stub-run` / `-preview`** | 1 – 5 min | trivial | <1 GB | Non-negotiable per the guardrails. Costs nothing |
 
 Total cold-start for a first RNA-seq run with nothing built (STAR + salmon indexes, container pulls,
-stub + `-profile test`): **1.6 – 3.7 h** and **57 – 92 GB** of reference/index/container disk — the
+stub + `-profile test`): **1.6 – 3.7 h** and **57 – 90 GB** of reference/index/container disk — the
 sum of the rows above, and the same subtotal §6 step 2 uses.
 
 Total cold-start for a first sarek germline run: **2.0 – 5.7 h** and **50 – 82 GB** (images + GATK
@@ -305,7 +305,7 @@ Alignment and quant scale roughly linearly; QC less so. Per-sample serialised: 0
 | Container pulls (rnaseq set) | 0.25 – 0.75 h | 8 – 20 GB |
 | `.dict` (not needed for rnaseq) | — | — |
 | `-stub-run` + `-profile test` | 0.2 – 0.6 h | 2 – 10 GB |
-| **One-off subtotal** | **1.6 – 3.7 h** | **57 – 92 GB** |
+| **One-off subtotal** | **1.6 – 3.7 h** | **57 – 90 GB** |
 
 **Step 3 — per-sample subtotal with concurrency.** STAR is memory-serialised (§3.1), everything else
 runs 3-wide, so `C_eff ≈ 1.25`:
@@ -324,10 +324,10 @@ Range using the endpoints: `(8 × 0.95)/1.25 × 1.2 = 7.3 h` to `(8 × 2.1)/1.25
 | Term | Size |
 |---|---|
 | Input FASTQ, 8 × ~10 GB gz | 80 GB (assume copied into ext4) |
-| Indexes + containers | 57 – 92 GB |
+| Indexes + containers | 57 – 90 GB |
 | Work dir, cumulative: 8 × (33 – 67 GB) at 1.33× scaling | 265 – 535 GB |
 | Published results, 8 × (4 – 11 GB) | 32 – 88 GB |
-| **Subtotal** | **434 – 795 GB** |
+| **Subtotal** | **434 – 793 GB** |
 | **× 1.5 guardrail** | **650 GB – 1.19 TB** |
 
 Against 955 GB free in the VHDX (1 TB hard max): the low and mid cases fit, the high case does not.
@@ -343,7 +343,7 @@ That must be said, not buried.
 > otherwise — but it will occupy the machine overnight.
 >
 > Disk is the tighter constraint. Work dir peaks cumulatively at 265–535 GB (Nextflow keeps every
-> intermediate so `-resume` stays available; I won't clean it), plus 80 GB inputs, 57–92 GB
+> intermediate so `-resume` stays available; I won't clean it), plus 80 GB inputs, 57–90 GB
 > indexes/images, 32–88 GB results. With the 1.5× safety factor that's 650 GB to 1.19 TB against
 > 955 GB free in the WSL VHDX. The midpoint fits; the pessimistic case does not. Two options: run all
 > eight and I monitor free space and stop at 85%, or split into two batches of four, which costs about

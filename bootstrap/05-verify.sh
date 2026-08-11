@@ -17,7 +17,7 @@
 # therefore dead.
 #
 # CRLF guard — see 01-wsl-base.sh. Trailing `#` swallows this line's own CR.
-if [ -z "${BIOINFO_CRLF_REEXEC:-}" ] && grep -q $'\r' "$0" 2>/dev/null; then export BIOINFO_CRLF_REEXEC=1; exec bash <(tr -d '\r' < "$0") "$@"; fi  # CRLF self-heal
+if [ -z "${BIOINFO_CRLF_REEXEC:-}" ] && grep -q $'\r' "$0" 2>/dev/null; then export BIOINFO_CRLF_REEXEC=1 BIOINFO_BOOTSTRAP_DIR="$(cd "$(dirname "$0")" && pwd)"; exec bash <(tr -d '\r' < "$0") "$@"; fi  # CRLF self-heal
 set -uo pipefail
 # NOTE: deliberately NOT -e. This script's job is to survive every failure it finds and
 # still print a complete report; -e would abort at the first broken check.
@@ -36,8 +36,13 @@ NXF_OFFLINE_AMBIENT="${NXF_OFFLINE:-}"
 # config/host.env first, the generated contract second, so ~/.config/bioinfo/env.sh
 # always wins: that file is what a pipeline run actually gets, and it is what this
 # script exists to check. Parsed, not sourced — see bootstrap/lib/host-env.sh.
+SELFDIR="${BIOINFO_BOOTSTRAP_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+# Unset before section 8 runs `bash "$REFSCRIPT"`: an inherited sentinel would make a CRLF
+# 04-refs.sh skip its own strip pass and die on `pipefail\r`, and this script would report
+# the reference store broken when only the line endings were. See 01-wsl-base.sh.
+unset BIOINFO_CRLF_REEXEC BIOINFO_BOOTSTRAP_DIR
 HOST_ENV="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}/config/host.env"
-. "$(dirname "$0")/lib/host-env.sh"      # parses; never executes host.env
+. "$SELFDIR/lib/host-env.sh"      # parses; never executes host.env
 load_host_env "$HOST_ENV"
 
 ENVFILE="$HOME/.config/bioinfo/env.sh"

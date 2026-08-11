@@ -26,13 +26,17 @@
 # would never pass until someone downloaded 25 GB of VEP cache.
 #
 # CRLF guard — see 01-wsl-base.sh. Trailing `#` swallows this line's own CR.
-if [ -z "${BIOINFO_CRLF_REEXEC:-}" ] && grep -q $'\r' "$0" 2>/dev/null; then export BIOINFO_CRLF_REEXEC=1; exec bash <(tr -d '\r' < "$0") "$@"; fi  # CRLF self-heal
+if [ -z "${BIOINFO_CRLF_REEXEC:-}" ] && grep -q $'\r' "$0" 2>/dev/null; then export BIOINFO_CRLF_REEXEC=1 BIOINFO_BOOTSTRAP_DIR="$(cd "$(dirname "$0")" && pwd)"; exec bash <(tr -d '\r' < "$0") "$@"; fi  # CRLF self-heal
 set -euo pipefail
 
-# config/host.env — per-machine overrides, sourced before the defaults so the values
-# here are genuine fallbacks. `|| true`: an unquoted value there must not stop the run.
+SELFDIR="${BIOINFO_BOOTSTRAP_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+unset BIOINFO_CRLF_REEXEC BIOINFO_BOOTSTRAP_DIR   # this script only — see 01-wsl-base.sh
+
+# config/host.env — per-machine overrides, read before the defaults so the values here
+# are genuine fallbacks. load_host_env always returns 0, so an unquoted value there
+# cannot stop the run under set -e.
 HOST_ENV="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}/config/host.env"
-. "$(dirname "$0")/lib/host-env.sh"      # parses; never executes host.env
+. "$SELFDIR/lib/host-env.sh"      # parses; never executes host.env
 load_host_env "$HOST_ENV"
 
 BIOINFO_HOME_V="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}"
@@ -67,10 +71,18 @@ case "$REFS" in
   /mnt/*) die "BIOINFO_REFS=$REFS is on drvfs. The reference store must be on ext4." ;;
 esac
 
+# A dry run must not create the store it is only previewing. 05-verify.sh calls this script
+# with --dry-run and calls itself read-only; creating $REFS here made that false, and it also
+# masked 05's own "$REFS does not exist" check by creating the directory before it looked.
+REFS_ABSENT=0
 if [ ! -d "$REFS" ]; then
-  mkdir -p "$REFS" 2>/dev/null || die "cannot create $REFS. As root:  install -d -o $USER -g $USER $REFS"
+  if [ "$DRY" -eq 1 ]; then
+    REFS_ABSENT=1
+  else
+    mkdir -p "$REFS" 2>/dev/null || die "cannot create $REFS. As root:  install -d -o $USER -g $USER $REFS"
+  fi
 fi
-[ -w "$REFS" ] || die "$REFS is not writable by $USER. As root:  chown -R $USER:$USER $REFS"
+[ "$REFS_ABSENT" -eq 1 ] || [ -w "$REFS" ] || die "$REFS is not writable by $USER. As root:  chown -R $USER:$USER $REFS"
 
 # Standard skeleton. Present regardless of what the manifest happens to list, because
 # the pipeline configs reference these cache dirs by name whether or not a row exists.
@@ -150,7 +162,11 @@ row() {
 
 say ""
 say "[04-refs] manifest : $MANIFEST"
-say "[04-refs] refs root: $REFS  ($(df -Pk "$REFS" | awk 'NR==2{print $4}' | awk '{printf "%.0f GiB free", $1/1048576}'))"
+if [ "$REFS_ABSENT" -eq 1 ]; then
+  say "[04-refs] refs root: $REFS  (absent — would be created)"
+else
+  say "[04-refs] refs root: $REFS  ($(df -Pk "$REFS" | awk 'NR==2{print $4}' | awk '{printf "%.0f GiB free", $1/1048576}'))"
+fi
 [ "$DRY" -eq 1 ] && say "[04-refs] DRY RUN — nothing will be created"
 say ""
 row STATUS MODE STANDARD_PATH DETAIL
@@ -627,7 +643,10 @@ fi
 
 total=$((n_ok+n_link+n_copy+n_stale+n_build+n_fetch+n_hard+n_parse))
 say ""
-say "[04-refs] $total rows: ok=$n_ok linked=$n_link copied=$n_copy stale=$n_stale not-built=$n_build fetch-missing=$n_fetch broken=$n_hard parse-errors=$n_parse"
+# The one line that prints even under --quiet: 05-verify.sh greps for exactly this shape and
+# shows it as its reference-store info line. Routing it through say() meant --quiet suppressed
+# it and 05's info line was silently always empty.
+printf '%s\n' "[04-refs] $total rows: ok=$n_ok linked=$n_link copied=$n_copy stale=$n_stale not-built=$n_build fetch-missing=$n_fetch broken=$n_hard parse-errors=$n_parse"
 if [ "$n_copy" -gt 0 ]; then say "[04-refs] bytes copied: $(human "$copied_bytes")"; fi
 # Reported unconditionally when there are any: a healthy alias that prints nothing cannot be
 # distinguished from an alias that was never created, and genomes.config depends on it.

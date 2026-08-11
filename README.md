@@ -135,16 +135,17 @@ cd ~/bioinfo-agent
 cp config/host.env.example config/host.env   # 배포판 이름, 경로, 자원 상한을 이 머신 값으로
 set -a; . config/host.env; set +a
 
-bash bootstrap/01-wsl-base.sh    # Windows라면 00-windows-wsl.ps1 이 먼저
-bash bootstrap/02-docker.sh
-bash bootstrap/03-nextflow.sh    # ~/.config/bioinfo/env.sh 를 쓴다
+sudo -E bash bootstrap/01-wsl-base.sh   # Windows라면 00-windows-wsl.ps1 이 먼저
+sudo -E bash bootstrap/02-docker.sh
+bash bootstrap/03-nextflow.sh    # ~/.config/bioinfo/env.sh 를 쓴다. root로 돌리면 거부한다
 bash bootstrap/06-tls-trust.sh   # 04보다 먼저. 레퍼런스를 받으려면 TLS가 살아 있어야 한다
 bash bootstrap/04-refs.sh
 bash bootstrap/05-verify.sh      # READY 를 찍기 전엔 설치가 끝난 게 아니다
 ```
 
-전부 멱등이라 다시 돌려도 안전하다. 각 스크립트가 무엇을 하고 어느 호스트에서 무엇을 건너뛰는지는
-[docs/agent-setup.md](docs/agent-setup.md) 에 있다.
+전부 멱등이라 다시 돌려도 안전하다. **01·02는 root, 03·04·05·06은 파이프라인 사용자**로 돈다 —
+01은 root가 아니면, 03은 root면 거부한다. 어느 스크립트를 누구로 돌리고 어느 호스트에서 무엇을
+건너뛰는지는 [docs/agent-setup.md](docs/agent-setup.md) 의 표에 있다.
 
 > **WSL 사용자 필독** — `.wslconfig` 를 반드시 설정한다(`config/wslconfig.example` 참고). 없으면
 > WSL2가 호스트 RAM의 50%만 잡는데 사람 STAR 인덱스 빌드는 ~38GB를 요구한다. 경고 없이 OOM으로
