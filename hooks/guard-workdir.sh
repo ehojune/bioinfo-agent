@@ -41,7 +41,9 @@
 # Protocol: stdin is the PreToolUse JSON; exit 2 with a reason on stderr blocks the call.
 #
 # TESTS: hooks/guard-workdir.test.sh. Run it after every edit to this file — `bash
-# hooks/guard-workdir.test.sh`, 85 allow/deny cases, no network, nothing outside a temp dir.
+# hooks/guard-workdir.test.sh`: allow/deny cases only, no network, nothing outside a temp dir.
+# (A hard-coded case count used to live here and went stale by ~47 cases; the suite reports
+# its own totals when it runs.)
 # Every case in it is a hole this hook actually had.
 
 set -uo pipefail
