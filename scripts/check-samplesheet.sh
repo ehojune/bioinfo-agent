@@ -51,7 +51,11 @@ else ok "ASCII only"; fi
 
 # ---- 2. normalise a working copy -------------------------------------------
 TMP=$(mktemp); trap 'rm -f "$TMP"' EXIT
-sed -e '1s/^\xEF\xBB\xBF//' -e 's/\r$//' "$SHEET" | grep -v '^[[:space:]]*$' > "$TMP"
+# `|| true` on the grep: an empty or all-blank sheet makes it select zero lines and exit 1,
+# which under `set -euo pipefail` killed the script right after the "file is empty" FAIL —
+# the remaining checks and the PASS/FAILED summary never ran on exactly the degenerate input
+# line 50 detects and means to report.
+sed -e '1s/^\xEF\xBB\xBF//' -e 's/\r$//' "$SHEET" | { grep -v '^[[:space:]]*$' || true; } > "$TMP"
 
 if [[ "$PIPELINE" == fetchngs ]]; then
   # fetchngs takes a HEADERLESS accession list (references/samplesheets.md) -- line 1 is a real
@@ -109,7 +113,7 @@ case "$PIPELINE" in
   methylseq|scrnaseq)    REQ='sample fastq_1' ;;
   atacseq)               REQ='sample fastq_1 replicate' ;;
   chipseq)               REQ='sample fastq_1 replicate antibody control control_replicate' ;;
-  cutandrun)             REQ='group replicate fastq_1 control' ;;
+  cutandrun)             REQ='group replicate fastq_1 fastq_2 control' ;;   # paired-end only at 3.2.2
   differentialabundance) REQ='sample' ;;                        # or whatever --observations_id_col says
   fetchngs)              REQ='' ;;                              # headerless accession list, not a CSV
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
