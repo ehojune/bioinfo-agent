@@ -30,10 +30,17 @@ this 1-sample/1-tool/no-QC/no-hostremoval configuration (`FASTQC`, `KRAKEN2_KRAK
 Thresholds applied: none formal — first real-sample run for this pipeline on this host (source:
 my default, stated in `pipeline-selection.md` §4.12 as establishing a floor, not a QC band).
 Samples flagged: none excluded. **The high unclassified fraction is not itself flagged as a
-defect** — the identical reads assembled to only 74 short contigs in this same sample's mag
-real-sample run (`runs/20260812-mag-drr027580-realsample/`), consistent with genuinely
-shallow/degraded input rather than a Kraken2 or database problem. No biological interpretation
-of what the sample actually is offered here.
+defect, but its cause is unresolved, not established** — the identical reads assembled to only
+74 short contigs in this same sample's mag real-sample run
+(`runs/20260812-mag-drr027580-realsample/`), which is consistent with a shallow/low-diversity
+input, but a low contig count does not distinguish that from this specific 8 GB-capped
+database simply lacking reference sequences for whatever this sample actually contains (a
+"fossil metagenome" plausibly holds organisms/sequence divergence outside a standard modern
+bacterial/archaeal/viral index). Only one database and one sample have been tested; nothing
+here rules out that a larger or differently-composed database would classify substantially
+more of this same sample. No biological interpretation of what the sample actually is offered
+here, and no recommendation to treat this database as adequate or inadequate for other
+samples.
 
 ## Bounded choices I made
 

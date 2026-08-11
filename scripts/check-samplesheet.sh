@@ -281,7 +281,14 @@ elif [[ -n "$REQ" ]]; then
     # path across rows is unremarkable.
     for C in fastq_1 fastq_2 fasta; do
       I=$(colidx "$C"); [[ -n "$I" ]] || continue
-      D=$(colvals "$C" | grep -v '^$' | sort | uniq -d | paste -sd' ' -)
+      # `grep -v '^$'` exits 1 (no match) when EVERY value in this column is empty -- e.g. a
+      # supported single-end/long-read sheet with fastq_2 present but blank on every row.
+      # Under `set -euo pipefail` that unguarded exit 1 aborted the whole checker right here,
+      # silently, with no FAIL/PASS message at all (Codex review, PR #36, P1: reproduced with a
+      # one-row OXFORD_NANOPORE sheet with an empty fastq_2 column). `|| true` tolerates the
+      # no-match case the same way this file already does elsewhere (e.g. the `B=... || true`
+      # pattern in the enum checks above).
+      D=$(colvals "$C" | { grep -v '^$' || true; } | sort | uniq -d | paste -sd' ' -)
       [[ -z "$D" ]] && ok "taxprofiler $C values unique" \
                     || fail "taxprofiler: duplicate $C value(s) (schema rejects unconditionally): $D"
     done

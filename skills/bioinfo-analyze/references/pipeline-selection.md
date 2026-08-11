@@ -944,10 +944,13 @@ RAM 7.8 GB dominated by loading the DB itself) establishes only that the pipelin
 end against real data with a real reference database and produces real (if 99.07% unclassified)
 per-taxon output; it does not establish what a normal percent-classified range looks like for
 this sample type — this sample is a known outlier (mag's own real-sample run on the identical
-reads assembled to only 74 short contigs, so a near-total-unclassified Kraken2 result is
-consistent with a genuinely shallow/low-diversity/degraded input, not a pipeline defect). A run
-against a sample with known community composition, or a second real sample for comparison, is
-what would start that band.
+reads assembled to only 74 short contigs), but the CAUSE of the near-total-unclassified Kraken2
+result is unresolved, not established: a shallow/low-diversity input and a database that simply
+lacks coverage for this sample's actual content are both consistent with the same observation,
+and only one database was tested against one sample. Not a pipeline defect either way — the
+pipeline ran correctly and produced a real, if hard-to-interpret, result. A run against a sample
+with known community composition, or a second real sample/database for comparison, is what
+would start that band and what would actually distinguish the two explanations.
 
 ---
 
