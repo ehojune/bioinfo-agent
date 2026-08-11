@@ -116,11 +116,23 @@ case "$PIPELINE" in
   cutandrun)             REQ='group replicate fastq_1 fastq_2 control' ;;   # paired-end only at 3.2.2
   differentialabundance) REQ='sample' ;;                        # or whatever --observations_id_col says
   fetchngs)              REQ='' ;;                              # headerless accession list, not a CSV
+  ampliseq)              REQ='' ;;                              # two column forms; see below
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
 if [[ "$PIPELINE" == fetchngs ]]; then
   warn "fetchngs takes a headerless accession list; the column checks below do not apply to it"
+elif [[ "$PIPELINE" == ampliseq ]]; then
+  # assets/schema_input.json (2.18.0) accepts two column forms, checked here since the plain
+  # AND-of-REQ check above can't express "one of two sets" -- same reason sarek's --step branch
+  # gets its own follow-up check below rather than living in REQ.
+  if [[ -n "$(colidx sampleID)" && -n "$(colidx forwardReads)" ]]; then
+    ok "ampliseq required columns present (sampleID/forwardReads form)"
+  elif [[ -n "$(colidx sample)" && -n "$(colidx fastq_1)" ]]; then
+    ok "ampliseq required columns present (sample/fastq_1 form)"
+  else
+    fail "ampliseq needs sampleID+forwardReads, or sample+fastq_1"
+  fi
 elif [[ -n "$REQ" ]]; then
   MISS=''
   for C in $REQ; do [[ -n "$(colidx "$C")" ]] || MISS="$MISS $C"; done
@@ -138,7 +150,7 @@ elif [[ -z "$PIPELINE" ]]; then
 fi
 
 # ---- 3. path columns --------------------------------------------------------
-for C in fastq_1 fastq_2 bam bai cram crai vcf table spring_1 spring_2; do
+for C in fastq_1 fastq_2 bam bai cram crai vcf table spring_1 spring_2 forwardReads reverseReads; do
   I=$(colidx "$C"); [[ -n "$I" ]] || continue
   N=0
   while IFS= read -r P; do
@@ -195,7 +207,7 @@ if [[ -n "$I1" && -n "$I2" ]]; then
 fi
 
 # ---- 5. identifiers ---------------------------------------------------------
-for C in sample group patient; do
+for C in sample group patient sampleID; do
   I=$(colidx "$C"); [[ -n "$I" ]] || continue
   BADID=$(colvals "$C" | grep -vE '^[A-Za-z][A-Za-z0-9_]{0,30}$' | sort -u | paste -sd, - || true)
   [[ -z "$BADID" ]] || warn "$C values outside ^[A-Za-z][A-Za-z0-9_]{0,30}\$ (R will rename these downstream): $BADID"

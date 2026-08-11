@@ -70,6 +70,7 @@ factor from §3. It is not what you observe per sample when Nextflow is running 
 | **scrnaseq** (`--aligner alevin` / simpleaf) | 400 M reads | 0.6 – 1.5 h | 40 – 90 GB | 4 – 12 GB | Much lighter on RAM; runs 2–3 wide |
 | **differentialabundance** | whole experiment, ≤100 samples | 0.2 – 0.7 h **total, not per sample** | <10 GB | <2 GB | Number of contrasts and whether GSEA runs |
 | **fetchngs** | download-bound | see §1.1 | ≈ 1.05 × downloaded bytes | = downloaded bytes | Network only |
+| **ampliseq** (16S/ITS, CI-fixture-scale) | 4 samples × 2,500 PE reads (`-profile test`) | 0.7 – 1 h **total, not per sample** — peak process 960 MB (`QIIME2_DIVERSITY_*`), peak_rss stayed under 1 GB for every task | 560 MB **total** | 78 MB **total** | Measured 2026-08-10 (`runs/20260810-ampliseq-testprofile-procurement/`) — this row is a CI fixture, not a scaled real-sample number; a real 16S run (10s of thousands of reads/sample) will cost meaningfully more in cutadapt/DADA2 time and work-dir size, unmeasured here. Re-measure on the first real run before quoting a per-sample figure |
 
 Row provenance: the rows were written against the pins in `config/pipelines.tsv`.
 <!-- UNVERIFIED: per-pipeline default tool selection changes between minor revisions. Confirm the actual module list for your pinned `-r` with `nextflow run nf-core/<pipeline> -r <rev> --help` and by reading the pipeline's `conf/modules.config` before quoting a time. -->
@@ -116,6 +117,7 @@ run and destroys trust in the next estimate.
 | **VEP cache**, human GRCh38 indexed | 40 – 120 min download + 20 – 40 min unpack | — | 25 – 30 GB unpacked | Missing. `--vep_cache` points at `$BIOINFO_REFS/cache/vep/` |
 | **snpEff GRCh38 database** | 5 – 15 min | — | 1 – 2 GB | Cheaper alternative to VEP if annotation depth is not critical |
 | **`-profile test` smoke run** (any pipeline) | 10 – 30 min | modest | 2 – 10 GB | Pays for itself the first time it catches a broken container or reference path |
+| **ampliseq taxonomy DB** (GTDB bac120/ar53 SSU subset + Greengenes 85 OTUs via `PREPTAX`) | a few min at CI-fixture scale, measured 2026-08-10 | — | **21 MB** | Cached at `--ref_taxonomy_storage /refs/ampliseq/tax-db`, reused by every later ampliseq run — pay this once, not per run |
 | **`-stub-run` / `-preview`** | 1 – 5 min | trivial | <1 GB | Non-negotiable per the guardrails. Costs nothing |
 
 Total cold-start for a first RNA-seq run with nothing built (STAR + salmon indexes, container pulls,
