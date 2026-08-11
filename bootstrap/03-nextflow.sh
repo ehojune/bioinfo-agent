@@ -10,8 +10,10 @@
 # Idempotent. Re-running rewrites the env file and re-verifies; it does not reinstall.
 #
 # CRLF guard — see the long comment in 01-wsl-base.sh. Trailing `#` swallows the CR.
-if [ -z "${BIOINFO_CRLF_REEXEC:-}" ] && grep -q $'\r' "$0" 2>/dev/null; then export BIOINFO_CRLF_REEXEC=1; exec bash <(tr -d '\r' < "$0") "$@"; fi  # CRLF self-heal
+if [ -z "${BIOINFO_CRLF_REEXEC:-}" ] && grep -q $'\r' "$0" 2>/dev/null; then export BIOINFO_CRLF_REEXEC=1 BIOINFO_BOOTSTRAP_DIR="$(cd "$(dirname "$0")" && pwd)"; exec bash <(tr -d '\r' < "$0") "$@"; fi  # CRLF self-heal
 set -euo pipefail
+
+SELFDIR="${BIOINFO_BOOTSTRAP_DIR:-$(cd "$(dirname "$0")" && pwd)}"
 
 DO_UPDATE=0
 for a in "$@"; do
@@ -33,11 +35,12 @@ if [ "$(id -u)" -eq 0 ]; then
 fi
 
 # ------------------------------------------------------------------ the contract
-# config/host.env — per-machine overrides, sourced before every default below so the
-# values here are genuine fallbacks. Parsed, not sourced — host.env is gitignored and
-# take the bootstrap down.
+# config/host.env — per-machine overrides, read before every default below so the values
+# here are genuine fallbacks. Parsed, not sourced: host.env is gitignored and world-
+# writable on drvfs, so it must never execute. load_host_env always returns 0, so a
+# malformed host.env cannot take the bootstrap down.
 HOST_ENV="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}/config/host.env"
-. "$(dirname "$0")/lib/host-env.sh"      # parses; never executes host.env
+. "$SELFDIR/lib/host-env.sh"      # parses; never executes host.env
 load_host_env "$HOST_ENV"
 
 BIOINFO_HOME_V="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}"
@@ -83,8 +86,8 @@ done
 
 # Publish the COMPUTED values into this script's own environment, here, before anything
 # spawns a child. load_host_env() above exported whatever NXF_* config/host.env carries, and
-# those are not necessarily these: host.env.example ships NXF_TEMP=/var/tmp/nxf while this
-# script computes $WORK_ROOT/tmp. The nextflow installer below reads NXF_TEMP from the
+# those are not necessarily these: an older or hand-edited host.env may carry an
+# NXF_TEMP this script never created. The nextflow installer below reads NXF_TEMP from the
 # environment and mktemp's in it — an inherited path this script never created fails the
 # download with a misleading "Cannot download nextflow required file / check your internet".
 # Only the directories created in the loop above are guaranteed to exist, so only the values

@@ -14,14 +14,21 @@
 # the guard on the next executable line then re-executes a stripped copy. The trailing
 # `#` comment on that line is load-bearing: it swallows the line's own CR so bash still
 # sees the `fi` keyword. The permanent fix is `*.sh text eol=lf` in .gitattributes.
-if [ -z "${BIOINFO_CRLF_REEXEC:-}" ] && grep -q $'\r' "$0" 2>/dev/null; then export BIOINFO_CRLF_REEXEC=1; exec bash <(tr -d '\r' < "$0") "$@"; fi  # CRLF self-heal
+#
+# BIOINFO_BOOTSTRAP_DIR is exported in the same breath because the re-exec destroys `$0`:
+# the stripped copy runs as /dev/fd/NN, so a later `dirname "$0"` yields /dev/fd and the
+# lib source below dies with "/dev/fd/lib/host-env.sh: No such file or directory". Every
+# script with this guard resolves its own directory through that variable instead.
+if [ -z "${BIOINFO_CRLF_REEXEC:-}" ] && grep -q $'\r' "$0" 2>/dev/null; then export BIOINFO_CRLF_REEXEC=1 BIOINFO_BOOTSTRAP_DIR="$(cd "$(dirname "$0")" && pwd)"; exec bash <(tr -d '\r' < "$0") "$@"; fi  # CRLF self-heal
 set -euo pipefail
 
-# config/host.env is the per-machine override file host.env.example describes. Sourced
-# before every default below, so the values here are genuine fallbacks. `|| true`: an
-# unquoted value in host.env must not take the whole bootstrap down.
+SELFDIR="${BIOINFO_BOOTSTRAP_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+
+# config/host.env is the per-machine override file host.env.example describes. Parsed
+# before every default below, so the values here are genuine fallbacks. load_host_env
+# always returns 0, so a malformed host.env cannot take the whole bootstrap down.
 HOST_ENV="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}/config/host.env"
-. "$(dirname "$0")/lib/host-env.sh"      # parses; never executes host.env
+. "$SELFDIR/lib/host-env.sh"      # parses; never executes host.env
 load_host_env "$HOST_ENV"
 
 BIOINFO_HOME_V="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}"
