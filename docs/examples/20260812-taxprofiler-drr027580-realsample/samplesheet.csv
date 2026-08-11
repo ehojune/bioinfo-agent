@@ -1,0 +1,2 @@
+sample,run_accession,instrument_platform,fastq_1,fastq_2
+DRR027580,DRR027580,ILLUMINA,/work/staging/mag-realsample/DRR027580_1.fastq.gz,/work/staging/mag-realsample/DRR027580_2.fastq.gz

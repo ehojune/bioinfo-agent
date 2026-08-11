@@ -555,6 +555,77 @@ at all.
 
 ---
 
+### nf-core/taxprofiler — 2.0.1
+
+Two CSVs, not one. `--input` (`assets/schema_input.json`) and `--databases`
+(`assets/schema_database.json`), both re-read against the pinned clone (2026-08-12).
+
+#### `--input`
+
+| column | required | notes |
+|---|---|---|
+| `sample` | yes | `meta.id`. String or integer, `^\S+$` |
+| `run_accession` | yes | tags which sequencing run this row is — required (unlike mag's optional `run`), and part of the composite uniqueness key below |
+| `instrument_platform` | yes | enum: `ABI_SOLID`, `BGISEQ`, `CAPILLARY`, `COMPLETE_GENOMICS`, `DNBSEQ`, `HELICOS`, `ILLUMINA`, `ION_TORRENT`, `LS454`, `OXFORD_NANOPORE`, `PACBIO_SMRT` |
+| `fastq_1` | **no** | `.f(ast)?q\.gz$`. Not in the schema's `required[]` — see silent-failure note below |
+| `fastq_2` | no | `.f(ast)?q\.gz$`. Leave empty for single-end/long-read rows |
+| `fasta` | no | `.(fasta|fas|fna|fa)\.gz?$` — an already-assembled contig set can be profiled directly instead of/alongside reads |
+
+```csv
+sample,run_accession,instrument_platform,fastq_1,fastq_2
+gut_ctrl_01,ERR000001,ILLUMINA,/data/mgx/gut_ctrl_01_R1.fastq.gz,/data/mgx/gut_ctrl_01_R2.fastq.gz
+gut_ctrl_01,ERR000002,ILLUMINA,/data/mgx/gut_ctrl_01_resequenced_R1.fastq.gz,/data/mgx/gut_ctrl_01_resequenced_R2.fastq.gz
+```
+
+The second row is the pipeline's own supported shape for "same biological sample,
+resequenced" — same `sample`, different `run_accession`, merged downstream if
+`--perform_runmerging true`.
+
+**ID uniqueness**: `"uniqueEntries": ["sample", "run_accession"]` is a **composite key**,
+same shape as mag's `[sample, run]` — confirmed empirically (`nextflow -preview`,
+2026-08-12): the same `sample` with a *different* `run_accession` passes; the same
+`sample`+`run_accession` pair repeated fails with `Detected duplicate entries:
+[sample:S1, run_accession:R1]`. Because `run_accession` is schema-required here (mag's `run`
+is optional), there is no "collapses to sample-only uniqueness" fallback case to worry about.
+**Separately, and unlike mag**: `fastq_1`, `fastq_2`, and `fasta` are each their **own
+independent per-field `uniqueEntries`**, confirmed empirically — two rows with different
+`sample`/`run_accession` but pointing at the *same* `fastq_1` file both fail schema
+validation (`Detected duplicate entries: [fastq_1:/path/...]`). Reusing one FASTQ across two
+sheet rows, which is unremarkable in mag or rnaseq, is a hard schema error here.
+`scripts/check-samplesheet.sh --pipeline taxprofiler` checks both the composite key and the
+three per-field uniqueness constraints.
+
+**Silent-failure note**: `fastq_1`/`fastq_2`/`fasta` are all schema-optional, and a row with
+*none* of the three **validates cleanly** — confirmed empirically (`nextflow -preview` on a
+sheet with only `sample`/`run_accession`/`instrument_platform` columns: `completed=0
+failed=0`, no error). The schema alone will not catch a metadata-only row with nothing for
+the pipeline to actually profile; `scripts/check-samplesheet.sh --pipeline taxprofiler`
+hard-fails a sheet with none of the three columns present at all, and warns (not fails, since
+a deliberate placeholder row is plausible) on individual rows that have the columns but leave
+every one empty.
+
+#### `--databases`
+
+| column | required | notes |
+|---|---|---|
+| `tool` | yes | enum: `bracken`, `centrifuge`, `diamond`, `ganon`, `kaiju`, `kmcp`, `kraken2`, `krakenuniq`, `malt`, `metaphlan`, `motus`, `sylph`, `melon`, `metacache` |
+| `db_name` | yes | free string, unique per `tool` (`"uniqueEntries": ["tool", "db_name"]` — composite, so the same `db_name` can be reused across different `tool` values) |
+| `db_path` | yes | file or directory, must exist |
+| `db_params` | no | extra CLI args passed to that tool; **no quote characters allowed** (`^[^"']*$`) |
+| `db_type` | no | enum `short` / `long` / `short;long`, default `short;long` — restricts which read type this DB applies to |
+
+```csv
+tool,db_name,db_path,db_params,db_type
+kraken2,k2standard08gb,/refs/db/kraken2/k2_standard_08gb,,short
+```
+
+A `--run_<tool> true` flag with no matching row in `--databases` for that `tool` is **not an
+error** — it is silently a no-op for that tool. The `--databases` CSV, not the `--run_*`
+boolean flags, is what actually determines whether classification happens; check both are
+consistent before launch.
+
+---
+
 ## Common breakages, with the text you will actually see
 
 ### Relative path

@@ -253,8 +253,9 @@ and names here are for orientation, not for typing into a shell.
    handoff, in plain words.
 8. **No silent large downloads.** Anything over ~10 GB (GATK bundle, VEP cache, iGenomes, SRA
    fetches) gets named, sized, and approved first.
-9. **Never hand-roll a stocked pipeline.** If the analysis is one of the nine, it runs through
-   `nextflow run nf-core/<pipeline>`. Assembling the same steps yourself out of `bwa`, `samtools`,
+9. **Never hand-roll a stocked pipeline.** If the analysis matches a row in
+   `config/pipelines.tsv`, it runs through `nextflow run nf-core/<pipeline>`. Assembling the
+   same steps yourself out of `bwa`, `samtools`,
    `gatk` and `picard` is forbidden even when the intermediates are already sitting there — it is
    unreproducible, unresumable, and produces no MultiQC.
 10. **Never execute binaries found on disk.** Analysis tools come from the pipeline's containers.

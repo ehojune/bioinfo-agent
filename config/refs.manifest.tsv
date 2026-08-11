@@ -96,3 +96,12 @@ cache/snpeff/	fetch	sarek --snpeff_cache	alternative to VEP
 
 # ---------------------------------------------------------------- ampliseq taxonomy DBs
 ampliseq/tax-db/	fetch	ampliseq --ref_taxonomy_storage (resolves --dada_ref_taxonomy/--qiime_ref_taxonomy names, e.g. gtdb=R07-RS207, greengenes85, via the pipeline's own PREPTAX subworkflow)	not a direct URL -- 04-refs.sh only reports presence, same as every other fetch row; the pipeline populates this path itself on first run. ~21 MB at CI-fixture scale, measured 2026-08-10
+
+# ---------------------------------------------------------------- taxprofiler classifier DBs
+# taxprofiler's --databases CSV wants a directory (or file) per tool/db_name row; this manifest
+# row covers only the ONE profiler stocked for procurement (kraken2). taxprofiler supports 14
+# profilers total (centrifuge, diamond, ganon, kaiju, kmcp, kraken2, krakenuniq, malt, metaphlan,
+# motus, sylph, melon, metacache, bracken-on-kraken2); each additional one enabled needs its own
+# fetch row here -- none is pre-provisioned by this repo, deliberately (new-pipeline.md 2.8 /
+# procurement note: start with the lightest viable combination, not the full tool roster).
+db/kraken2/k2_standard_08gb/	fetch	https://genome-idx.s3.amazonaws.com/kraken/k2_standard_08gb_20250402.tar.gz	Kraken2 "Standard, capped at 8 GB" index (archaea+bacteria+viral+plasmid+human+UniVec_Core, RAM-capped variant, dated 2025-04-02) -- chosen over the full ~150 GB standard/nt DB and over the un-capped standard build specifically to stay a single-tool, small-DB procurement per the task's "lightest combination first" instruction; download 5.96 GB (tar.gz), extracts to 8.0 GB (hash.k2d dominates at 8.0 GB); tarball deleted after extraction, only the extracted directory is kept. GTDB-Tk-scale (60+ GB) DBs for other profilers are NOT fetched by default, same policy as mag's --skip_gtdbtk

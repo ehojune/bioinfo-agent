@@ -118,6 +118,7 @@ case "$PIPELINE" in
   fetchngs)              REQ='' ;;                              # headerless accession list, not a CSV
   ampliseq)              REQ='' ;;                              # two column forms; see below
   mag)                   REQ='sample group' ;;                  # plus short_reads_1 or long_reads, below
+  taxprofiler)           REQ='sample run_accession instrument_platform' ;;  # fastq_1/fastq_2/fasta NOT in schema's required[] -- see below
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
@@ -230,6 +231,51 @@ elif [[ -n "$REQ" ]]; then
                     || fail "mag: duplicate sample value(s) with no run column (uniqueEntries [sample,run] collapses to sample alone): $D"
     fi
   fi
+  if [[ "$PIPELINE" == taxprofiler ]]; then
+    # schema_input.json (2.0.1) required[] is ONLY sample/run_accession/instrument_platform --
+    # fastq_1, fastq_2, fasta are all optional at the schema level. Empirically confirmed via
+    # -preview (2026-08-12): a row with none of fastq_1/fastq_2/fasta VALIDATES CLEANLY (no
+    # error, completed=0 failed=0) -- the schema alone will not catch a metadata-only row with
+    # nothing for the pipeline to actually profile. Warn, don't fail: this checker cannot know
+    # whether that is a deliberate placeholder row.
+    if [[ -z "$(colidx fastq_1)$(colidx fastq_2)$(colidx fasta)" ]]; then
+      fail "taxprofiler: sheet has none of fastq_1/fastq_2/fasta columns at all -- nothing to profile"
+    else
+      NOREADS=$(awk -F, -v f1="$(colidx fastq_1 || echo 0)" -v f2="$(colidx fastq_2 || echo 0)" \
+                     -v fa="$(colidx fasta || echo 0)" \
+                'NR>1 && (f1==0||$f1=="") && (f2==0||$f2=="") && (fa==0||$fa=="") {print NR-1}' \
+                "$TMP" | paste -sd' ' -)
+      [[ -z "$NOREADS" ]] || warn "taxprofiler: row(s) with NEITHER fastq_1/fastq_2 NOR fasta (schema accepts this silently -- pipeline has nothing to profile for that row): $NOREADS"
+    fi
+    # instrument_platform is a closed enum in schema_input.json.
+    if [[ -n "$(colidx instrument_platform)" ]]; then
+      B=$(colvals instrument_platform | grep -vE '^(ABI_SOLID|BGISEQ|CAPILLARY|COMPLETE_GENOMICS|DNBSEQ|HELICOS|ILLUMINA|ION_TORRENT|LS454|OXFORD_NANOPORE|PACBIO_SMRT)$' | sort -u | paste -sd, - || true)
+      [[ -z "$B" ]] && ok "taxprofiler instrument_platform values valid" \
+                    || fail "taxprofiler: bad instrument_platform (schema enum): $B"
+    fi
+    # uniqueEntries [sample, run_accession] -- empirically confirmed COMPOSITE (2026-08-12,
+    # same shape as mag's [sample,run]): same sample with a different run_accession passes,
+    # same sample+run_accession pair repeated fails. run_accession is REQUIRED (unlike mag's
+    # optional `run`), so there is no "collapses to sample alone" branch to worry about here.
+    if [[ -n "$(colidx sample)" && -n "$(colidx run_accession)" ]]; then
+      D=$(awk -F, -v s="$(colidx sample)" -v r="$(colidx run_accession)" 'NR>1{print $s"/"$r}' "$TMP" \
+          | sort | uniq -d | paste -sd' ' -)
+      [[ -z "$D" ]] && ok "taxprofiler sample/run_accession pairs unique" \
+                    || fail "taxprofiler: duplicate sample/run_accession pair (uniqueEntries composite key): $D"
+    fi
+    # uniqueEntries [fastq_1], [fastq_2], [fasta] are each SEPARATE per-field constraints in
+    # schema_input.json (not folded into the composite above) -- empirically confirmed: two
+    # rows with different sample/run_accession but the SAME fastq_1 path both fail schema
+    # validation ("Detected duplicate entries: [fastq_1:...]"). A shared input file across two
+    # sheet rows is therefore always a hard error here, unlike mag/rnaseq where reusing a FASTQ
+    # path across rows is unremarkable.
+    for C in fastq_1 fastq_2 fasta; do
+      I=$(colidx "$C"); [[ -n "$I" ]] || continue
+      D=$(colvals "$C" | grep -v '^$' | sort | uniq -d | paste -sd' ' -)
+      [[ -z "$D" ]] && ok "taxprofiler $C values unique" \
+                    || fail "taxprofiler: duplicate $C value(s) (schema rejects unconditionally): $D"
+    done
+  fi
 elif [[ -z "$PIPELINE" ]]; then
   ID=''
   for C in sample patient group id; do [[ -z "$(colidx "$C")" ]] || { ID="$C"; break; }; done
@@ -330,7 +376,7 @@ elif [[ -n "$(colidx patient)" && -n "$(colidx sample)" ]]; then  # sarek restar
         'NR>1{print $p"/"$s}' "$TMP" | sort | uniq -d | paste -sd' ' -)
   [[ -z "$D" ]] && ok "patient/sample pairs unique" \
                 || fail "duplicate patient/sample: $D"
-elif [[ "$PIPELINE" == ampliseq || "$PIPELINE" == mag ]]; then
+elif [[ "$PIPELINE" == ampliseq || "$PIPELINE" == mag || "$PIPELINE" == taxprofiler ]]; then
   : # already checked as a hard FAIL, correctly, in the pipeline-specific branch above -- this
     # generic branch's WARN ("merged as technical replicates") is the wrong severity here and
     # would be a redundant, softer second message for the same row
