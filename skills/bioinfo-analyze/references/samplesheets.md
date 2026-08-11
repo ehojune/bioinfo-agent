@@ -463,6 +463,39 @@ the cDNA read. Swapping them does not error — the aligner finds almost no vali
 get a near-empty matrix after several hours. The length asymmetry makes this trivially checkable
 before launch (see the checker below).
 
+### nf-core/ampliseq — 2.18.0
+
+`schema_input.json` at this pin defines **two mutually exclusive column sets** via `oneOf` with an
+explicit `not: anyOf` on the other set's names — a sheet mixing `sampleID` with `fastq_1`, or
+`sample` with `forwardReads`, fails schema validation outright, not just a lint warning:
+
+| form | required | optional |
+|---|---|---|
+| legacy | `sampleID`, `forwardReads` | `reverseReads` |
+| standardized | `sample`, `fastq_1` | `fastq_2` |
+
+Both forms also accept `run` (multi-run/multi-lane support, defaults to `"1"` if omitted — rows
+sharing a `sample`/`sampleID` but different `run` values are treated as re-sequencing of the same
+biological sample and merged before DADA2), and `control`/`quant_reading` (only used by the
+decontam module, gated behind `--filter_extra_data`/related params). `reverseReads`/`fastq_2` are
+optional — single-end amplicon designs are supported.
+
+```csv
+sample,fastq_1,fastq_2
+gut_ctrl_01,/data/16s/gut_ctrl_01_R1.fastq.gz,/data/16s/gut_ctrl_01_R2.fastq.gz
+gut_case_04,/data/16s/gut_case_04_R1.fastq.gz,/data/16s/gut_case_04_R2.fastq.gz
+```
+
+**ID uniqueness**: the schema enforces `uniqueEntries` on **both** `sample` and `sampleID`
+natively (not left to a downstream dedup step the way rnaseq merges duplicate sample IDs) — a
+repeated ID in either column fails validation before any process runs.
+
+**Silent-failure note**: `--FW_primer`/`--RV_primer` do not validate against the actual read
+content — a wrong primer pair passes schema validation and launches cleanly, then cutadapt
+discards nearly every read at the trimming step. This surfaces in `overall_summary.tsv`'s
+`cutadapt_passing_filters_percent` column, not as an error; check it is not near-zero before
+trusting anything downstream.
+
 ---
 
 ## Common breakages, with the text you will actually see

@@ -177,7 +177,10 @@ done
 (( DEEP )) || warn "truncated .gz files are NOT detected without --deep"
 
 # ---- 4. mate orientation and pairing (fastq only, skipped for bam/cram input) --
+# ampliseq's sampleID/forwardReads/reverseReads form carries the same mate-pair shape as
+# fastq_1/fastq_2 -- fall back to it so this gate isn't silently skipped on that column set.
 I1=$(colidx fastq_1); I2=$(colidx fastq_2)
+if [[ -z "$I1" ]]; then I1=$(colidx forwardReads); I2=$(colidx reverseReads); fi
 if [[ -n "$I1" && -n "$I2" ]]; then
   while IFS=$'\t' read -r R1 R2; do
     [[ -n "$R2" && -r "$R1" && -r "$R2" ]] || continue
@@ -251,7 +254,7 @@ if [[ -n "$(colidx sex)" ]]; then
 fi
 
 # ---- 7. footprint -----------------------------------------------------------
-PATHS=$( { for C in fastq_1 fastq_2 bam cram; do colvals "$C"; done; } | grep '^/' | sort -u || true )
+PATHS=$( { for C in fastq_1 fastq_2 bam cram forwardReads reverseReads; do colvals "$C"; done; } | grep '^/' | sort -u || true )
 if [[ -z "$PATHS" ]]; then
   printf 'size  nothing to size (no absolute fastq/bam/cram paths)\n'
 else
