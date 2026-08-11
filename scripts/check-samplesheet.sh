@@ -330,6 +330,19 @@ if [[ -n "$(colidx sex)" ]]; then
   B=$(colvals sex | grep -vE '^(XX|XY|NA)?$' | sort -u | paste -sd, - || true)
   [[ -z "$B" ]] && ok "sex values valid" || warn "unexpected sex values: $B"
 fi
+if [[ "$PIPELINE" == mag ]]; then
+  # schema_input.json (5.5.0): fixed enums on both platform columns. Empty values are fine
+  # (dependentRequired is checked separately, section 2b above) -- only a NON-empty value
+  # outside the enum is a schema violation.
+  if [[ -n "$(colidx short_reads_platform)" ]]; then
+    B=$(colvals short_reads_platform | grep -vE '^(ILLUMINA|BGISEQ|LS454|ION_TORRENT|DNBSEQ|ELEMENT|ULTIMA|VELA_DIAGNOSTICS|GENAPSYS|GENEMIND|TAPESTRI)?$' | sort -u | paste -sd, - || true)
+    [[ -z "$B" ]] && ok "mag short_reads_platform values valid" || fail "mag: bad short_reads_platform: $B"
+  fi
+  if [[ -n "$(colidx long_reads_platform)" ]]; then
+    B=$(colvals long_reads_platform | grep -vE '^(OXFORD_NANOPORE|OXFORD_NANOPORE_HQ|PACBIO_CLR|PACBIO_HIFI)?$' | sort -u | paste -sd, - || true)
+    [[ -z "$B" ]] && ok "mag long_reads_platform values valid" || fail "mag: bad long_reads_platform: $B"
+  fi
+fi
 
 # ---- 7. footprint -----------------------------------------------------------
 PATHS=$( { for C in fastq_1 fastq_2 bam cram forwardReads reverseReads short_reads_1 short_reads_2 long_reads; do colvals "$C"; done; } | grep '^/' | sort -u || true )

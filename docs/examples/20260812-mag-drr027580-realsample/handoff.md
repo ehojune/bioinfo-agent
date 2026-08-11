@@ -64,11 +64,15 @@ exercised BUSCO/Prokka against its own fixture bins, so that wiring is separatel
   `conf/base.config` already tolerates the equivalent case for `MAXBIN2` (ignore on exit
   1/255) but not for `SEMIBIN_SINGLEEASYBIN`, so the first launch aborted the whole pipeline
   over one binner with nothing to bin, even though `METABAT2_METABAT2` had already completed
-  cleanly on the same assembly. Added `withName: '.*SEMIBIN_SINGLEEASYBIN.*' { errorStrategy
-  = { exitStatus == 1 ? 'ignore' : 'finish' } }` to `config/local.config` §3 (host-level
-  operational tolerance, not a pipeline-scope change) and `-resume`d. This is now a
-  permanent, documented host config, not a one-off hand edit — the next mag run on this host
-  inherits it automatically and does not need to rediscover this failure mode.
+  cleanly on the same assembly. Added a `withName: '.*SEMIBIN_SINGLEEASYBIN.*'` override to
+  `config/local.config` §3 and `-resume`d. **As shipped in this PR the predicate is narrowed,
+  not a blanket `exitStatus == 1`**: it greps the failed task's own `.command.log` for
+  SemiBin2's exact `"all are shorter than N basepairs"` wording before returning `'ignore'`;
+  any other exit-1 cause on that process still returns `'finish'` and surfaces normally
+  (Codex review round 2 on PR #35 correctly flagged an earlier, broader draft of this
+  predicate — see `config/local.config` §3 for the current text, not this paraphrase). This is
+  now a permanent, documented host config, not a one-off hand edit — the next mag run on this
+  host inherits it automatically and does not need to rediscover this failure mode.
 
 ## Stub-run finding (procurement-relevant, broader than the test-profile one)
 
