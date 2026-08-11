@@ -159,6 +159,21 @@ elif [[ -n "$REQ" ]]; then
   for C in $REQ; do [[ -n "$(colidx "$C")" ]] || MISS="$MISS $C"; done
   [[ -z "$MISS" ]] && ok "$PIPELINE required columns present" \
                    || fail "$PIPELINE is missing required column(s):$MISS"
+  # Column PRESENCE is necessary but not sufficient: every stocked pipeline's schema also
+  # requires a non-empty VALUE on every row for its required columns, and a header that
+  # exists with an empty cell on some row previously passed this gate silently (Codex review,
+  # PR #35, mag's `sample` column specifically -- the same gap applies to every pipeline using
+  # $REQ, not only mag, so fixed here rather than in the mag-only branch).
+  if [[ -z "$MISS" ]]; then
+    EMPTYCOLS=''
+    for C in $REQ; do
+      I=$(colidx "$C")
+      bad=$(awk -F, -v i="$I" 'NR>1 && $i=="" {print NR-1}' "$TMP" | paste -sd, -)
+      [[ -z "$bad" ]] || EMPTYCOLS="$EMPTYCOLS $C(row:$bad)"
+    done
+    [[ -z "$EMPTYCOLS" ]] && ok "$PIPELINE required column values all non-empty" \
+                          || fail "$PIPELINE required column(s) empty on some row(s):$EMPTYCOLS"
+  fi
   if [[ "$PIPELINE" == sarek ]]; then
     [[ -n "$(colidx fastq_1)$(colidx bam)$(colidx cram)$(colidx vcf)" ]] \
       || fail "sarek needs one of fastq_1 / bam / cram / vcf, matching --step"
@@ -234,6 +249,19 @@ for C in fastq_1 fastq_2 bam bai cram crai vcf table spring_1 spring_2 forwardRe
     fi
     if [[ ! -r "$P" ]]; then fail "$C: not readable: $P"; continue; fi
     if [[ ! -s "$P" ]]; then fail "$C: zero bytes: $P"; continue; fi
+    # FASTQ-only columns: the schemas for these columns (rnaseq/ampliseq/mag, confirmed
+    # against schema_input.json at each pin) require an exact `.f(ast)?q.gz` suffix, not
+    # merely "ends in .gz" -- a `.gz`-suffixed non-FASTQ file (e.g. a mistakenly-pointed
+    # `.txt.gz`) previously fell through the case below with no suffix check at all and
+    # reported PASS. bam/bai/cram/crai/vcf/table/spring_* legitimately use other suffixes
+    # and are NOT in this list.
+    case "$C" in
+      fastq_1|fastq_2|forwardReads|reverseReads|short_reads_1|short_reads_2|long_reads)
+        if [[ ! "$P" =~ \.f(ast)?q\.gz$ ]]; then
+          fail "$C: does not match the required .f(ast)?q.gz suffix: $P"
+          continue
+        fi ;;
+    esac
     case "$P" in
       *.fastq|*.fq)
         fail "$C: uncompressed FASTQ: $P (schema pattern requires .gz)" ;;
