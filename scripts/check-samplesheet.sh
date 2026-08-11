@@ -202,6 +202,17 @@ elif [[ -n "$REQ" ]]; then
           | sort | uniq -d | paste -sd' ' -)
       [[ -z "$D" ]] && ok "mag sample/run pairs unique" \
                     || fail "mag: duplicate sample/run pair (uniqueEntries composite key): $D"
+    else
+      # No `run` column at all: every row's implicit run is the same missing value, so
+      # uniqueEntries[sample, run] collapses to sample-only uniqueness -- confirmed
+      # empirically (nextflow -preview on two S1 rows, no run column: "Detected duplicate
+      # entries: [sample:S1]"). Without this branch two same-`sample` rows with no `run`
+      # column passed silently (Codex review, PR #35) because the generic identifier check
+      # below only WARNs ("merged as technical replicates"), which is correct for pipelines
+      # that support that merge but wrong for mag, where the schema hard-rejects it.
+      D=$(colvals sample | sort | uniq -d | paste -sd' ' -)
+      [[ -z "$D" ]] && ok "mag sample values unique (no run column)" \
+                    || fail "mag: duplicate sample value(s) with no run column (uniqueEntries [sample,run] collapses to sample alone): $D"
     fi
   fi
 elif [[ -z "$PIPELINE" ]]; then
@@ -291,10 +302,10 @@ elif [[ -n "$(colidx patient)" && -n "$(colidx sample)" ]]; then  # sarek restar
         'NR>1{print $p"/"$s}' "$TMP" | sort | uniq -d | paste -sd' ' -)
   [[ -z "$D" ]] && ok "patient/sample pairs unique" \
                 || fail "duplicate patient/sample: $D"
-elif [[ "$PIPELINE" == ampliseq ]]; then
-  : # already checked as a hard FAIL, correctly, in the ampliseq branch above -- this generic
-    # branch's WARN ("merged as technical replicates") is the wrong severity here and would be
-    # a redundant, softer second message for the same row
+elif [[ "$PIPELINE" == ampliseq || "$PIPELINE" == mag ]]; then
+  : # already checked as a hard FAIL, correctly, in the pipeline-specific branch above -- this
+    # generic branch's WARN ("merged as technical replicates") is the wrong severity here and
+    # would be a redundant, softer second message for the same row
 elif [[ -n "$(colidx sample)" ]]; then
   D=$(colvals sample | sort | uniq -d | paste -sd' ' -)
   [[ -z "$D" ]] && ok "sample ids unique" \
