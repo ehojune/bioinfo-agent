@@ -600,9 +600,12 @@ three per-field uniqueness constraints.
 sheet with only `sample`/`run_accession`/`instrument_platform` columns: `completed=0
 failed=0`, no error). The schema alone will not catch a metadata-only row with nothing for
 the pipeline to actually profile; `scripts/check-samplesheet.sh --pipeline taxprofiler`
-hard-fails a sheet with none of the three columns present at all, and warns (not fails, since
-a deliberate placeholder row is plausible) on individual rows that have the columns but leave
-every one empty.
+**FAILS** both shapes — a sheet with none of the three columns present at all, and any
+individual row that has the columns but leaves every one empty. A mixed sheet where only some
+rows are empty would otherwise still exit 0 and print `PASS` overall while the pipeline
+silently schedules nothing for the empty row (Codex review, PR #36) — not treated as a
+plausible-placeholder case worth a mere warning, given a warning-tolerant or automated launch
+would sail straight through it.
 
 #### `--databases`
 
