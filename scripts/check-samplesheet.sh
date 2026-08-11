@@ -117,6 +117,7 @@ case "$PIPELINE" in
   differentialabundance) REQ='sample' ;;                        # or whatever --observations_id_col says
   fetchngs)              REQ='' ;;                              # headerless accession list, not a CSV
   ampliseq)              REQ='' ;;                              # two column forms; see below
+  mag)                   REQ='sample group' ;;                  # plus short_reads_1 or long_reads, below
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
@@ -162,6 +163,47 @@ elif [[ -n "$REQ" ]]; then
     [[ -n "$(colidx fastq_1)$(colidx bam)$(colidx cram)$(colidx vcf)" ]] \
       || fail "sarek needs one of fastq_1 / bam / cram / vcf, matching --step"
   fi
+  if [[ "$PIPELINE" == mag ]]; then
+    # schema_input.json (5.5.0): anyOf short_reads_1 / long_reads; short_reads_2 requires
+    # short_reads_1; short_reads_1 requires short_reads_platform; long_reads requires
+    # long_reads_platform. Empirically confirmed via -preview (2026-08-12): uniqueEntries
+    # [sample, run] is a COMPOSITE key -- same sample with different run values passes
+    # (the pipeline's own multirun test fixture does exactly this), same sample+run
+    # duplicated, or same sample with run omitted entirely on both rows, both fail.
+    [[ -n "$(colidx short_reads_1)$(colidx long_reads)" ]] \
+      || fail "mag needs short_reads_1 and/or long_reads"
+    # dependentRequired in schema_input.json is a PER-ROW value constraint, not a column-
+    # presence one -- empirically confirmed via -preview: a row with the long_reads column
+    # present in the header but empty for that row validates fine as long as
+    # short_reads_1/short_reads_platform are populated. Check actual values per row, not
+    # whether the column exists.
+    mag_row_check() {
+      local want="$1" need="$2" label="$3"
+      local wi ni; wi=$(colidx "$want"); ni=$(colidx "$need")
+      [[ -n "$wi" ]] || return 0
+      local bad
+      bad=$(awk -F, -v w="$wi" -v n="${ni:-0}" \
+            'NR>1 && $w!="" && (n==0 || $n=="") {print NR-1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$bad" ]] || fail "mag: row(s) with $want but no $need (row $label): $bad"
+    }
+    mag_row_check short_reads_2 short_reads_1 "short_reads_2 requires short_reads_1"
+    mag_row_check short_reads_1 short_reads_platform "short_reads_1 requires short_reads_platform"
+    mag_row_check long_reads long_reads_platform "long_reads requires long_reads_platform"
+    # anyOf short_reads_1/long_reads is also per row, not per sheet.
+    S1I=$(colidx short_reads_1); LRI=$(colidx long_reads)
+    if [[ -n "$S1I" || -n "$LRI" ]]; then
+      bad=$(awk -F, -v s="${S1I:-0}" -v l="${LRI:-0}" \
+            'NR>1 && (s==0 || $s=="") && (l==0 || $l=="") {print NR-1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$bad" ]] && ok "mag: every row has short_reads_1 and/or long_reads" \
+                      || fail "mag: row(s) with neither short_reads_1 nor long_reads: $bad"
+    fi
+    if [[ -n "$(colidx run)" ]]; then
+      D=$(awk -F, -v s="$(colidx sample)" -v r="$(colidx run)" 'NR>1{print $s"/"$r}' "$TMP" \
+          | sort | uniq -d | paste -sd' ' -)
+      [[ -z "$D" ]] && ok "mag sample/run pairs unique" \
+                    || fail "mag: duplicate sample/run pair (uniqueEntries composite key): $D"
+    fi
+  fi
 elif [[ -z "$PIPELINE" ]]; then
   ID=''
   for C in sample patient group id; do [[ -z "$(colidx "$C")" ]] || { ID="$C"; break; }; done
@@ -170,7 +212,7 @@ elif [[ -z "$PIPELINE" ]]; then
 fi
 
 # ---- 3. path columns --------------------------------------------------------
-for C in fastq_1 fastq_2 bam bai cram crai vcf table spring_1 spring_2 forwardReads reverseReads; do
+for C in fastq_1 fastq_2 bam bai cram crai vcf table spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads; do
   I=$(colidx "$C"); [[ -n "$I" ]] || continue
   N=0
   while IFS= read -r P; do
@@ -201,6 +243,7 @@ done
 # fastq_1/fastq_2 -- fall back to it so this gate isn't silently skipped on that column set.
 I1=$(colidx fastq_1); I2=$(colidx fastq_2)
 if [[ -z "$I1" ]]; then I1=$(colidx forwardReads); I2=$(colidx reverseReads); fi
+if [[ -z "$I1" ]]; then I1=$(colidx short_reads_1); I2=$(colidx short_reads_2); fi
 if [[ -n "$I1" && -n "$I2" ]]; then
   while IFS=$'\t' read -r R1 R2; do
     [[ -n "$R2" && -r "$R1" && -r "$R2" ]] || continue
@@ -278,7 +321,7 @@ if [[ -n "$(colidx sex)" ]]; then
 fi
 
 # ---- 7. footprint -----------------------------------------------------------
-PATHS=$( { for C in fastq_1 fastq_2 bam cram forwardReads reverseReads; do colvals "$C"; done; } | grep '^/' | sort -u || true )
+PATHS=$( { for C in fastq_1 fastq_2 bam cram forwardReads reverseReads short_reads_1 short_reads_2 long_reads; do colvals "$C"; done; } | grep '^/' | sort -u || true )
 if [[ -z "$PATHS" ]]; then
   printf 'size  nothing to size (no absolute fastq/bam/cram paths)\n'
 else

@@ -502,6 +502,57 @@ discards nearly every read at the trimming step. This surfaces in `overall_summa
 `cutadapt_passing_filters_percent` column, not as an error; check it is not near-zero before
 trusting anything downstream.
 
+### nf-core/mag — 5.5.0
+
+`schema_input.json` at this pin, re-read against the pinned clone (2026-08-12):
+
+| column | required | notes |
+|---|---|---|
+| `sample` | yes | `meta.id`. `^\S+$` |
+| `group` | yes | `meta.group`. String or integer; co-assembly/co-binning grouping key |
+| `run` | no | `meta.run`. Tags which sequencing run a **multirun** sample's row belongs to (co-assembled per sample, kept separate for per-run QC) — not a way to repeat a `sample` value; see uniqueness below |
+| `short_reads_1` | one of `short_reads_1` / `long_reads`, per row | `.f(ast)?q\.gz$` |
+| `short_reads_2` | no | requires `short_reads_1` present on the same row |
+| `short_reads_platform` | required if `short_reads_1` present | enum: `ILLUMINA`, `BGISEQ`, `LS454`, `ION_TORRENT`, `DNBSEQ`, `ELEMENT`, `ULTIMA`, `VELA_DIAGNOSTICS`, `GENAPSYS`, `GENEMIND`, `TAPESTRI` |
+| `long_reads` | no | one of `short_reads_1` / `long_reads` per row; `.f(ast)?q\.gz$` |
+| `long_reads_platform` | required if `long_reads` present | enum: `OXFORD_NANOPORE`, `OXFORD_NANOPORE_HQ`, `PACBIO_CLR`, `PACBIO_HIFI` |
+
+All four `dependentRequired`/`anyOf` constraints above are **per row**, not per sheet or per
+column — confirmed empirically (`nextflow -preview`, 2026-08-12): a sheet whose `long_reads`
+column exists in the header but is empty for every row validates cleanly as long as
+`short_reads_1`/`short_reads_platform` are populated on those rows. Checking "does this
+column exist" instead of "does this row have a value" is the wrong question and
+`scripts/check-samplesheet.sh --pipeline mag` checks values, not column presence.
+
+```csv
+sample,group,short_reads_platform,short_reads_1,short_reads_2,long_reads
+gut_ctrl_01,0,ILLUMINA,/data/mgx/gut_ctrl_01_R1.fastq.gz,/data/mgx/gut_ctrl_01_R2.fastq.gz,
+gut_case_04,0,ILLUMINA,/data/mgx/gut_case_04_R1.fastq.gz,/data/mgx/gut_case_04_R2.fastq.gz,
+```
+
+**ID uniqueness**: the schema's top-level `"uniqueEntries": ["sample", "run"]` is a
+**composite key**, not per-field independent uniqueness the way ampliseq's is — confirmed
+empirically (`nextflow -preview`, 2026-08-12, three fixtures): the same `sample` with
+*different* `run` values passes (this is the pipeline's own supported "multirun" shape — a
+sample re-sequenced across lanes/runs, co-assembled together but QC'd per run — and its own
+`conf/test.config` fixture does exactly this); the same `sample`+`run` pair repeated fails
+with `Detected duplicate entries: [sample:S1, run:1]`; the same `sample` repeated with `run`
+omitted entirely on both rows also fails, on `[sample:S1]` alone (both rows collapse onto the
+same implicit key when neither carries a real one). `scripts/check-samplesheet.sh --pipeline
+mag` checks the `sample`+`run` pair when a `run` column is present.
+
+**Silent-failure note**: none of the four `dependentRequired`/`anyOf` violations above (a
+`short_reads_2` with no `short_reads_1`, a `short_reads_1` with no
+`short_reads_platform`, etc.) are silent — nf-schema rejects them before the pipeline runs
+any task. The actual silent-failure risk with mag is downstream of the samplesheet: BUSCO
+(`--run_busco`, on by default) auto-selects a lineage unless `--busco_db_lineage` is pinned,
+and a shallow/low-diversity assembly can legitimately produce zero bins for every binner
+without any schema or launch-time error — see
+`runs/20260812-mag-drr027580-realsample/handoff.md` for a real example (74 contigs, all
+< 1500 bp, zero bins from any of three binners, pipeline still exits 0). Check
+`GenomeBinning/*/bins/` is non-empty before trusting a "successful" mag run produced any MAGs
+at all.
+
 ---
 
 ## Common breakages, with the text you will actually see

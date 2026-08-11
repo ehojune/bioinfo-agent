@@ -1,0 +1,2 @@
+# not used: -profile test supplies its own samplesheet from nf-core/test-datasets
+# (params.input = pipelines_testdata_base_path + "mag/samplesheets/samplesheet.multirun.v4.csv")

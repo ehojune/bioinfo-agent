@@ -1,0 +1,7 @@
+input: /mnt/d/bioinfo-agent/runs/20260812-mag-drr027580-realsample/samplesheet.csv
+skip_gtdbtk: true
+skip_spades: true
+skip_concoct: true
+skip_comebin: true
+skip_metabinner: true
+skip_ale: true

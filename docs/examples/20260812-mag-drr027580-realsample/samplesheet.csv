@@ -1,0 +1,2 @@
+sample,group,short_reads_platform,short_reads_1,short_reads_2,long_reads
+DRR027580,0,ILLUMINA,/work/staging/mag-realsample/DRR027580_1.fastq.gz,/work/staging/mag-realsample/DRR027580_2.fastq.gz,
