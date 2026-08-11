@@ -299,6 +299,16 @@ unset NXF_OFFLINE
 # failure is not "every run aborts at config-parse time" with no clue why.
 export NXF_SYNTAX_PARSER=v1
 
+# These two used to live only in config/host.env, on the theory that a login shell would
+# source that file. It does not: the hook this script installs in .bashrc sources THIS
+# file and nothing else, so both were unset in every shell a run was launched from —
+# measured on this host, \`NXF_ANSI_LOG=UNSET NXF_DISABLE_CHECK_LATEST=UNSET\` in a fresh
+# login shell despite host.env setting both. The launch template passes -ansi-log false
+# explicitly so the log stayed readable, but every nextflow invocation was still making
+# the phone-home version check. Written here, where the contract actually reaches a run.
+export NXF_ANSI_LOG=false
+export NXF_DISABLE_CHECK_LATEST=true
+
 # Sanity net, interactive shells only — silence in scp/rsync/non-tty sessions, where
 # stray stdout output breaks the protocol.
 case \$- in

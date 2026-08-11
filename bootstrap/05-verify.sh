@@ -292,8 +292,45 @@ done
 
 # ============================================================ 8. repo + refs
 head_ 'Repo and reference store'
-if [ -d "$BIOINFO_HOME_V" ]; then ok "BIOINFO_HOME = $BIOINFO_HOME_V"
-else fail "BIOINFO_HOME=$BIOINFO_HOME_V does not exist"; fi
+if [ ! -d "$BIOINFO_HOME_V" ]; then
+  fail "BIOINFO_HOME=$BIOINFO_HOME_V does not exist"
+else
+  ok "BIOINFO_HOME = $BIOINFO_HOME_V"
+
+  # `-d` is not enough, and this is not hypothetical. On this host the environment
+  # contract pointed BIOINFO_HOME at a Claude Code session worktree for eight days: the
+  # directory still existed, so the check above said ok, while its git registration had
+  # been removed and its files sat 216 lines (bin/preflight.sh) and 95 lines
+  # (config/genomes.config) behind main. Every command the skill composes from
+  # $BIOINFO_HOME — preflight, `-c $BIOINFO_HOME/config/local.config` — ran the stale
+  # copy. Same failure shape as the version-named plugin cache scripts/
+  # check-plugin-version.sh guards, and nothing was watching this one.
+
+  # A worktree whose admin directory is gone. Deterministic, no false positives: a
+  # healthy checkout's gitdir always resolves.
+  if [ -f "$BIOINFO_HOME_V/.git" ]; then
+    GITDIR=$(sed -n 's/^gitdir: //p' "$BIOINFO_HOME_V/.git" | head -1)
+    if [ -n "$GITDIR" ] && [ ! -e "$GITDIR" ]; then
+      fail "BIOINFO_HOME is an unregistered git worktree — its gitdir ($GITDIR) is gone, so
+          the files are frozen at whatever they held when it was detached. Point
+          BIOINFO_HOME at the real checkout and re-run bootstrap/03-nextflow.sh."
+    fi
+  fi
+
+  # Not fatal: running this script from a worktree while BIOINFO_HOME names the main
+  # checkout is a normal thing to do. But a run uses BIOINFO_HOME, not the tree this
+  # script came from, so say which one is which rather than leaving them assumed equal.
+  SELFREPO=$(cd "$SELFDIR/.." 2>/dev/null && pwd)
+  HOMEREPO=$(cd "$BIOINFO_HOME_V" 2>/dev/null && pwd)
+  if [ -n "$SELFREPO" ] && [ -n "$HOMEREPO" ] && [ "$SELFREPO" != "$HOMEREPO" ]; then
+    warn "this script runs from $SELFREPO but a run would use BIOINFO_HOME=$HOMEREPO.
+          Verifying one tree and executing another is how the two drift apart."
+  fi
+
+  for f in config/pipelines.tsv config/local.config bin/preflight.sh; do
+    [ -f "$BIOINFO_HOME_V/$f" ] || fail "BIOINFO_HOME is missing $f — it is not a bioinfo-agent checkout"
+  done
+fi
 
 MANIFEST="$BIOINFO_HOME_V/config/refs.manifest.tsv"
 REFSCRIPT="$BIOINFO_HOME_V/bootstrap/04-refs.sh"
