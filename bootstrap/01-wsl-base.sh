@@ -23,6 +23,11 @@ if [ -z "${BIOINFO_CRLF_REEXEC:-}" ] && grep -q $'\r' "$0" 2>/dev/null; then exp
 set -euo pipefail
 
 SELFDIR="${BIOINFO_BOOTSTRAP_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+# Both are for THIS script only. Exported so they survive the exec above, unset the moment
+# they have been read, so they never reach a child: a bootstrap script that invokes a
+# sibling (05 runs 04) would otherwise hand it a sentinel saying "already stripped", and a
+# sibling from the same CRLF copy would skip its own strip and die on `pipefail\r`.
+unset BIOINFO_CRLF_REEXEC BIOINFO_BOOTSTRAP_DIR
 
 # config/host.env is the per-machine override file host.env.example describes. Parsed
 # before every default below, so the values here are genuine fallbacks. load_host_env

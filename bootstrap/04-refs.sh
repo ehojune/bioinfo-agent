@@ -30,6 +30,7 @@ if [ -z "${BIOINFO_CRLF_REEXEC:-}" ] && grep -q $'\r' "$0" 2>/dev/null; then exp
 set -euo pipefail
 
 SELFDIR="${BIOINFO_BOOTSTRAP_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+unset BIOINFO_CRLF_REEXEC BIOINFO_BOOTSTRAP_DIR   # this script only — see 01-wsl-base.sh
 
 # config/host.env — per-machine overrides, read before the defaults so the values here
 # are genuine fallbacks. load_host_env always returns 0, so an unquoted value there

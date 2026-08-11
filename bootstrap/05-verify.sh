@@ -37,6 +37,10 @@ NXF_OFFLINE_AMBIENT="${NXF_OFFLINE:-}"
 # always wins: that file is what a pipeline run actually gets, and it is what this
 # script exists to check. Parsed, not sourced — see bootstrap/lib/host-env.sh.
 SELFDIR="${BIOINFO_BOOTSTRAP_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+# Unset before section 8 runs `bash "$REFSCRIPT"`: an inherited sentinel would make a CRLF
+# 04-refs.sh skip its own strip pass and die on `pipefail\r`, and this script would report
+# the reference store broken when only the line endings were. See 01-wsl-base.sh.
+unset BIOINFO_CRLF_REEXEC BIOINFO_BOOTSTRAP_DIR
 HOST_ENV="${BIOINFO_HOME:-/mnt/d/bioinfo-agent}/config/host.env"
 . "$SELFDIR/lib/host-env.sh"      # parses; never executes host.env
 load_host_env "$HOST_ENV"
