@@ -593,12 +593,17 @@ function Install-GuardHook {
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $null  = Remove-GuardEntries -Settings $settings
 
+    # -Force because Get-JsonProp cannot tell an ABSENT key from one present with a JSON null:
+    # a settings.json carrying "hooks": null reaches here with $null, and Add-Member without
+    # -Force then throws "a member with that name already exists" — a terminating error that
+    # killed the installer mid-run instead of producing the documented REFUSED row. Each call
+    # is already gated on $null, so -Force only ever replaces a null with the empty container.
     if ($null -eq (Get-JsonProp $settings 'hooks')) {
-        $settings | Add-Member -MemberType NoteProperty -Name 'hooks' -Value ([pscustomobject]@{})
+        $settings | Add-Member -MemberType NoteProperty -Name 'hooks' -Value ([pscustomobject]@{}) -Force
     }
     $hooks = $settings.hooks
     if ($null -eq (Get-JsonProp $hooks 'PreToolUse')) {
-        $hooks | Add-Member -MemberType NoteProperty -Name 'PreToolUse' -Value @()
+        $hooks | Add-Member -MemberType NoteProperty -Name 'PreToolUse' -Value @() -Force
     }
     $hooks.PreToolUse = @(@($hooks.PreToolUse) + (New-GuardHookEntry))
 
