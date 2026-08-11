@@ -236,16 +236,26 @@ elif [[ -n "$REQ" ]]; then
     # fastq_1, fastq_2, fasta are all optional at the schema level. Empirically confirmed via
     # -preview (2026-08-12): a row with none of fastq_1/fastq_2/fasta VALIDATES CLEANLY (no
     # error, completed=0 failed=0) -- the schema alone will not catch a metadata-only row with
-    # nothing for the pipeline to actually profile. Warn, don't fail: this checker cannot know
-    # whether that is a deliberate placeholder row.
-    if [[ -z "$(colidx fastq_1)$(colidx fastq_2)$(colidx fasta)" ]]; then
+    # nothing for the pipeline to actually profile. FAIL, not warn: a mixed sheet where only
+    # SOME rows are empty would otherwise still print PASS overall (Codex review, PR #36) --
+    # the pipeline schedules nothing for that row and an automated/warning-tolerant launch
+    # would silently drop a sample with no launch-time error anywhere.
+    F1I=$(colidx fastq_1); F2I=$(colidx fastq_2); FAI=$(colidx fasta)
+    if [[ -z "$F1I$F2I$FAI" ]]; then
       fail "taxprofiler: sheet has none of fastq_1/fastq_2/fasta columns at all -- nothing to profile"
     else
-      NOREADS=$(awk -F, -v f1="$(colidx fastq_1 || echo 0)" -v f2="$(colidx fastq_2 || echo 0)" \
-                     -v fa="$(colidx fasta || echo 0)" \
+      # ${VAR:-0}, not `$(colidx X || echo 0)` -- colidx exits 0 with EMPTY stdout when the
+      # column is absent (it never actually fails), so the `||` form silently never fires and
+      # awk receives an empty string, not "0"; awk then does a STRING compare of "" against
+      # numeric 0 for f1==0, which is false, so a genuinely-missing column was never flagged
+      # (caught only by hand-testing a two-column-family mixed sheet, not by any single-family
+      # sheet -- fixed after Codex review, PR #36, flagged the row-level check as too weak,
+      # though this exact bug was found independently while addressing that finding).
+      NOREADS=$(awk -F, -v f1="${F1I:-0}" -v f2="${F2I:-0}" -v fa="${FAI:-0}" \
                 'NR>1 && (f1==0||$f1=="") && (f2==0||$f2=="") && (fa==0||$fa=="") {print NR-1}' \
                 "$TMP" | paste -sd' ' -)
-      [[ -z "$NOREADS" ]] || warn "taxprofiler: row(s) with NEITHER fastq_1/fastq_2 NOR fasta (schema accepts this silently -- pipeline has nothing to profile for that row): $NOREADS"
+      [[ -z "$NOREADS" ]] && ok "taxprofiler: every row has fastq_1/fastq_2 and/or fasta" \
+                          || fail "taxprofiler: row(s) with NEITHER fastq_1/fastq_2 NOR fasta (schema accepts this silently -- pipeline has nothing to profile for that row): $NOREADS"
     fi
     # instrument_platform is a closed enum in schema_input.json.
     if [[ -n "$(colidx instrument_platform)" ]]; then
@@ -284,7 +294,12 @@ elif [[ -z "$PIPELINE" ]]; then
 fi
 
 # ---- 3. path columns --------------------------------------------------------
-for C in fastq_1 fastq_2 bam bai cram crai vcf table spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads; do
+# fasta: taxprofiler-only column, added here (not earlier) so the loop below actually
+# validates it -- previously absent from this list entirely (Codex review, PR #36): a
+# fasta-only taxprofiler sheet pointing at a nonexistent/relative/zero-byte/wrong-suffix path
+# reported PASS, because this loop is what does path-exists/suffix/gzip checking and `fasta`
+# was never in it.
+for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads; do
   I=$(colidx "$C"); [[ -n "$I" ]] || continue
   N=0
   while IFS= read -r P; do
@@ -305,6 +320,17 @@ for C in fastq_1 fastq_2 bam bai cram crai vcf table spring_1 spring_2 forwardRe
       fastq_1|fastq_2|forwardReads|reverseReads|short_reads_1|short_reads_2|long_reads)
         if [[ ! "$P" =~ \.f(ast)?q\.gz$ ]]; then
           fail "$C: does not match the required .f(ast)?q.gz suffix: $P"
+          continue
+        fi ;;
+      fasta)
+        # schema_input.json's own pattern is `\.(fasta|fas|fna|fa)\.gz?$` (only the trailing
+        # "z" optional, not the whole ".gz" -- almost certainly an authoring typo upstream),
+        # but empirically confirmed via -preview (2026-08-12) that a plain, non-gzipped `.fa`
+        # is REJECTED ("does not match regular expression") -- the schema behaves as
+        # gzip-required in practice regardless of what the literal regex appears to allow.
+        # Enforce the same real-world requirement here.
+        if [[ ! "$P" =~ \.(fasta|fas|fna|fa)\.gz$ ]]; then
+          fail "$C: does not match the required .(fasta|fas|fna|fa).gz suffix: $P"
           continue
         fi ;;
     esac

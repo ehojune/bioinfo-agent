@@ -66,10 +66,21 @@ not a 10x swap) — not investigated further, out of scope for this procurement.
 ## Preflight / preview / stub
 
 `-preview -profile docker --input samplesheet.csv --databases databases.csv --run_kraken2 true`:
-clean, `completed=0 failed=0` (already verified above while building the checker). Full
-`-stub-run -profile test,docker` (the CI fixture, not this real sample) already passed clean in
-the test-profile procurement run — no pipeline-level stub gap exists for taxprofiler, unlike
-ampliseq/mag, so no separate real-sample stub run is needed here.
+clean, `completed=0 failed=0` (already verified above while building the checker).
+
+`-stub-run` was ALSO run against this run's own real command — the actual `params.yaml`
+(real samplesheet, real `--databases` pointing at the real 8 GB DB, `--run_kraken2 true` only,
+no other 13 tools) — not just relying on the CI-fixture stub-run from the test-profile
+procurement run, per Codex review on PR #36: a different samplesheet/database/tool-roster
+topology is not proven by a different run's stub result. First attempt (no `-c
+config/local.config`) failed with `Process requirement exceeds available memory -- req: 72 GB;
+avail: 51 GB` — `KRAKEN2_KRAKEN2` is `process_high` (72 GB in the pipeline's own
+`conf/base.config`), and without `local.config`'s `process.resourceLimits` clamp (18 cores/
+40 GB) the raw request exceeded the WSL VM's 51 GB ceiling; this was a test-invocation gap, not
+a pipeline defect. Re-run WITH `-c /mnt/d/bioinfo-agent/config/local.config` (matching this
+run's actual `cmd.sh`) passed clean: `completed=3 failed=0`. Confirms — for THIS run's actual
+topology, not just the CI fixture's — that no pipeline-level stub gap exists for taxprofiler,
+unlike ampliseq/mag.
 
 `bin/preflight.sh` run below; disk estimate 5 GB (generous — the CI test profile itself peaked
 at 4.0 GB with 14 tools and larger toy DBs; this run has one tool and ~92 MB of reads).

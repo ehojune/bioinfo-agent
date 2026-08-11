@@ -917,7 +917,14 @@ fixture databases) — no waiver needed, unlike ampliseq's `CUTADAPT_BASIC` gap 
 `UNTAR`/`CATPACK_DB_UNTAR` gap. This is the first of the three microbiome pipelines stocked
 here where the shipped `stub:` coverage is actually complete enough to trust as a pre-launch
 gate on its own. The full `-profile test,docker` run also passes clean (`completed=179
-failed=0`, ~24.5 min wall clock, 4.0 GB peak work dir — see `references/estimates.md`).
+failed=0`, ~24.5 min wall clock, 4.0 GB peak work dir — see `references/estimates.md`). A
+CI-fixture stub pass does not by itself prove a different real-command topology (different
+samplesheet, database, and tool selection) — confirmed separately by re-running `-stub-run`
+against the actual real-sample `params.yaml`/`--databases`/single-tool shape before that run's
+launch (`runs/20260812-taxprofiler-drr027580-realsample/plan.md`), which also passed clean once
+`-c config/local.config` was included (the pool's `resourceLimits` clamp — omitting it makes
+`KRAKEN2_KRAKEN2`'s `process_high` 72 GB request exceed the raw 51 GB WSL VM ceiling, a
+test-invocation gap unrelated to taxprofiler's own stub coverage).
 
 **Key outputs:** per-sample, per-tool raw profiler output (`<tool>/<db_name>/`), per-tool
 merged/standardised taxon tables (`<tool>/<db_name>/*.{tsv,csv,biom}` via taxpasta when
