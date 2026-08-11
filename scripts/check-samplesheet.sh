@@ -117,6 +117,7 @@ case "$PIPELINE" in
   differentialabundance) REQ='sample' ;;                        # or whatever --observations_id_col says
   fetchngs)              REQ='' ;;                              # headerless accession list, not a CSV
   ampliseq)              REQ='' ;;                              # two column forms; see below
+  mag)                   REQ='sample group' ;;                  # plus short_reads_1 or long_reads, below
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
@@ -158,9 +159,76 @@ elif [[ -n "$REQ" ]]; then
   for C in $REQ; do [[ -n "$(colidx "$C")" ]] || MISS="$MISS $C"; done
   [[ -z "$MISS" ]] && ok "$PIPELINE required columns present" \
                    || fail "$PIPELINE is missing required column(s):$MISS"
+  # Column PRESENCE is necessary but not sufficient: every stocked pipeline's schema also
+  # requires a non-empty VALUE on every row for its required columns, and a header that
+  # exists with an empty cell on some row previously passed this gate silently (Codex review,
+  # PR #35, mag's `sample` column specifically -- the same gap applies to every pipeline using
+  # $REQ, not only mag, so fixed here rather than in the mag-only branch).
+  if [[ -z "$MISS" ]]; then
+    EMPTYCOLS=''
+    for C in $REQ; do
+      I=$(colidx "$C")
+      bad=$(awk -F, -v i="$I" 'NR>1 && $i=="" {print NR-1}' "$TMP" | paste -sd, -)
+      [[ -z "$bad" ]] || EMPTYCOLS="$EMPTYCOLS $C(row:$bad)"
+    done
+    [[ -z "$EMPTYCOLS" ]] && ok "$PIPELINE required column values all non-empty" \
+                          || fail "$PIPELINE required column(s) empty on some row(s):$EMPTYCOLS"
+  fi
   if [[ "$PIPELINE" == sarek ]]; then
     [[ -n "$(colidx fastq_1)$(colidx bam)$(colidx cram)$(colidx vcf)" ]] \
       || fail "sarek needs one of fastq_1 / bam / cram / vcf, matching --step"
+  fi
+  if [[ "$PIPELINE" == mag ]]; then
+    # schema_input.json (5.5.0): anyOf short_reads_1 / long_reads; short_reads_2 requires
+    # short_reads_1; short_reads_1 requires short_reads_platform; long_reads requires
+    # long_reads_platform. Empirically confirmed via -preview (2026-08-12): uniqueEntries
+    # [sample, run] is a COMPOSITE key -- same sample with different run values passes
+    # (the pipeline's own multirun test fixture does exactly this), same sample+run
+    # duplicated, or same sample with run omitted entirely on both rows, both fail.
+    [[ -n "$(colidx short_reads_1)$(colidx long_reads)" ]] \
+      || fail "mag needs short_reads_1 and/or long_reads"
+    # dependentRequired in schema_input.json is a PER-ROW value constraint, not a column-
+    # presence one -- empirically confirmed via -preview: a row with the long_reads column
+    # present in the header but empty for that row validates fine as long as
+    # short_reads_1/short_reads_platform are populated. Check actual values per row, not
+    # whether the column exists.
+    mag_row_check() {
+      local want="$1" need="$2" label="$3"
+      local wi ni; wi=$(colidx "$want"); ni=$(colidx "$need")
+      [[ -n "$wi" ]] || return 0
+      local bad
+      bad=$(awk -F, -v w="$wi" -v n="${ni:-0}" \
+            'NR>1 && $w!="" && (n==0 || $n=="") {print NR-1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$bad" ]] || fail "mag: row(s) with $want but no $need (row $label): $bad"
+    }
+    mag_row_check short_reads_2 short_reads_1 "short_reads_2 requires short_reads_1"
+    mag_row_check short_reads_1 short_reads_platform "short_reads_1 requires short_reads_platform"
+    mag_row_check long_reads long_reads_platform "long_reads requires long_reads_platform"
+    # anyOf short_reads_1/long_reads is also per row, not per sheet.
+    S1I=$(colidx short_reads_1); LRI=$(colidx long_reads)
+    if [[ -n "$S1I" || -n "$LRI" ]]; then
+      bad=$(awk -F, -v s="${S1I:-0}" -v l="${LRI:-0}" \
+            'NR>1 && (s==0 || $s=="") && (l==0 || $l=="") {print NR-1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$bad" ]] && ok "mag: every row has short_reads_1 and/or long_reads" \
+                      || fail "mag: row(s) with neither short_reads_1 nor long_reads: $bad"
+    fi
+    if [[ -n "$(colidx run)" ]]; then
+      D=$(awk -F, -v s="$(colidx sample)" -v r="$(colidx run)" 'NR>1{print $s"/"$r}' "$TMP" \
+          | sort | uniq -d | paste -sd' ' -)
+      [[ -z "$D" ]] && ok "mag sample/run pairs unique" \
+                    || fail "mag: duplicate sample/run pair (uniqueEntries composite key): $D"
+    else
+      # No `run` column at all: every row's implicit run is the same missing value, so
+      # uniqueEntries[sample, run] collapses to sample-only uniqueness -- confirmed
+      # empirically (nextflow -preview on two S1 rows, no run column: "Detected duplicate
+      # entries: [sample:S1]"). Without this branch two same-`sample` rows with no `run`
+      # column passed silently (Codex review, PR #35) because the generic identifier check
+      # below only WARNs ("merged as technical replicates"), which is correct for pipelines
+      # that support that merge but wrong for mag, where the schema hard-rejects it.
+      D=$(colvals sample | sort | uniq -d | paste -sd' ' -)
+      [[ -z "$D" ]] && ok "mag sample values unique (no run column)" \
+                    || fail "mag: duplicate sample value(s) with no run column (uniqueEntries [sample,run] collapses to sample alone): $D"
+    fi
   fi
 elif [[ -z "$PIPELINE" ]]; then
   ID=''
@@ -170,7 +238,7 @@ elif [[ -z "$PIPELINE" ]]; then
 fi
 
 # ---- 3. path columns --------------------------------------------------------
-for C in fastq_1 fastq_2 bam bai cram crai vcf table spring_1 spring_2 forwardReads reverseReads; do
+for C in fastq_1 fastq_2 bam bai cram crai vcf table spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads; do
   I=$(colidx "$C"); [[ -n "$I" ]] || continue
   N=0
   while IFS= read -r P; do
@@ -181,6 +249,19 @@ for C in fastq_1 fastq_2 bam bai cram crai vcf table spring_1 spring_2 forwardRe
     fi
     if [[ ! -r "$P" ]]; then fail "$C: not readable: $P"; continue; fi
     if [[ ! -s "$P" ]]; then fail "$C: zero bytes: $P"; continue; fi
+    # FASTQ-only columns: the schemas for these columns (rnaseq/ampliseq/mag, confirmed
+    # against schema_input.json at each pin) require an exact `.f(ast)?q.gz` suffix, not
+    # merely "ends in .gz" -- a `.gz`-suffixed non-FASTQ file (e.g. a mistakenly-pointed
+    # `.txt.gz`) previously fell through the case below with no suffix check at all and
+    # reported PASS. bam/bai/cram/crai/vcf/table/spring_* legitimately use other suffixes
+    # and are NOT in this list.
+    case "$C" in
+      fastq_1|fastq_2|forwardReads|reverseReads|short_reads_1|short_reads_2|long_reads)
+        if [[ ! "$P" =~ \.f(ast)?q\.gz$ ]]; then
+          fail "$C: does not match the required .f(ast)?q.gz suffix: $P"
+          continue
+        fi ;;
+    esac
     case "$P" in
       *.fastq|*.fq)
         fail "$C: uncompressed FASTQ: $P (schema pattern requires .gz)" ;;
@@ -201,6 +282,7 @@ done
 # fastq_1/fastq_2 -- fall back to it so this gate isn't silently skipped on that column set.
 I1=$(colidx fastq_1); I2=$(colidx fastq_2)
 if [[ -z "$I1" ]]; then I1=$(colidx forwardReads); I2=$(colidx reverseReads); fi
+if [[ -z "$I1" ]]; then I1=$(colidx short_reads_1); I2=$(colidx short_reads_2); fi
 if [[ -n "$I1" && -n "$I2" ]]; then
   while IFS=$'\t' read -r R1 R2; do
     [[ -n "$R2" && -r "$R1" && -r "$R2" ]] || continue
@@ -248,10 +330,10 @@ elif [[ -n "$(colidx patient)" && -n "$(colidx sample)" ]]; then  # sarek restar
         'NR>1{print $p"/"$s}' "$TMP" | sort | uniq -d | paste -sd' ' -)
   [[ -z "$D" ]] && ok "patient/sample pairs unique" \
                 || fail "duplicate patient/sample: $D"
-elif [[ "$PIPELINE" == ampliseq ]]; then
-  : # already checked as a hard FAIL, correctly, in the ampliseq branch above -- this generic
-    # branch's WARN ("merged as technical replicates") is the wrong severity here and would be
-    # a redundant, softer second message for the same row
+elif [[ "$PIPELINE" == ampliseq || "$PIPELINE" == mag ]]; then
+  : # already checked as a hard FAIL, correctly, in the pipeline-specific branch above -- this
+    # generic branch's WARN ("merged as technical replicates") is the wrong severity here and
+    # would be a redundant, softer second message for the same row
 elif [[ -n "$(colidx sample)" ]]; then
   D=$(colvals sample | sort | uniq -d | paste -sd' ' -)
   [[ -z "$D" ]] && ok "sample ids unique" \
@@ -276,9 +358,22 @@ if [[ -n "$(colidx sex)" ]]; then
   B=$(colvals sex | grep -vE '^(XX|XY|NA)?$' | sort -u | paste -sd, - || true)
   [[ -z "$B" ]] && ok "sex values valid" || warn "unexpected sex values: $B"
 fi
+if [[ "$PIPELINE" == mag ]]; then
+  # schema_input.json (5.5.0): fixed enums on both platform columns. Empty values are fine
+  # (dependentRequired is checked separately, section 2b above) -- only a NON-empty value
+  # outside the enum is a schema violation.
+  if [[ -n "$(colidx short_reads_platform)" ]]; then
+    B=$(colvals short_reads_platform | grep -vE '^(ILLUMINA|BGISEQ|LS454|ION_TORRENT|DNBSEQ|ELEMENT|ULTIMA|VELA_DIAGNOSTICS|GENAPSYS|GENEMIND|TAPESTRI)?$' | sort -u | paste -sd, - || true)
+    [[ -z "$B" ]] && ok "mag short_reads_platform values valid" || fail "mag: bad short_reads_platform: $B"
+  fi
+  if [[ -n "$(colidx long_reads_platform)" ]]; then
+    B=$(colvals long_reads_platform | grep -vE '^(OXFORD_NANOPORE|OXFORD_NANOPORE_HQ|PACBIO_CLR|PACBIO_HIFI)?$' | sort -u | paste -sd, - || true)
+    [[ -z "$B" ]] && ok "mag long_reads_platform values valid" || fail "mag: bad long_reads_platform: $B"
+  fi
+fi
 
 # ---- 7. footprint -----------------------------------------------------------
-PATHS=$( { for C in fastq_1 fastq_2 bam cram forwardReads reverseReads; do colvals "$C"; done; } | grep '^/' | sort -u || true )
+PATHS=$( { for C in fastq_1 fastq_2 bam cram forwardReads reverseReads short_reads_1 short_reads_2 long_reads; do colvals "$C"; done; } | grep '^/' | sort -u || true )
 if [[ -z "$PATHS" ]]; then
   printf 'size  nothing to size (no absolute fastq/bam/cram paths)\n'
 else

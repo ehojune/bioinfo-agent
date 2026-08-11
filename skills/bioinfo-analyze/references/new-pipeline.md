@@ -1,8 +1,8 @@
 # Procuring a pipeline that is not stocked
 
 The stocked set is the row set of `config/pipelines.tsv`: rnaseq, differentialabundance, fetchngs,
-sarek, methylseq, atacseq, chipseq, cutandrun, scrnaseq. Anything else goes through this procedure
-before it touches real data. The
+sarek, methylseq, atacseq, chipseq, cutandrun, scrnaseq, ampliseq, mag. Anything else goes through
+this procedure before it touches real data. The
 procedure exists because the expensive failure is not "no pipeline exists" — it is committing to an
 unmaintained pipeline, discovering at hour six that it needs a reference nobody has, and having no
 record of which revision produced the results.

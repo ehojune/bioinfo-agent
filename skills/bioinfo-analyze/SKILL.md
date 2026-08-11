@@ -93,7 +93,7 @@ Do them in order. Do not skip step 3 or step 4.
    samplesheet. Neither substitutes for the other: `-preview` resolves params and the DAG without
    running anything, `-stub-run` exercises the process wiring. A stub run that fails is a real
    failure — fix it, do not "try it for real and see". `references/runbook.md` section 4.
-   **Four documented departures from "stub the real command as-is," and only these four —
+   **Five documented departures from "stub the real command as-is," and only these five —
    `references/runbook.md` section 4 is the canonical list, do not generalise beyond it:**
    - **A true waiver** (the failing stub is accepted, not avoided): an rnaseq samplesheet with
      `strandedness: auto` makes the real-command stub fail unavoidably, because the pipeline
@@ -128,9 +128,23 @@ Do them in order. Do not skip step 3 or step 4.
      differentialabundance case) can avoid it. Runbook section 4 states the exact error and why
      `-preview` is the only pre-launch gate available here; the real command is what actually
      proves this pipeline end to end.
-   All four are partial gates, not full substitutes for testing the real command — runbook
+   - **A true waiver plus a broader structural finding, both at once** (one isolated upstream
+     module-patch bug, waived the same way as the ampliseq case above, *and* a second, worse
+     problem in the same pipeline that is not a single failure to waive at all): mag at this
+     pin's `5.5.0` (`config/pipelines.tsv`) crashes `-stub-run` at `CATPACK_DB_UNTAR`/
+     `BUSCO_UNTAR` with `No such variable: output_dir` — mag's own local patch to the shared
+     `UNTAR` module updates the `script:` block's output variable but not the `stub:` block,
+     same shape as ampliseq's `CUTADAPT_BASIC`, waived on the same reasoning (only fires when a
+     `.tar.gz` reference DB is supplied, which the test profile does and a default real run
+     does not). Separately, **20 of mag's 23 local modules carry no `stub:` block at all**,
+     including the ones that do phiX/host removal and binning-prep mapping — under Nextflow's
+     no-stub fallback these run their real `script:` against upstream stub placeholders and
+     crash in a chain that no finite set of stub-only substitutions clears. Runbook section 4
+     states both findings and why, for this pipeline, `-preview` is the pre-launch gate that
+     actually works past the first stage; the real command is what proves the rest.
+   All five are partial gates, not full substitutes for testing the real command — runbook
    section 4 states plainly what each one does not cover. Nothing else in this skill waives or
-   substitutes a stub; a fifth pipeline hitting a similar shape needs its own documented case
+   substitutes a stub; a sixth pipeline hitting a similar shape needs its own documented case
    here and in the runbook, not an ad hoc workaround.
 5. **Execution.** Launch from ext4, logging to file, always through `tmux` (`references/runbook.md`
    section 5) — not a bare foreground command, not `nohup … &`, and not your own backgrounded
