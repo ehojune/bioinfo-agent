@@ -93,7 +93,7 @@ Do them in order. Do not skip step 3 or step 4.
    samplesheet. Neither substitutes for the other: `-preview` resolves params and the DAG without
    running anything, `-stub-run` exercises the process wiring. A stub run that fails is a real
    failure — fix it, do not "try it for real and see". `references/runbook.md` section 4.
-   **Three documented departures from "stub the real command as-is," and only these three —
+   **Four documented departures from "stub the real command as-is," and only these four —
    `references/runbook.md` section 4 is the canonical list, do not generalise beyond it:**
    - **A true waiver** (the failing stub is accepted, not avoided): an rnaseq samplesheet with
      `strandedness: auto` makes the real-command stub fail unavoidably, because the pipeline
@@ -120,9 +120,17 @@ Do them in order. Do not skip step 3 or step 4.
      pin — carrying the same flag into the *real* command is a separate, explicit methods decision
      (it silently drops CNN score annotations and `FilterVariantTranches`) that must be recorded in
      that run's own `plan.md`, not inherited from this stub fix.
-   All three are partial gates, not full substitutes for testing the real command — runbook
+   - **A true waiver, upstream module bug, no substitute possible** (the failing stub is accepted
+     because nothing in this repo's control can route around it): ampliseq at this pin's `2.18.0`
+     (`config/pipelines.tsv`) crashes `-stub-run` at `CUTADAPT_BASIC` with `No such variable:
+     outformat` — the module's `stub:` block never sets a variable its `output:` block references,
+     so the crash happens before any process logic runs and no stub-input substitution (unlike the
+     differentialabundance case) can avoid it. Runbook section 4 states the exact error and why
+     `-preview` is the only pre-launch gate available here; the real command is what actually
+     proves this pipeline end to end.
+   All four are partial gates, not full substitutes for testing the real command — runbook
    section 4 states plainly what each one does not cover. Nothing else in this skill waives or
-   substitutes a stub; a fourth pipeline hitting a similar shape needs its own documented case
+   substitutes a stub; a fifth pipeline hitting a similar shape needs its own documented case
    here and in the runbook, not an ad hoc workaround.
 5. **Execution.** Launch from ext4, logging to file, always through `tmux` (`references/runbook.md`
    section 5) — not a bare foreground command, not `nohup … &`, and not your own backgrounded
