@@ -306,16 +306,25 @@ else
   # copy. Same failure shape as the version-named plugin cache scripts/
   # check-plugin-version.sh guards, and nothing was watching this one.
 
-  # A worktree whose admin directory is gone. Deterministic, no false positives: a
-  # healthy checkout's gitdir always resolves.
-  if [ -f "$BIOINFO_HOME_V/.git" ]; then
-    GITDIR=$(sed -n 's/^gitdir: //p' "$BIOINFO_HOME_V/.git" | head -1)
-    if [ -n "$GITDIR" ] && [ ! -e "$GITDIR" ]; then
-      fail "BIOINFO_HOME is an unregistered git worktree — its gitdir ($GITDIR) is gone, so
-          the files are frozen at whatever they held when it was detached. Point
-          BIOINFO_HOME at the real checkout and re-run bootstrap/03-nextflow.sh."
-    fi
-  fi
+  # A session worktree is never a durable BIOINFO_HOME. They are created per Claude Code
+  # session under .claude/worktrees/ and detached when it ends, and the files stay on disk
+  # afterwards looking perfectly healthy — which is exactly how this one went unnoticed.
+  #
+  # Checked by path, deliberately, NOT by inspecting .git. The obvious test — read the
+  # `gitdir:` pointer and see whether it resolves — cannot work on this repo's own layout:
+  # the checkout is on NTFS and runs happen in WSL, so a worktree Windows git created
+  # carries `gitdir: D:/bioinfo-agent/.git/worktrees/<name>`, which Linux git treats as a
+  # RELATIVE path and appends to the worktree. Measured: a freshly created, perfectly
+  # healthy worktree and the detached one both come back `fatal: not a git repository`.
+  # A test that cannot tell those two apart can only produce false NOT READY verdicts.
+  case "$BIOINFO_HOME_V" in
+    */.claude/worktrees/*)
+      fail "BIOINFO_HOME is a Claude Code session worktree. Those are temporary: when the
+          session ends the worktree is detached but its files remain, so runs keep reading
+          a frozen copy while looking healthy. Point BIOINFO_HOME at the real checkout and
+          re-run bootstrap/03-nextflow.sh."
+      ;;
+  esac
 
   # Not fatal: running this script from a worktree while BIOINFO_HOME names the main
   # checkout is a normal thing to do. But a run uses BIOINFO_HOME, not the tree this
