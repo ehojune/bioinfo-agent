@@ -545,8 +545,10 @@ for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 for
             # `-L` (follow symlinks): plain `find` uses `-P` by default and does not descend
             # through $P itself if $P is a symlink to a directory -- a symlinked run directory
             # with real fastq/fast5 content underneath previously reported "no files" (Codex
-            # review, PR #38, round 2).
-            [[ -n "$(find -L "$P" -mindepth 1 -maxdepth 3 -type f -print -quit 2>/dev/null)" ]] \
+            # review, PR #38, round 2). No `-maxdepth`: this check exists to reject an EMPTY
+            # directory, not to impose an assumed layout depth -- a real ONT run directory can
+            # legitimately nest content deeper than 3 levels (Codex review, PR #38, round 3).
+            [[ -n "$(find -L "$P" -mindepth 1 -type f -print -quit 2>/dev/null)" ]] \
               || fail "$C: directory has no files within 3 levels (fast5/fastq run dir expected): $P"
           elif [[ ! "$P" =~ \.(fastq\.gz|fq\.gz|bam)$ ]]; then
             fail "$C: does not match .fastq.gz/.fq.gz/.bam and is not an existing directory: $P"
@@ -717,7 +719,14 @@ fi
 # SPRING archives (which can hold the entire WGS input, same order of size as fastq/bam) was
 # previously invisible to this loop entirely, printing "nothing to size" and skipping the
 # 1.5x free-space gate below.
-PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads input_file; do colvals "$C"; done; } | grep '^/' | sort -u || true )
+# input_file is a nanoseq-specific column name, not a universal path column (same reasoning as
+# section 3's loop) -- an absolute-looking value in a non-nanoseq sheet's `input_file` column
+# (e.g. a differentialabundance observations table using that name for ordinary metadata) is not
+# a filesystem input and must not be sized or stat'd here (Codex review, PR #38, round 3: this
+# unconditional collection still fed such a value into the du/stat loop below even after section
+# 3 stopped path-validating it).
+IFCOL=''; [[ "$PIPELINE" == nanoseq ]] && IFCOL='input_file'
+PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads $IFCOL; do colvals "$C"; done; } | grep '^/' | sort -u || true )
 if [[ -z "$PATHS" ]]; then
   printf 'size  nothing to size (no absolute fastq/bam/cram/spring paths)\n'
 else
@@ -730,9 +739,13 @@ else
   while IFS= read -r P; do
     [[ -n "$P" ]] || continue
     if [[ -d "$P" ]]; then
-      SZ=$(du -sb "$P" 2>/dev/null | awk '{print $1}')
+      # `-D` (dereference-args): GNU du defaults to NOT following a symlink given directly on
+      # its command line, so a symlinked run directory (the supported case fixed above) was
+      # sized as just the symlink itself -- a handful of bytes, not its target's real content
+      # (Codex review, PR #38, round 3, measured: a 1 MiB target reported as 24 B).
+      SZ=$( { du -Dsb "$P" 2>/dev/null || true; } | awk '{print $1}')
     else
-      SZ=$(stat -Lc %s "$P" 2>/dev/null)
+      SZ=$(stat -Lc %s "$P" 2>/dev/null || true)
     fi
     BYTES=$(( BYTES + ${SZ:-0} ))
   done <<< "$PATHS"
