@@ -213,6 +213,19 @@ elif [[ -n "$REQ" ]]; then
       [[ -z "$NOBAI" ]] && ok "raredisease: every bam row has a bai" \
                         || fail "raredisease: row(s) with bam but no bai (schema dependentRequired bam->bai): $NOBAI"
     fi
+    # dependentRequired{lane:[fastq_1]} OR dependentRequired{lane:[spring_1]}: a nonempty
+    # `lane` cell on a row requires fastq_1 OR spring_1 on THAT row -- a nonempty `bam` cell
+    # does NOT satisfy it (Codex review, PR #37, round 3): a bam-backed row that also happens
+    # to carry a lane value still needs fastq_1/spring_1, and the earlier "has a read source"
+    # check treated bam as sufficient regardless of lane, missing this case.
+    LNI=$(colidx lane)
+    if [[ -n "$LNI" ]]; then
+      NOLANESRC=$(awk -F, -v ln="$LNI" -v f1="${F1I:-0}" -v sp="${SPI:-0}" \
+                    'NR>1 && $ln!="" && (f1==0||$f1=="") && (sp==0||$sp=="") {print NR-1}' \
+                    "$TMP" | paste -sd' ' -)
+      [[ -z "$NOLANESRC" ]] && ok "raredisease: every lane row has fastq_1/spring_1" \
+                            || fail "raredisease: row(s) with lane but neither fastq_1 nor spring_1 (schema dependentRequired lane->[fastq_1|spring_1]): $NOLANESRC"
+    fi
     # sex/phenotype are closed integer enums here, NOT the generic XX/XY/NA the section-6 check
     # assumes -- override that check's blind spot for this pipeline rather than let it WARN on
     # every valid raredisease row.
@@ -404,15 +417,30 @@ for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 for
         # raredisease's schema_input.json (3.1.2) requires the literal `^\S+\.bam$` pattern
         # (Codex review, PR #37, round 2) -- a readable file under a swapped/wrong suffix
         # (e.g. a `.bai` path in the `bam` column) previously passed this loop with only a
-        # readability check and was only rejected by the pipeline itself at preflight.
-        if [[ "$PIPELINE" == raredisease && ! "$P" =~ \.bam$ ]]; then
-          fail "$C: does not match the required .bam suffix (schema_input.json pattern ^\\S+\\.bam\$): $P"
-          continue
+        # readability check and was only rejected by the pipeline itself at preflight. `\S+`
+        # also means no whitespace ANYWHERE in the path, not just the suffix (Codex review,
+        # PR #37, round 3) -- a path containing a space matched the suffix-only regex but
+        # fails the schema's actual pattern.
+        if [[ "$PIPELINE" == raredisease ]]; then
+          if [[ "$P" =~ [[:space:]] ]]; then
+            fail "$C: contains whitespace (schema pattern ^\\S+\\.bam\$ forbids it): $P"
+            continue
+          fi
+          if [[ ! "$P" =~ \.bam$ ]]; then
+            fail "$C: does not match the required .bam suffix (schema_input.json pattern ^\\S+\\.bam\$): $P"
+            continue
+          fi
         fi ;;
       bai)
-        if [[ "$PIPELINE" == raredisease && ! "$P" =~ \.bai$ ]]; then
-          fail "$C: does not match the required .bai suffix (schema_input.json pattern ^\\S+\\.bai\$): $P"
-          continue
+        if [[ "$PIPELINE" == raredisease ]]; then
+          if [[ "$P" =~ [[:space:]] ]]; then
+            fail "$C: contains whitespace (schema pattern ^\\S+\\.bai\$ forbids it): $P"
+            continue
+          fi
+          if [[ ! "$P" =~ \.bai$ ]]; then
+            fail "$C: does not match the required .bai suffix (schema_input.json pattern ^\\S+\\.bai\$): $P"
+            continue
+          fi
         fi ;;
     esac
     case "$P" in
