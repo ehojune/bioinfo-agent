@@ -181,6 +181,16 @@ elif [[ -n "$REQ" ]]; then
       || fail "sarek needs one of fastq_1 / bam / cram / vcf, matching --step"
   fi
   if [[ "$PIPELINE" == raredisease ]]; then
+    # schema_input.json's `sample` pattern is ^\S+$ -- whitespace makes it fail schema
+    # validation even though it is nonempty and would otherwise only draw the generic
+    # identifier check's WARN, not a FAIL (Codex review, PR #37, round 4: same shape as the
+    # bam/bai/fastq_1/fastq_2 whitespace gaps fixed above).
+    SMPI=$(colidx sample)
+    if [[ -n "$SMPI" ]]; then
+      BADSMP=$(awk -F, -v i="$SMPI" 'NR>1 && $i ~ /[[:space:]]/ {print NR-1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$BADSMP" ]] && ok "raredisease: sample values contain no whitespace" \
+                         || fail "raredisease: sample value(s) contain whitespace (schema pattern ^\\S+\$): $BADSMP"
+    fi
     # assets/schema_input.json (3.1.2): items.anyOf requires dependentRequired{lane:[fastq_1]}
     # OR dependentRequired{lane:[spring_1]} -- i.e. if `lane` has a value, fastq_1 or spring_1
     # must too -- plus a separate dependentRequired{bam:[bai]}. There is no schema-level
@@ -398,6 +408,15 @@ for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 for
     # and are NOT in this list.
     case "$C" in
       fastq_1|fastq_2|forwardReads|reverseReads|short_reads_1|short_reads_2|long_reads)
+        # raredisease's schema pattern is ^\S+\.f(ast)?q\.gz$ -- whitespace anywhere in the
+        # path fails validation even if the suffix matches (Codex review, PR #37, round 4,
+        # same shape as the bam/bai whitespace gap fixed the round before). Other pipelines'
+        # fastq columns are not confirmed to share the same \S+ requirement, so this is
+        # raredisease-scoped, matching the bam/bai checks above.
+        if [[ "$PIPELINE" == raredisease && ( "$C" == fastq_1 || "$C" == fastq_2 ) && "$P" =~ [[:space:]] ]]; then
+          fail "$C: contains whitespace (schema pattern ^\\S+\\.f(ast)?q\\.gz\$ forbids it): $P"
+          continue
+        fi
         if [[ ! "$P" =~ \.f(ast)?q\.gz$ ]]; then
           fail "$C: does not match the required .f(ast)?q.gz suffix: $P"
           continue

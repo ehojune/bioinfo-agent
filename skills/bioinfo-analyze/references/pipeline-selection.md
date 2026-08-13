@@ -1006,8 +1006,12 @@ repeat_annotation,me_calling,me_annotation,generate_clinical_set --skip_tools
 gens,germlinecnvcaller` — the "lightest combination first" pattern used for mag/taxprofiler.
 CADD resources, a VEP cache, a gnomAD allele-frequency table, a vcfanno bundle, GENMOD rank
 configs, an ExpansionHunter variant catalog, and a GATK GermlineCNVCaller cohort model are all
-absent from `$BIOINFO_REFS` and none are fetched by this procurement (rows added to
-`refs.manifest.tsv` as `fetch`-mode placeholders, not yet downloaded). This run validates
+absent from `$BIOINFO_REFS` and none are fetched by this procurement. `refs.manifest.tsv` has
+`fetch`-mode placeholder rows for the four resources whose fetch source this procurement
+actually identified (VEP cache, CADD resources, gnomAD allele-frequency table, ExpansionHunter
+catalog) — the vcfanno bundle, GENMOD rank configs, and GermlineCNVCaller cohort model have
+**no manifest row yet**, so enabling those specific pieces needs a manifest row added first,
+not just a download against an existing one. This run validates
 alignment-input handling, QC, DeepVariant SNV calling, Manta/Tiddit/CNVnator SV calling, the
 MT subworkflow, and SMNCopyNumberCaller only — **not** the annotation/scoring/ranking layer
 that makes raredisease's output "rare-disease ready" in the clinical-interpretation sense.
