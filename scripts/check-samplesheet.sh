@@ -187,10 +187,20 @@ elif [[ -n "$REQ" ]]; then
     # requirement that EVERY row carry fastq_1/spring_1/bam (a bam-only sheet has no `lane`
     # column at all, so the anyOf's dependentRequired is vacuously satisfied) -- confirmed via
     # -preview (2026-08-12) that a bam/bai-only sheet with no lane/fastq_1/spring_1 columns
-    # validates cleanly. Check only that the sheet has at least one of the three read-source
-    # column families, and that bam/spring pairs are complete per row.
-    [[ -n "$(colidx fastq_1)$(colidx spring_1)$(colidx bam)" ]] \
-      || fail "raredisease needs one of fastq_1 / spring_1 / bam(+bai)"
+    # validates cleanly. A header-only check is not enough here: a mixed sheet can have the
+    # bam column present and still leave individual rows with bam/spring_1/fastq_1 all empty
+    # -- the schema accepts that row too (Codex review, PR #37, same shape as the taxprofiler
+    # gap fixed in PR #36) -- so check per row, not just per column family.
+    F1I=$(colidx fastq_1); SPI=$(colidx spring_1); BAI=$(colidx bam)
+    if [[ -z "$F1I$SPI$BAI" ]]; then
+      fail "raredisease: sheet has none of fastq_1/spring_1/bam columns at all -- no read source"
+    else
+      NOSRC=$(awk -F, -v f1="${F1I:-0}" -v sp="${SPI:-0}" -v ba="${BAI:-0}" \
+                'NR>1 && (f1==0||$f1=="") && (sp==0||$sp=="") && (ba==0||$ba=="") {print NR-1}' \
+                "$TMP" | paste -sd' ' -)
+      [[ -z "$NOSRC" ]] && ok "raredisease: every row has fastq_1/spring_1/bam" \
+                        || fail "raredisease: row(s) with NEITHER fastq_1 NOR spring_1 NOR bam (schema accepts this silently -- pipeline has no read source for that row): $NOSRC"
+    fi
     if [[ -n "$(colidx bam)" ]]; then
       [[ -n "$(colidx bai)" ]] || fail "raredisease: bam column present without bai (schema dependentRequired bam->bai)"
     fi
