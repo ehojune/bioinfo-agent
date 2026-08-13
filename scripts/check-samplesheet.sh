@@ -119,6 +119,7 @@ case "$PIPELINE" in
   ampliseq)              REQ='' ;;                              # two column forms; see below
   mag)                   REQ='sample group' ;;                  # plus short_reads_1 or long_reads, below
   taxprofiler)           REQ='sample run_accession instrument_platform' ;;  # fastq_1/fastq_2/fasta NOT in schema's required[] -- see below
+  raredisease)           REQ='sample sex phenotype case_id' ;;              # plus fastq_1/spring_1/bam, below
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
@@ -178,6 +179,46 @@ elif [[ -n "$REQ" ]]; then
   if [[ "$PIPELINE" == sarek ]]; then
     [[ -n "$(colidx fastq_1)$(colidx bam)$(colidx cram)$(colidx vcf)" ]] \
       || fail "sarek needs one of fastq_1 / bam / cram / vcf, matching --step"
+  fi
+  if [[ "$PIPELINE" == raredisease ]]; then
+    # assets/schema_input.json (3.1.2): items.anyOf requires dependentRequired{lane:[fastq_1]}
+    # OR dependentRequired{lane:[spring_1]} -- i.e. if `lane` has a value, fastq_1 or spring_1
+    # must too -- plus a separate dependentRequired{bam:[bai]}. There is no schema-level
+    # requirement that EVERY row carry fastq_1/spring_1/bam (a bam-only sheet has no `lane`
+    # column at all, so the anyOf's dependentRequired is vacuously satisfied) -- confirmed via
+    # -preview (2026-08-12) that a bam/bai-only sheet with no lane/fastq_1/spring_1 columns
+    # validates cleanly. Check only that the sheet has at least one of the three read-source
+    # column families, and that bam/spring pairs are complete per row.
+    [[ -n "$(colidx fastq_1)$(colidx spring_1)$(colidx bam)" ]] \
+      || fail "raredisease needs one of fastq_1 / spring_1 / bam(+bai)"
+    if [[ -n "$(colidx bam)" ]]; then
+      [[ -n "$(colidx bai)" ]] || fail "raredisease: bam column present without bai (schema dependentRequired bam->bai)"
+    fi
+    # sex/phenotype are closed integer enums here, NOT the generic XX/XY/NA the section-6 check
+    # assumes -- override that check's blind spot for this pipeline rather than let it WARN on
+    # every valid raredisease row.
+    if [[ -n "$(colidx sex)" ]]; then
+      B=$(colvals sex | grep -vE '^(0|1|2|other)$' | sort -u | paste -sd, - || true)
+      [[ -z "$B" ]] && ok "raredisease sex values valid (0/1/2/other)" \
+                    || fail "raredisease: bad sex value (schema enum 0/1/2/other): $B"
+    fi
+    if [[ -n "$(colidx phenotype)" ]]; then
+      B=$(colvals phenotype | grep -vE '^[012]$' | sort -u | paste -sd, - || true)
+      [[ -z "$B" ]] && ok "raredisease phenotype values valid (0/1/2)" \
+                    || fail "raredisease: bad phenotype value (schema enum 0/1/2): $B"
+    fi
+    # schema_input.json declares "uniqueEntries": ["case_id"] but places the keyword INSIDE
+    # `items`, not at the array's own top level (contrast the array-level placement nf-schema's
+    # own docs and other pipelines here, e.g. mag/taxprofiler, use). nf-schema's
+    # UniqueEntriesEvaluator.evaluate() short-circuits to success whenever the node it is
+    # asked to validate is not itself an array (`if (!node.array) return success`) -- and a
+    # keyword nested under `items` is evaluated once per OBJECT element, never against the
+    # array. Confirmed empirically (nextflow -preview, 2026-08-12): a 5-row sheet with the
+    # SAME case_id on every row (the pipeline's own assets/samplesheet.csv -- a legitimate
+    # multi-lane single-sample case) validates cleanly, and so does a sheet with two fully
+    # IDENTICAL rows (same sample/lane/fastq/case_id twice). This constraint is a dead no-op
+    # as authored at this pin -- do NOT flag repeated case_id here; that is the pipeline's
+    # normal, intended shape (one case_id per family/case, shared across every member's row).
   fi
   if [[ "$PIPELINE" == mag ]]; then
     # schema_input.json (5.5.0): anyOf short_reads_1 / long_reads; short_reads_2 requires
@@ -433,7 +474,7 @@ if [[ -n "$(colidx status)" ]]; then
   B=$(colvals status | grep -vE '^[01]?$' | sort -u | paste -sd, - || true)
   [[ -z "$B" ]] && ok "status values valid" || fail "bad status (must be 0 or 1): $B"
 fi
-if [[ -n "$(colidx sex)" ]]; then
+if [[ "$PIPELINE" != raredisease && -n "$(colidx sex)" ]]; then
   B=$(colvals sex | grep -vE '^(XX|XY|NA)?$' | sort -u | paste -sd, - || true)
   [[ -z "$B" ]] && ok "sex values valid" || warn "unexpected sex values: $B"
 fi

@@ -627,6 +627,47 @@ error** — it is silently a no-op for that tool. The `--databases` CSV, not the
 boolean flags, is what actually determines whether classification happens; check both are
 consistent before launch.
 
+### nf-core/raredisease — 3.1.2
+
+`assets/schema_input.json` re-read at this pin (2026-08-12). `required[]` = `sample`,
+`sex`, `phenotype`, `case_id` on every row. Read source (`fastq_1`, `spring_1`, or `bam`+`bai`)
+is NOT in `required[]` at the schema's top level — see the no-op uniqueness note below before
+assuming a sheet with none of them is caught.
+
+| column | required | notes |
+|---|---|---|
+| `sample` | yes | `meta.id`. String, `^\S+$` |
+| `sex` | yes | closed enum `0` / `1` / `2` / `other` — PED convention (`0`=unknown, `1`=male, `2`=female), NOT the free-text `XX`/`XY`/`NA` other pipelines here use |
+| `phenotype` | yes | closed enum `0` / `1` / `2` — PED convention (`0`=missing, `1`=unaffected, `2`=affected), not free text |
+| `case_id` | yes | groups rows into one family/case; repeating it across rows is the pipeline's normal shape (see uniqueness note) |
+| `fastq_1`/`fastq_2` | no | one read-source family; `lane` present on a row triggers `dependentRequired{lane:[fastq_1]}` |
+| `spring_1` | no | alternate compressed-read format; `lane` present triggers `dependentRequired{lane:[spring_1]}` instead |
+| `bam`/`bai` | no | pre-aligned entry point (this repo's raredisease procurement used this); `bam` present requires `bai` (`dependentRequired{bam:[bai]}`) |
+
+```csv
+sample,sex,phenotype,case_id,bam,bai
+SRR26793256,0,0,SRR26793256_case,/data/rd/SRR26793256.md.bam,/data/rd/SRR26793256.md.bam.bai
+```
+
+**ID uniqueness — a documented no-op, not a composite key.** The schema declares
+`"uniqueEntries": ["case_id"]`, but places the keyword *inside* `items`, not at the array's
+own top level (contrast mag/taxprofiler, where the array-level placement makes their
+composite keys real constraints). nf-schema's `UniqueEntriesEvaluator` only evaluates against
+an array node; a keyword nested under `items` is evaluated once per object element and never
+sees the array, so it short-circuits to success unconditionally. Confirmed empirically
+(`nextflow -preview`, 2026-08-12): the pipeline's own shipped test fixture, which repeats
+`case_id` across every row of a multi-member family on purpose, validates cleanly — and so
+does a sheet with two fully identical rows. **Do not flag repeated `case_id` as a duplicate
+row** — that is the intended shape (one `case_id` shared by every member of a family/case),
+not something to warn on. `scripts/check-samplesheet.sh --pipeline raredisease` checks
+`sex`/`phenotype` enum membership and read-source presence, but deliberately does not attempt
+a `case_id` uniqueness check.
+
+**Silent-scheduling note**: a sheet with none of `fastq_1`/`spring_1`/`bam` present is not
+caught by the JSON schema alone (no top-level `required` entry forces one), the same shape of
+gap as taxprofiler's fastq-optional rows. `scripts/check-samplesheet.sh` fails a sheet missing
+all three read-source families.
+
 ---
 
 ## Common breakages, with the text you will actually see
