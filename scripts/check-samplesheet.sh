@@ -475,6 +475,13 @@ fi
 # reported PASS, because this loop is what does path-exists/suffix/gzip checking and `fasta`
 # was never in it.
 for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads input_file gtf; do
+  # input_file and gtf are nanoseq-specific column NAMES, not universal path columns like
+  # fastq_1/fasta/bam -- another pipeline's samplesheet (e.g. differentialabundance's free-form
+  # observations table) can legitimately use either name for an ordinary metadata variable with
+  # no filesystem meaning at all (Codex review, PR #38, round 2: an `input_file` column holding
+  # a batch label would otherwise be rejected here as "relative path"). Only apply this loop's
+  # path semantics to them when the target pipeline actually is nanoseq.
+  if [[ ( "$C" == input_file || "$C" == gtf ) && "$PIPELINE" != nanoseq ]]; then continue; fi
   I=$(colidx "$C"); [[ -n "$I" ]] || continue
   N=0
   while IFS= read -r P; do
@@ -535,7 +542,11 @@ for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 for
             # virtually every directory, empty or not -- Codex review, PR #38): it does not
             # establish the directory actually contains any fast5/fastq content. An empty
             # run-directory input previously passed this loop with no further check at all.
-            [[ -n "$(find "$P" -mindepth 1 -maxdepth 3 -type f -print -quit 2>/dev/null)" ]] \
+            # `-L` (follow symlinks): plain `find` uses `-P` by default and does not descend
+            # through $P itself if $P is a symlink to a directory -- a symlinked run directory
+            # with real fastq/fast5 content underneath previously reported "no files" (Codex
+            # review, PR #38, round 2).
+            [[ -n "$(find -L "$P" -mindepth 1 -maxdepth 3 -type f -print -quit 2>/dev/null)" ]] \
               || fail "$C: directory has no files within 3 levels (fast5/fastq run dir expected): $P"
           elif [[ ! "$P" =~ \.(fastq\.gz|fq\.gz|bam)$ ]]; then
             fail "$C: does not match .fastq.gz/.fq.gz/.bam and is not an existing directory: $P"
