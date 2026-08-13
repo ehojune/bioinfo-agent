@@ -1,0 +1,12 @@
+input: /mnt/d/bioinfo-agent/runs/20260812-raredisease-srr26793256/samplesheet.csv
+genome: GRCh38
+fasta: /refs/genomes/GRCh38gatk/fasta/genome.fa
+fai: /refs/genomes/GRCh38gatk/fasta/genome.fa.fai
+sequence_dictionary: /refs/genomes/GRCh38gatk/fasta/genome.dict
+bwa: /refs/genomes/GRCh38gatk/index/bwa/
+aligner: bwa
+mt_aligner: bwa
+intervals_wgs: /refs/genomes/GRCh38gatk/intervals/intervals_wgs.interval_list
+intervals_y: /refs/genomes/GRCh38gatk/intervals/intervals_y.interval_list
+skip_subworkflows: "snv_annotation,sv_annotation,mt_annotation,repeat_calling,repeat_annotation,me_calling,me_annotation,generate_clinical_set"
+skip_tools: "gens,germlinecnvcaller"

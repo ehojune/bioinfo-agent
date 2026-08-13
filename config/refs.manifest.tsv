@@ -54,6 +54,11 @@ genomes/GRCh38gatk/gatkbundle/known_indels.vcf.gz	fetch	GATK resource bundle
 genomes/GRCh38gatk/gatkbundle/known_indels.vcf.gz.tbi	fetch	GATK resource bundle
 genomes/GRCh38gatk/gatkbundle/germline_resource.vcf.gz	fetch	gnomAD af-only	mutect2 somatic only
 genomes/GRCh38gatk/gatkbundle/germline_resource.vcf.gz.tbi	fetch	gnomAD af-only	mutect2 somatic only
+genomes/GRCh38gatk/intervals/intervals_wgs.interval_list	build	gatk ScatterIntervalsByNs -R genome.fa -OT ACGT, then filtered to chr1-22/X/Y/M	raredisease --intervals_wgs, schema-required with no default (unlike sarek); built 2026-08-12, 41s; unplaced/unlocalized/decoy scaffolds excluded on purpose, bounded choice recorded in runs/20260812-raredisease-srr26793256/plan.md
+genomes/GRCh38gatk/intervals/intervals_y.interval_list	build	same ScatterIntervalsByNs output, filtered to chrY only	raredisease --intervals_y, schema-required with no default
+cache/cadd/	fetch	CADD-scripts data/annotations/ per https://github.com/kircherlab/CADD-scripts/#manual-installation	raredisease --cadd_resources, indel-only CADD scoring inside snv_annotation; size not measured, NOT fetched this procurement
+db/gnomad/gnomad_af.tab.gz	fetch	https://gnomad.broadinstitute.org/downloads reformatted to CHROM POS REF,ALT AF tab	raredisease --gnomad_af, used by vcfanno inside snv_annotation; NOT fetched this procurement
+db/expansionhunter/variant_catalog.GRCh38.json	fetch	https://github.com/Clinical-Genomics/reference-files/tree/master/rare-disease/disease_loci/ExpansionHunter-v5.0.0	raredisease --variant_catalog, repeat_calling subworkflow; NOT fetched this procurement (repeat_calling skipped)
 
 # ---------------------------------------------------------------- S. cerevisiae R64-1-1
 # Added 2026-08-03 for a small unattended smoke test of nf-core/rnaseq (run
@@ -91,7 +96,7 @@ catalogs/str/eh_catalog.GRCh38.json	link	/mnt/d/hg38_EH_variant_catalog.json	Exp
 catalogs/str/eh_catalog.disease.GRCh38.json	link	/mnt/d/hg38_EH_variant_catalog.disease.json	ExpansionHunter disease loci
 
 # ---------------------------------------------------------------- annotation caches
-cache/vep/	fetch	sarek --vep_cache / vep_install	~25G for GRCh38, only if annotating
+cache/vep/	fetch	sarek --vep_cache / vep_install -- also consumed by raredisease --vep_cache	~25G for GRCh38, only if annotating (raredisease snv_annotation/sv_annotation subworkflows, NOT fetched by the raredisease procurement, see pipelines.tsv note)
 cache/snpeff/	fetch	sarek --snpeff_cache	alternative to VEP
 
 # ---------------------------------------------------------------- ampliseq taxonomy DBs

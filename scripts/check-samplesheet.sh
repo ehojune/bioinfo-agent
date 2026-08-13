@@ -119,6 +119,7 @@ case "$PIPELINE" in
   ampliseq)              REQ='' ;;                              # two column forms; see below
   mag)                   REQ='sample group' ;;                  # plus short_reads_1 or long_reads, below
   taxprofiler)           REQ='sample run_accession instrument_platform' ;;  # fastq_1/fastq_2/fasta NOT in schema's required[] -- see below
+  raredisease)           REQ='sample sex phenotype case_id' ;;              # plus fastq_1/spring_1/bam, below
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
@@ -178,6 +179,88 @@ elif [[ -n "$REQ" ]]; then
   if [[ "$PIPELINE" == sarek ]]; then
     [[ -n "$(colidx fastq_1)$(colidx bam)$(colidx cram)$(colidx vcf)" ]] \
       || fail "sarek needs one of fastq_1 / bam / cram / vcf, matching --step"
+  fi
+  if [[ "$PIPELINE" == raredisease ]]; then
+    # schema_input.json's `sample` pattern is ^\S+$ -- whitespace makes it fail schema
+    # validation even though it is nonempty and would otherwise only draw the generic
+    # identifier check's WARN, not a FAIL (Codex review, PR #37, round 4: same shape as the
+    # bam/bai/fastq_1/fastq_2 whitespace gaps fixed above).
+    SMPI=$(colidx sample)
+    if [[ -n "$SMPI" ]]; then
+      BADSMP=$(awk -F, -v i="$SMPI" 'NR>1 && $i ~ /[[:space:]]/ {print NR-1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$BADSMP" ]] && ok "raredisease: sample values contain no whitespace" \
+                         || fail "raredisease: sample value(s) contain whitespace (schema pattern ^\\S+\$): $BADSMP"
+    fi
+    # assets/schema_input.json (3.1.2): items.anyOf requires dependentRequired{lane:[fastq_1]}
+    # OR dependentRequired{lane:[spring_1]} -- i.e. if `lane` has a value, fastq_1 or spring_1
+    # must too -- plus a separate dependentRequired{bam:[bai]}. There is no schema-level
+    # requirement that EVERY row carry fastq_1/spring_1/bam (a bam-only sheet has no `lane`
+    # column at all, so the anyOf's dependentRequired is vacuously satisfied) -- confirmed via
+    # -preview (2026-08-12) that a bam/bai-only sheet with no lane/fastq_1/spring_1 columns
+    # validates cleanly. A header-only check is not enough here: a mixed sheet can have the
+    # bam column present and still leave individual rows with bam/spring_1/fastq_1 all empty
+    # -- the schema accepts that row too (Codex review, PR #37, same shape as the taxprofiler
+    # gap fixed in PR #36) -- so check per row, not just per column family.
+    F1I=$(colidx fastq_1); SPI=$(colidx spring_1); BMI=$(colidx bam); BAI=$(colidx bai)
+    if [[ -z "$F1I$SPI$BMI" ]]; then
+      fail "raredisease: sheet has none of fastq_1/spring_1/bam columns at all -- no read source"
+    else
+      NOSRC=$(awk -F, -v f1="${F1I:-0}" -v sp="${SPI:-0}" -v ba="${BMI:-0}" \
+                'NR>1 && (f1==0||$f1=="") && (sp==0||$sp=="") && (ba==0||$ba=="") {print NR-1}' \
+                "$TMP" | paste -sd' ' -)
+      [[ -z "$NOSRC" ]] && ok "raredisease: every row has fastq_1/spring_1/bam" \
+                        || fail "raredisease: row(s) with NEITHER fastq_1 NOR spring_1 NOR bam (schema accepts this silently -- pipeline has no read source for that row): $NOSRC"
+    fi
+    # dependentRequired{bam:[bai]} is a per-ROW value dependency, not a per-column one
+    # (Codex review, PR #37, round 2): a `bai` header with an empty cell on the very row that
+    # has a `bam` value previously passed because the old check only compared column
+    # presence. Flag any row whose `bam` cell is nonempty but whose `bai` cell is empty or
+    # whose `bai` column is altogether absent.
+    if [[ -n "$BMI" ]]; then
+      NOBAI=$(awk -F, -v bm="$BMI" -v ba="${BAI:-0}" \
+                'NR>1 && $bm!="" && (ba==0||$ba=="") {print NR-1}' \
+                "$TMP" | paste -sd' ' -)
+      [[ -z "$NOBAI" ]] && ok "raredisease: every bam row has a bai" \
+                        || fail "raredisease: row(s) with bam but no bai (schema dependentRequired bam->bai): $NOBAI"
+    fi
+    # dependentRequired{lane:[fastq_1]} OR dependentRequired{lane:[spring_1]}: a nonempty
+    # `lane` cell on a row requires fastq_1 OR spring_1 on THAT row -- a nonempty `bam` cell
+    # does NOT satisfy it (Codex review, PR #37, round 3): a bam-backed row that also happens
+    # to carry a lane value still needs fastq_1/spring_1, and the earlier "has a read source"
+    # check treated bam as sufficient regardless of lane, missing this case.
+    LNI=$(colidx lane)
+    if [[ -n "$LNI" ]]; then
+      NOLANESRC=$(awk -F, -v ln="$LNI" -v f1="${F1I:-0}" -v sp="${SPI:-0}" \
+                    'NR>1 && $ln!="" && (f1==0||$f1=="") && (sp==0||$sp=="") {print NR-1}' \
+                    "$TMP" | paste -sd' ' -)
+      [[ -z "$NOLANESRC" ]] && ok "raredisease: every lane row has fastq_1/spring_1" \
+                            || fail "raredisease: row(s) with lane but neither fastq_1 nor spring_1 (schema dependentRequired lane->[fastq_1|spring_1]): $NOLANESRC"
+    fi
+    # sex/phenotype are closed integer enums here, NOT the generic XX/XY/NA the section-6 check
+    # assumes -- override that check's blind spot for this pipeline rather than let it WARN on
+    # every valid raredisease row.
+    if [[ -n "$(colidx sex)" ]]; then
+      B=$(colvals sex | grep -vE '^(0|1|2|other)$' | sort -u | paste -sd, - || true)
+      [[ -z "$B" ]] && ok "raredisease sex values valid (0/1/2/other)" \
+                    || fail "raredisease: bad sex value (schema enum 0/1/2/other): $B"
+    fi
+    if [[ -n "$(colidx phenotype)" ]]; then
+      B=$(colvals phenotype | grep -vE '^[012]$' | sort -u | paste -sd, - || true)
+      [[ -z "$B" ]] && ok "raredisease phenotype values valid (0/1/2)" \
+                    || fail "raredisease: bad phenotype value (schema enum 0/1/2): $B"
+    fi
+    # schema_input.json declares "uniqueEntries": ["case_id"] but places the keyword INSIDE
+    # `items`, not at the array's own top level (contrast the array-level placement nf-schema's
+    # own docs and other pipelines here, e.g. mag/taxprofiler, use). nf-schema's
+    # UniqueEntriesEvaluator.evaluate() short-circuits to success whenever the node it is
+    # asked to validate is not itself an array (`if (!node.array) return success`) -- and a
+    # keyword nested under `items` is evaluated once per OBJECT element, never against the
+    # array. Confirmed empirically (nextflow -preview, 2026-08-12): a 5-row sheet with the
+    # SAME case_id on every row (the pipeline's own assets/samplesheet.csv -- a legitimate
+    # multi-lane single-sample case) validates cleanly, and so does a sheet with two fully
+    # IDENTICAL rows (same sample/lane/fastq/case_id twice). This constraint is a dead no-op
+    # as authored at this pin -- do NOT flag repeated case_id here; that is the pipeline's
+    # normal, intended shape (one case_id per family/case, shared across every member's row).
   fi
   if [[ "$PIPELINE" == mag ]]; then
     # schema_input.json (5.5.0): anyOf short_reads_1 / long_reads; short_reads_2 requires
@@ -325,6 +408,15 @@ for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 for
     # and are NOT in this list.
     case "$C" in
       fastq_1|fastq_2|forwardReads|reverseReads|short_reads_1|short_reads_2|long_reads)
+        # raredisease's schema pattern is ^\S+\.f(ast)?q\.gz$ -- whitespace anywhere in the
+        # path fails validation even if the suffix matches (Codex review, PR #37, round 4,
+        # same shape as the bam/bai whitespace gap fixed the round before). Other pipelines'
+        # fastq columns are not confirmed to share the same \S+ requirement, so this is
+        # raredisease-scoped, matching the bam/bai checks above.
+        if [[ "$PIPELINE" == raredisease && ( "$C" == fastq_1 || "$C" == fastq_2 ) && "$P" =~ [[:space:]] ]]; then
+          fail "$C: contains whitespace (schema pattern ^\\S+\\.f(ast)?q\\.gz\$ forbids it): $P"
+          continue
+        fi
         if [[ ! "$P" =~ \.f(ast)?q\.gz$ ]]; then
           fail "$C: does not match the required .f(ast)?q.gz suffix: $P"
           continue
@@ -339,6 +431,49 @@ for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 for
         if [[ ! "$P" =~ \.(fasta|fas|fna|fa)\.gz$ ]]; then
           fail "$C: does not match the required .(fasta|fas|fna|fa).gz suffix: $P"
           continue
+        fi ;;
+      bam)
+        # raredisease's schema_input.json (3.1.2) requires the literal `^\S+\.bam$` pattern
+        # (Codex review, PR #37, round 2) -- a readable file under a swapped/wrong suffix
+        # (e.g. a `.bai` path in the `bam` column) previously passed this loop with only a
+        # readability check and was only rejected by the pipeline itself at preflight. `\S+`
+        # also means no whitespace ANYWHERE in the path, not just the suffix (Codex review,
+        # PR #37, round 3) -- a path containing a space matched the suffix-only regex but
+        # fails the schema's actual pattern.
+        if [[ "$PIPELINE" == raredisease ]]; then
+          if [[ "$P" =~ [[:space:]] ]]; then
+            fail "$C: contains whitespace (schema pattern ^\\S+\\.bam\$ forbids it): $P"
+            continue
+          fi
+          if [[ ! "$P" =~ \.bam$ ]]; then
+            fail "$C: does not match the required .bam suffix (schema_input.json pattern ^\\S+\\.bam\$): $P"
+            continue
+          fi
+        fi ;;
+      bai)
+        if [[ "$PIPELINE" == raredisease ]]; then
+          if [[ "$P" =~ [[:space:]] ]]; then
+            fail "$C: contains whitespace (schema pattern ^\\S+\\.bai\$ forbids it): $P"
+            continue
+          fi
+          if [[ ! "$P" =~ \.bai$ ]]; then
+            fail "$C: does not match the required .bai suffix (schema_input.json pattern ^\\S+\\.bai\$): $P"
+            continue
+          fi
+        fi ;;
+      spring_1|spring_2)
+        # schema_input.json's pattern for both SPRING columns is ^\S+\.spring$ (Codex review,
+        # PR #37, round 5) -- previously only readability/size were checked here, so a
+        # readable non-.spring file, or a .spring path containing whitespace, both passed.
+        if [[ "$PIPELINE" == raredisease ]]; then
+          if [[ "$P" =~ [[:space:]] ]]; then
+            fail "$C: contains whitespace (schema pattern ^\\S+\\.spring\$ forbids it): $P"
+            continue
+          fi
+          if [[ ! "$P" =~ \.spring$ ]]; then
+            fail "$C: does not match the required .spring suffix (schema_input.json pattern ^\\S+\\.spring\$): $P"
+            continue
+          fi
         fi ;;
     esac
     case "$P" in
@@ -433,7 +568,7 @@ if [[ -n "$(colidx status)" ]]; then
   B=$(colvals status | grep -vE '^[01]?$' | sort -u | paste -sd, - || true)
   [[ -z "$B" ]] && ok "status values valid" || fail "bad status (must be 0 or 1): $B"
 fi
-if [[ -n "$(colidx sex)" ]]; then
+if [[ "$PIPELINE" != raredisease && -n "$(colidx sex)" ]]; then
   B=$(colvals sex | grep -vE '^(XX|XY|NA)?$' | sort -u | paste -sd, - || true)
   [[ -z "$B" ]] && ok "sex values valid" || warn "unexpected sex values: $B"
 fi
@@ -452,9 +587,13 @@ if [[ "$PIPELINE" == mag ]]; then
 fi
 
 # ---- 7. footprint -----------------------------------------------------------
-PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram forwardReads reverseReads short_reads_1 short_reads_2 long_reads; do colvals "$C"; done; } | grep '^/' | sort -u || true )
+# spring_1/spring_2 added (Codex review, PR #37, round 6): a raredisease sheet using only
+# SPRING archives (which can hold the entire WGS input, same order of size as fastq/bam) was
+# previously invisible to this loop entirely, printing "nothing to size" and skipping the
+# 1.5x free-space gate below.
+PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads; do colvals "$C"; done; } | grep '^/' | sort -u || true )
 if [[ -z "$PATHS" ]]; then
-  printf 'size  nothing to size (no absolute fastq/bam/cram paths)\n'
+  printf 'size  nothing to size (no absolute fastq/bam/cram/spring paths)\n'
 else
   BYTES=$(printf '%s\n' "$PATHS" | { xargs -d '\n' stat -Lc %s 2>/dev/null || true; } \
           | awk '{s+=$1} END{print s+0}')
