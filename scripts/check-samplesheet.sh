@@ -461,6 +461,20 @@ for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 for
             continue
           fi
         fi ;;
+      spring_1|spring_2)
+        # schema_input.json's pattern for both SPRING columns is ^\S+\.spring$ (Codex review,
+        # PR #37, round 5) -- previously only readability/size were checked here, so a
+        # readable non-.spring file, or a .spring path containing whitespace, both passed.
+        if [[ "$PIPELINE" == raredisease ]]; then
+          if [[ "$P" =~ [[:space:]] ]]; then
+            fail "$C: contains whitespace (schema pattern ^\\S+\\.spring\$ forbids it): $P"
+            continue
+          fi
+          if [[ ! "$P" =~ \.spring$ ]]; then
+            fail "$C: does not match the required .spring suffix (schema_input.json pattern ^\\S+\\.spring\$): $P"
+            continue
+          fi
+        fi ;;
     esac
     case "$P" in
       *.fastq|*.fq)
