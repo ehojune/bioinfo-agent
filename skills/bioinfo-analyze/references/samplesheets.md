@@ -668,6 +668,58 @@ caught by the JSON schema alone (no top-level `required` entry forces one), the 
 gap as taxprofiler's fastq-optional rows. `scripts/check-samplesheet.sh` fails a sheet missing
 all three read-source families.
 
+### nf-core/nanoseq — 3.1.0
+
+**`assets/schema_input.json` is NOT what this pipeline validates against — confirmed empirically
+2026-08-13.** That file (present in the pinned clone) describes `sample`/`fastq_1`/`fastq_2`,
+but grepping the entire clone's `workflows/`, `subworkflows/`, `modules/` for
+`schema_input|validateParameters|fromSamplesheet|nf-validation|nf-schema` returns nothing — it
+is never referenced by any `.nf` file at this pin, purely vestigial nf-core-template
+boilerplate. The samplesheet nanoseq actually validates at runtime is checked by its own
+bundled Python script, `bin/check_samplesheet.py`, run through the `SAMPLESHEET_CHECK` module
+(`subworkflows/local/input_check.nf` calls it, then `.splitCsv` on *its* reformatted output —
+not the user's raw sheet). Every rule below is read directly out of that script, not out of the
+unused JSON schema.
+
+| column | required | notes |
+|---|---|---|
+| `group` | yes | becomes `{group}_R{replicate}` as the internal sample id; no literal spaces allowed |
+| `replicate` | yes | bare integer; ids must run `1..N` contiguously per group (no gaps, no repeats) |
+| `barcode` | no | bare integer if given (zero-padded to `barcodeNN` internally); leave empty for an already-demultiplexed FASTQ |
+| `input_file` | no* | `.fastq.gz`, `.fq.gz`, `.bam`, or an existing ONT run directory (fast5+fastq, for nanopolish); **every** `input_file` value across the whole sheet must share one extension family — mixing e.g. `.bam` and `.fastq.gz` rows fails the whole sheet, not just the mismatched row |
+| `fasta` | no | per-sample reference genome: plain `.fa`/`.fasta` (gzip optional) or an iGenomes shorthand key (e.g. `GRCh37`) — this repo's convention is always the standard manifest absolute path, never the shorthand |
+| `gtf` | no | `.gtf`/`.gtf.gz`, needed only for cDNA/directRNA transcript quantification |
+
+\* At least 3 of the 6 columns must be non-empty per row (`check_samplesheet.py`'s
+`MIN_COLS=3`) — `group`+`replicate` count as 2 of those 3, so in practice at least one of
+`barcode`/`input_file`/`fasta`/`gtf` must also carry a value.
+
+```csv
+group,replicate,barcode,input_file,fasta,gtf
+SRR25466853,1,,/work/staging/nanoseq-realsample/SRR25466853.fastq.gz,/refs/genomes/ECOLI_K12/fasta/genome.fa,
+```
+
+This is the exact sheet from `runs/20260813-nanoseq-srr25466853/samplesheet.csv` — a single
+already-basecalled FASTQ given directly as `input_file`, `--skip_demultiplexing true` at the
+pipeline level (no `barcode`/`--input_path`/`--barcode_kit` needed), a plain per-sample
+reference FASTA, no transcript GTF (DNA protocol).
+
+**ID uniqueness/dedup rule — group/replicate pairs, not a `sample` column.** There is no
+`sample` column at all; the internal sample id is derived as `{group}_R{replicate}`.
+`check_samplesheet.py` hard-errors on a repeated `group`/`replicate` pair ("Same replicate id
+provided multiple times!") and on a group whose replicate ids are not a contiguous `1..N` run
+starting at 1 ("Replicate ids must start with 1..<num_replicates>!") — both confirmed by reading
+the script directly (`bin/check_samplesheet.py`, `nanoseq` clone at this pin) and reproduced via
+`scripts/check-samplesheet.sh --pipeline nanoseq` against a synthetic bad sheet (duplicate
+`S3`/`1` pair, and a non-contiguous `S2`/`S3`/`S4` replicate run, both correctly flagged FAIL).
+
+**Silent-failure note — the multi-extension-family rule is whole-sheet, not per-row.** A sheet
+where every individual `input_file` value has a valid extension can still fail entirely if two
+rows use *different* families (one `.bam`, one `.fastq.gz`) — `check_samplesheet.py`'s
+`"All input files must have the same extension!"` check runs once over the whole sheet after
+every row is otherwise valid. `scripts/check-samplesheet.sh --pipeline nanoseq` reproduces this
+same whole-sheet check, not just a per-row suffix check.
+
 ---
 
 ## Common breakages, with the text you will actually see

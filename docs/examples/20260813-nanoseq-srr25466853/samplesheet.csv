@@ -1,0 +1,2 @@
+group,replicate,barcode,input_file,fasta,gtf
+SRR25466853,1,,/work/staging/nanoseq-realsample/SRR25466853.fastq.gz,/refs/genomes/ECOLI_K12/fasta/genome.fa,

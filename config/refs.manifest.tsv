@@ -78,7 +78,7 @@ genomes/R64-1-1/index/salmon/	build	nf-core/rnaseq --save_reference
 # points 'K12-MG1655' at (an old 2001-10-15 NCBI build under an AWS iGenomes path we
 # do not have mirrored locally) -- fine for spike-in read recruitment, where exact
 # patch version does not matter. Single contig, NC_000913.3.
-genomes/ECOLI_K12/fasta/genome.fa	fetch	https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/005/845/GCF_000005845.2_ASM584v2/GCF_000005845.2_ASM584v2_genomic.fna.gz	gunzip'd on arrival; RefSeq ASM584v2	53bb6a51b6e92139ced1e38f74b7938781027c52200922ff03718c2237d23bb4
+genomes/ECOLI_K12/fasta/genome.fa	fetch	https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/005/845/GCF_000005845.2_ASM584v2/GCF_000005845.2_ASM584v2_genomic.fna.gz	gunzip'd on arrival; RefSeq ASM584v2. REUSED (not re-fetched) 2026-08-13 for nf-core/nanoseq's first real-sample validation run (20260813-nanoseq-srr25466853) -- an ONT E. coli WGS sample (SRR25466853) is the lightest real dataset match, and nanoseq's minimap2 alignment needs only this plain FASTA (fai/chrom-sizes/minimap2-index all built in-run, seconds at 4.6 Mb) -- no new row needed for that	53bb6a51b6e92139ced1e38f74b7938781027c52200922ff03718c2237d23bb4
 genomes/ECOLI_K12/index/bowtie2/	build	nf-core/cutandrun --save_reference (or bowtie2-build)	spike-in alignment; genome is 4.6 Mb, build is seconds not minutes
 
 # ---------------------------------------------------------------- Korean reference
