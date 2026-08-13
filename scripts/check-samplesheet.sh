@@ -587,9 +587,13 @@ if [[ "$PIPELINE" == mag ]]; then
 fi
 
 # ---- 7. footprint -----------------------------------------------------------
-PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram forwardReads reverseReads short_reads_1 short_reads_2 long_reads; do colvals "$C"; done; } | grep '^/' | sort -u || true )
+# spring_1/spring_2 added (Codex review, PR #37, round 6): a raredisease sheet using only
+# SPRING archives (which can hold the entire WGS input, same order of size as fastq/bam) was
+# previously invisible to this loop entirely, printing "nothing to size" and skipping the
+# 1.5x free-space gate below.
+PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads; do colvals "$C"; done; } | grep '^/' | sort -u || true )
 if [[ -z "$PATHS" ]]; then
-  printf 'size  nothing to size (no absolute fastq/bam/cram paths)\n'
+  printf 'size  nothing to size (no absolute fastq/bam/cram/spring paths)\n'
 else
   BYTES=$(printf '%s\n' "$PATHS" | { xargs -d '\n' stat -Lc %s 2>/dev/null || true; } \
           | awk '{s+=$1} END{print s+0}')
