@@ -387,13 +387,29 @@ elif [[ -n "$REQ" ]]; then
     # completely different header: group,replicate,barcode,input_file,fasta,gtf. Every check in
     # this block mirrors that script's actual logic line for line, not the unused JSON schema.
     GI=$(colidx group); RI=$(colidx replicate); FI=$(colidx input_file)
+    BI=$(colidx barcode); FAI=$(colidx fasta); GTI=$(colidx gtf)
 
-    # MIN_COLS=3: check_samplesheet.py requires at least 3 of the 6 columns populated per row.
-    # group+replicate are separately required (above) as 2 of those 3, so at least one of
-    # barcode/input_file/fasta/gtf must also carry a value on every row.
-    MINCOLS=$(awk -F, -v n="$NCOL" 'NR>1{c=0; for(i=1;i<=n;i++) if($i!="") c++; if(c<3) print NR-1}' "$TMP" | paste -sd' ' -)
-    [[ -z "$MINCOLS" ]] && ok "nanoseq: every row has >=3 populated columns (check_samplesheet.py MIN_COLS)" \
-                        || fail "nanoseq: row(s) with <3 populated columns: $MINCOLS"
+    # MIN_COLS=3: check_samplesheet.py requires at least 3 of the 6 RECOGNISED columns
+    # (group,replicate,barcode,input_file,fasta,gtf) populated per row -- counting every field
+    # in the row (Codex review, PR #38) would let an extra, unrecognised column (a typo'd
+    # header, or a stray column check_samplesheet.py itself would never see) satisfy the count
+    # even though none of the six real fields is populated. Sum only over the indices of the
+    # six recognised names that are actually present in this header; a header missing one of
+    # them simply contributes nothing to that row's count, same as check_samplesheet.py itself
+    # (which hardcodes exactly six columns and never sees an extra one at all).
+    MINCOLS=$(awk -F, -v g="${GI:-0}" -v r="${RI:-0}" -v b="${BI:-0}" -v f="${FI:-0}" -v fa="${FAI:-0}" -v gt="${GTI:-0}" '
+      NR>1{
+        c=0
+        if (g!=0 && $g!="") c++
+        if (r!=0 && $r!="") c++
+        if (b!=0 && $b!="") c++
+        if (f!=0 && $f!="") c++
+        if (fa!=0 && $fa!="") c++
+        if (gt!=0 && $gt!="") c++
+        if (c<3) print NR-1
+      }' "$TMP" | paste -sd' ' -)
+    [[ -z "$MINCOLS" ]] && ok "nanoseq: every row has >=3 populated recognised columns (check_samplesheet.py MIN_COLS)" \
+                        || fail "nanoseq: row(s) with <3 populated recognised columns (group/replicate/barcode/input_file/fasta/gtf): $MINCOLS"
 
     # replicate must be a bare integer (check_samplesheet.py: replicate.isdigit()).
     if [[ -n "$RI" ]]; then
@@ -403,7 +419,6 @@ elif [[ -n "$REQ" ]]; then
     fi
 
     # barcode, when given, must ALSO be a bare integer -- zero-padded to barcodeNN internally.
-    BI=$(colidx barcode)
     if [[ -n "$BI" ]]; then
       BADBC=$(awk -F, -v i="$BI" 'NR>1 && $i!="" && $i !~ /^[0-9]+$/ {print NR-1}' "$TMP" | paste -sd' ' -)
       [[ -z "$BADBC" ]] && ok "nanoseq: barcode values are bare integers (or empty)" \
@@ -514,9 +529,18 @@ for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 for
           continue
         fi ;;
       input_file)
-        if [[ "$PIPELINE" == nanoseq && ! -d "$P" && ! "$P" =~ \.(fastq\.gz|fq\.gz|bam)$ ]]; then
-          fail "$C: does not match .fastq.gz/.fq.gz/.bam and is not an existing directory: $P"
-          continue
+        if [[ "$PIPELINE" == nanoseq ]]; then
+          if [[ -d "$P" ]]; then
+            # `-s` above only proves the DIRECTORY ENTRY itself is nonzero size (true for
+            # virtually every directory, empty or not -- Codex review, PR #38): it does not
+            # establish the directory actually contains any fast5/fastq content. An empty
+            # run-directory input previously passed this loop with no further check at all.
+            [[ -n "$(find "$P" -mindepth 1 -maxdepth 3 -type f -print -quit 2>/dev/null)" ]] \
+              || fail "$C: directory has no files within 3 levels (fast5/fastq run dir expected): $P"
+          elif [[ ! "$P" =~ \.(fastq\.gz|fq\.gz|bam)$ ]]; then
+            fail "$C: does not match .fastq.gz/.fq.gz/.bam and is not an existing directory: $P"
+            continue
+          fi
         fi ;;
       gtf)
         if [[ "$PIPELINE" == nanoseq && ! "$P" =~ \.gtf(\.gz)?$ ]]; then
@@ -686,8 +710,21 @@ PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardRead
 if [[ -z "$PATHS" ]]; then
   printf 'size  nothing to size (no absolute fastq/bam/cram/spring paths)\n'
 else
-  BYTES=$(printf '%s\n' "$PATHS" | { xargs -d '\n' stat -Lc %s 2>/dev/null || true; } \
-          | awk '{s+=$1} END{print s+0}')
+  # nanoseq's input_file may be a directory (fast5+fastq run dir) -- `stat -Lc %s` on a
+  # directory reports only the directory-entry size (a few KB), not its contents, which
+  # severely understates the referenced footprint for exactly the input type that is most
+  # likely to be large (Codex review, PR #38). Size directories recursively with `du -sb`
+  # and plain files with `stat`, rather than running every path through `stat` alike.
+  BYTES=0
+  while IFS= read -r P; do
+    [[ -n "$P" ]] || continue
+    if [[ -d "$P" ]]; then
+      SZ=$(du -sb "$P" 2>/dev/null | awk '{print $1}')
+    else
+      SZ=$(stat -Lc %s "$P" 2>/dev/null)
+    fi
+    BYTES=$(( BYTES + ${SZ:-0} ))
+  done <<< "$PATHS"
   printf 'size  %s of input referenced\n' "$(numfmt --to=iec --suffix=B "$BYTES")"
   echo  "      compare against free space on the work filesystem; refuse to start below 1.5x the estimate"
 fi
