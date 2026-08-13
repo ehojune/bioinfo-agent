@@ -1,0 +1,7 @@
+input: /mnt/d/bioinfo-agent/runs/20260813-nanoseq-srr25466853/samplesheet.csv
+protocol: DNA
+skip_demultiplexing: true
+skip_quantification: true
+skip_differential_analysis: true
+skip_fusion_analysis: true
+skip_modification_analysis: true

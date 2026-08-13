@@ -120,6 +120,7 @@ case "$PIPELINE" in
   mag)                   REQ='sample group' ;;                  # plus short_reads_1 or long_reads, below
   taxprofiler)           REQ='sample run_accession instrument_platform' ;;  # fastq_1/fastq_2/fasta NOT in schema's required[] -- see below
   raredisease)           REQ='sample sex phenotype case_id' ;;              # plus fastq_1/spring_1/bam, below
+  nanoseq)               REQ='group replicate' ;;                          # plus input_file/fasta/gtf shape, below
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
@@ -376,6 +377,75 @@ elif [[ -n "$REQ" ]]; then
                     || fail "taxprofiler: duplicate $C value(s) (schema rejects unconditionally): $D"
     done
   fi
+  if [[ "$PIPELINE" == nanoseq ]]; then
+    # nanoseq's assets/schema_input.json (3.1.0) describes sample/fastq_1/fastq_2 -- but grep
+    # across every workflows/subworkflows/modules/*.nf in the pinned clone for
+    # schema_input/validateParameters/nf-schema/nf-validation returns NOTHING (confirmed
+    # 2026-08-13): that file is never referenced anywhere and is vestigial from the nf-core
+    # template. The samplesheet actually enforced is validated at runtime by the pipeline's own
+    # bundled `bin/check_samplesheet.py` (invoked via the SAMPLESHEET_CHECK module) against a
+    # completely different header: group,replicate,barcode,input_file,fasta,gtf. Every check in
+    # this block mirrors that script's actual logic line for line, not the unused JSON schema.
+    GI=$(colidx group); RI=$(colidx replicate); FI=$(colidx input_file)
+
+    # MIN_COLS=3: check_samplesheet.py requires at least 3 of the 6 columns populated per row.
+    # group+replicate are separately required (above) as 2 of those 3, so at least one of
+    # barcode/input_file/fasta/gtf must also carry a value on every row.
+    MINCOLS=$(awk -F, -v n="$NCOL" 'NR>1{c=0; for(i=1;i<=n;i++) if($i!="") c++; if(c<3) print NR-1}' "$TMP" | paste -sd' ' -)
+    [[ -z "$MINCOLS" ]] && ok "nanoseq: every row has >=3 populated columns (check_samplesheet.py MIN_COLS)" \
+                        || fail "nanoseq: row(s) with <3 populated columns: $MINCOLS"
+
+    # replicate must be a bare integer (check_samplesheet.py: replicate.isdigit()).
+    if [[ -n "$RI" ]]; then
+      BADREP=$(awk -F, -v i="$RI" 'NR>1 && $i !~ /^[0-9]+$/ {print NR-1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$BADREP" ]] && ok "nanoseq: replicate values are bare integers" \
+                         || fail "nanoseq: non-integer/empty replicate value(s) on row(s): $BADREP"
+    fi
+
+    # barcode, when given, must ALSO be a bare integer -- zero-padded to barcodeNN internally.
+    BI=$(colidx barcode)
+    if [[ -n "$BI" ]]; then
+      BADBC=$(awk -F, -v i="$BI" 'NR>1 && $i!="" && $i !~ /^[0-9]+$/ {print NR-1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$BADBC" ]] && ok "nanoseq: barcode values are bare integers (or empty)" \
+                        || fail "nanoseq: non-integer barcode value(s) on row(s): $BADBC"
+    fi
+
+    # group: check_samplesheet.py rejects any group entry containing a literal space.
+    if [[ -n "$GI" ]]; then
+      BADGRP=$(awk -F, -v i="$GI" 'NR>1 && $i ~ / / {print NR-1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$BADGRP" ]] && ok "nanoseq: group values contain no spaces" \
+                         || fail "nanoseq: group value(s) contain a space on row(s): $BADGRP"
+    fi
+
+    # All input_file entries must share ONE extension family across the WHOLE sheet
+    # (check_samplesheet.py: "All input files must have the same extension!"). Per-row
+    # suffix/existence checks happen in section 3 below (input_file added to that column list).
+    if [[ -n "$FI" ]]; then
+      EXTS=$(awk -F, -v i="$FI" 'NR>1 && $i!=""{
+               if ($i ~ /\.fastq\.gz$/) print "fastq.gz";
+               else if ($i ~ /\.fq\.gz$/) print "fq.gz";
+               else if ($i ~ /\.bam$/) print "bam";
+               else if ($i !~ /\.fastq\.gz$|\.fq\.gz$|\.bam$/) print "other/dir"
+             }' "$TMP" | sort -u)
+      NEXT=$(printf '%s\n' "$EXTS" | grep -c . || true)
+      (( NEXT <= 1 )) && ok "nanoseq: all input_file entries share one extension family" \
+                      || fail "nanoseq: mixed input_file extensions across rows (pipeline requires all-same): $(printf '%s' "$EXTS" | paste -sd, -)"
+    fi
+
+    # replicate ids per group must run 1..N with no gaps and no repeats
+    # (check_samplesheet.py: "Same replicate id provided multiple times!" /
+    # "Replicate ids must start with 1..<num_replicates>!").
+    if [[ -n "$GI" && -n "$RI" ]]; then
+      DUPREP=$(awk -F, -v g="$GI" -v r="$RI" 'NR>1{k=$g"/"$r; if(k in seen) print k; seen[k]=1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$DUPREP" ]] && ok "nanoseq: group/replicate pairs unique" \
+                         || fail "nanoseq: duplicate group/replicate pair(s): $DUPREP"
+      GAPS=$(awk -F, -v g="$GI" -v r="$RI" '
+        NR>1{ n[$g]++; if($r+0>max[$g]) max[$g]=$r+0 }
+        END{ for (grp in n) if (n[grp]!=max[grp]) printf "%s ", grp }' "$TMP")
+      [[ -z "$GAPS" ]] && ok "nanoseq: replicate ids run 1..N per group with no gaps" \
+                       || fail "nanoseq: group(s) whose replicate ids are not a contiguous 1..N run: $GAPS"
+    fi
+  fi
 elif [[ -z "$PIPELINE" ]]; then
   ID=''
   for C in sample patient group id; do [[ -z "$(colidx "$C")" ]] || { ID="$C"; break; }; done
@@ -389,7 +459,7 @@ fi
 # fasta-only taxprofiler sheet pointing at a nonexistent/relative/zero-byte/wrong-suffix path
 # reported PASS, because this loop is what does path-exists/suffix/gzip checking and `fasta`
 # was never in it.
-for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads; do
+for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads input_file gtf; do
   I=$(colidx "$C"); [[ -n "$I" ]] || continue
   N=0
   while IFS= read -r P; do
@@ -398,6 +468,9 @@ for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 for
     if [[ "$P" != /* ]]; then
       fail "$C: relative path '$P' (resolves against the launch dir, not the sheet)"; continue
     fi
+    # nanoseq's input_file may legitimately be a run DIRECTORY (fast5+fastq for nanopolish),
+    # not a file -- `-r`/`-s` both accept a readable, non-empty directory, so this falls
+    # through to the per-column case below cleanly rather than needing a separate branch here.
     if [[ ! -r "$P" ]]; then fail "$C: not readable: $P"; continue; fi
     if [[ ! -s "$P" ]]; then fail "$C: zero bytes: $P"; continue; fi
     # FASTQ-only columns: the schemas for these columns (rnaseq/ampliseq/mag, confirmed
@@ -422,14 +495,32 @@ for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 for
           continue
         fi ;;
       fasta)
+        if [[ "$PIPELINE" == nanoseq ]]; then
+          # bin/check_samplesheet.py (the validator nanoseq actually runs -- see the block
+          # above) accepts PLAIN, non-gzipped .fasta/.fa as well as .fasta.gz/.fa.gz; gzip is
+          # optional here, unlike taxprofiler's `fasta` column below which requires it.
+          if [[ ! "$P" =~ \.(fasta|fa)(\.gz)?$ ]]; then
+            fail "$C: does not match the required .fa/.fasta/.fa.gz/.fasta.gz suffix (nanoseq): $P"
+            continue
+          fi
         # schema_input.json's own pattern is `\.(fasta|fas|fna|fa)\.gz?$` (only the trailing
         # "z" optional, not the whole ".gz" -- almost certainly an authoring typo upstream),
         # but empirically confirmed via -preview (2026-08-12) that a plain, non-gzipped `.fa`
         # is REJECTED ("does not match regular expression") -- the schema behaves as
         # gzip-required in practice regardless of what the literal regex appears to allow.
         # Enforce the same real-world requirement here.
-        if [[ ! "$P" =~ \.(fasta|fas|fna|fa)\.gz$ ]]; then
+        elif [[ ! "$P" =~ \.(fasta|fas|fna|fa)\.gz$ ]]; then
           fail "$C: does not match the required .(fasta|fas|fna|fa).gz suffix: $P"
+          continue
+        fi ;;
+      input_file)
+        if [[ "$PIPELINE" == nanoseq && ! -d "$P" && ! "$P" =~ \.(fastq\.gz|fq\.gz|bam)$ ]]; then
+          fail "$C: does not match .fastq.gz/.fq.gz/.bam and is not an existing directory: $P"
+          continue
+        fi ;;
+      gtf)
+        if [[ "$PIPELINE" == nanoseq && ! "$P" =~ \.gtf(\.gz)?$ ]]; then
+          fail "$C: does not match the required .gtf or .gtf.gz suffix: $P"
           continue
         fi ;;
       bam)
@@ -591,7 +682,7 @@ fi
 # SPRING archives (which can hold the entire WGS input, same order of size as fastq/bam) was
 # previously invisible to this loop entirely, printing "nothing to size" and skipping the
 # 1.5x free-space gate below.
-PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads; do colvals "$C"; done; } | grep '^/' | sort -u || true )
+PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads input_file; do colvals "$C"; done; } | grep '^/' | sort -u || true )
 if [[ -z "$PATHS" ]]; then
   printf 'size  nothing to size (no absolute fastq/bam/cram/spring paths)\n'
 else
