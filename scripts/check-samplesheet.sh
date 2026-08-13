@@ -191,18 +191,27 @@ elif [[ -n "$REQ" ]]; then
     # bam column present and still leave individual rows with bam/spring_1/fastq_1 all empty
     # -- the schema accepts that row too (Codex review, PR #37, same shape as the taxprofiler
     # gap fixed in PR #36) -- so check per row, not just per column family.
-    F1I=$(colidx fastq_1); SPI=$(colidx spring_1); BAI=$(colidx bam)
-    if [[ -z "$F1I$SPI$BAI" ]]; then
+    F1I=$(colidx fastq_1); SPI=$(colidx spring_1); BMI=$(colidx bam); BAI=$(colidx bai)
+    if [[ -z "$F1I$SPI$BMI" ]]; then
       fail "raredisease: sheet has none of fastq_1/spring_1/bam columns at all -- no read source"
     else
-      NOSRC=$(awk -F, -v f1="${F1I:-0}" -v sp="${SPI:-0}" -v ba="${BAI:-0}" \
+      NOSRC=$(awk -F, -v f1="${F1I:-0}" -v sp="${SPI:-0}" -v ba="${BMI:-0}" \
                 'NR>1 && (f1==0||$f1=="") && (sp==0||$sp=="") && (ba==0||$ba=="") {print NR-1}' \
                 "$TMP" | paste -sd' ' -)
       [[ -z "$NOSRC" ]] && ok "raredisease: every row has fastq_1/spring_1/bam" \
                         || fail "raredisease: row(s) with NEITHER fastq_1 NOR spring_1 NOR bam (schema accepts this silently -- pipeline has no read source for that row): $NOSRC"
     fi
-    if [[ -n "$(colidx bam)" ]]; then
-      [[ -n "$(colidx bai)" ]] || fail "raredisease: bam column present without bai (schema dependentRequired bam->bai)"
+    # dependentRequired{bam:[bai]} is a per-ROW value dependency, not a per-column one
+    # (Codex review, PR #37, round 2): a `bai` header with an empty cell on the very row that
+    # has a `bam` value previously passed because the old check only compared column
+    # presence. Flag any row whose `bam` cell is nonempty but whose `bai` cell is empty or
+    # whose `bai` column is altogether absent.
+    if [[ -n "$BMI" ]]; then
+      NOBAI=$(awk -F, -v bm="$BMI" -v ba="${BAI:-0}" \
+                'NR>1 && $bm!="" && (ba==0||$ba=="") {print NR-1}' \
+                "$TMP" | paste -sd' ' -)
+      [[ -z "$NOBAI" ]] && ok "raredisease: every bam row has a bai" \
+                        || fail "raredisease: row(s) with bam but no bai (schema dependentRequired bam->bai): $NOBAI"
     fi
     # sex/phenotype are closed integer enums here, NOT the generic XX/XY/NA the section-6 check
     # assumes -- override that check's blind spot for this pipeline rather than let it WARN on
@@ -389,6 +398,20 @@ for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 for
         # Enforce the same real-world requirement here.
         if [[ ! "$P" =~ \.(fasta|fas|fna|fa)\.gz$ ]]; then
           fail "$C: does not match the required .(fasta|fas|fna|fa).gz suffix: $P"
+          continue
+        fi ;;
+      bam)
+        # raredisease's schema_input.json (3.1.2) requires the literal `^\S+\.bam$` pattern
+        # (Codex review, PR #37, round 2) -- a readable file under a swapped/wrong suffix
+        # (e.g. a `.bai` path in the `bam` column) previously passed this loop with only a
+        # readability check and was only rejected by the pipeline itself at preflight.
+        if [[ "$PIPELINE" == raredisease && ! "$P" =~ \.bam$ ]]; then
+          fail "$C: does not match the required .bam suffix (schema_input.json pattern ^\\S+\\.bam\$): $P"
+          continue
+        fi ;;
+      bai)
+        if [[ "$PIPELINE" == raredisease && ! "$P" =~ \.bai$ ]]; then
+          fail "$C: does not match the required .bai suffix (schema_input.json pattern ^\\S+\\.bai\$): $P"
           continue
         fi ;;
     esac
