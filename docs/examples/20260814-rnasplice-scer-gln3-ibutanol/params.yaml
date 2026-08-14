@@ -1,0 +1,37 @@
+input: /mnt/d/bioinfo-agent/runs/20260814-rnasplice-scer-gln3-ibutanol/samplesheet.csv
+contrasts: /mnt/d/bioinfo-agent/runs/20260814-rnasplice-scer-gln3-ibutanol/contrasts.csv
+source: fastq
+
+fasta: /refs/genomes/R64-1-1/fasta/genome.fa
+gtf: /refs/genomes/R64-1-1/gtf/genes.gtf.gz
+
+# Scope: SUPPA2-only splicing detection. See plan.md "Scope for this procurement" for the
+# reasoning behind every one of these.
+skip_alignment: true
+rmats: false
+dexseq_exon: false
+edger_exon: false
+dexseq_dtu: false
+sashimi_plot: false
+clusterevents_local_event: false
+clusterevents_isoform: false
+
+# Added mid-run, 2026-08-14, after a REAL hang (not a stub artifact) on this exact real-sample
+# run -- see plan.md "Real-run finding" and pipelines.tsv. GENERATE_EVENTS_IOE's per-event-type
+# .ioe concatenation (modules/local/suppa_generateevents.nf: `awk 'FNR==1 && NR!=1 { while
+# (/^seqname/) getline; } 1 {print}' *.ioe`) spins forever at 99% CPU when one of the six
+# event-type .ioe files SUPPA writes is header-only (zero events of that type found) --
+# `getline` at EOF returns 0 without changing $0, so `while (/^seqname/) getline` never becomes
+# false. On S. cerevisiae's R64-1-1/GENCODE-equivalent annotation every one of SE/SS/MX/RI/AF/AL
+# local-event categories came back empty (yeast's alternative-splicing/local-event rate is very
+# low), triggering this on the very first real (non-CI-fixture) run. Confirmed by killing the
+# hung container after 53 real minutes at 99% CPU and reproducing the exact awk hang in
+# isolation on two synthetic header-only .ioe files (5s timeout, exit 124). Routed around by
+# disabling the per-local-event branch entirely; the per-isoform branch (SUPPA_SALMON's
+# DIFFSPLICE_IOI etc.) is unaffected and had already completed successfully before this was
+# found.
+suppa_per_local_event: false
+
+max_cpus: 16
+max_memory: 18.GB
+max_time: 6.h

@@ -722,6 +722,64 @@ same whole-sheet check, not just a per-row suffix check.
 
 ---
 
+### nf-core/rnasplice — 1.0.4
+
+**`assets/schema_input.json` is NOT what this pipeline validates against for the `fastq` source
+(the only source this repo stocks) — confirmed empirically 2026-08-14, same class of finding as
+nanoseq above.** That file describes `sample`/`fastq_1`/`fastq_2`/`strandedness`/`condition`, but
+grepping the whole clone's `workflows/`, `subworkflows/`, `modules/` for
+`schema_input|validateParameters|nf-validation|nf-schema` returns nothing wired to it. The
+samplesheet actually enforced at runtime is the pipeline's own `bin/check_samplesheet_fastq.py`,
+run through the local `SAMPLESHEET_CHECK` module. Every rule below is read directly out of that
+script.
+
+| column | required | notes |
+|---|---|---|
+| `sample` | yes | non-empty; spaces get silently replaced with `_` |
+| `fastq_1` | yes | must end `.fq.gz` or `.fastq.gz` |
+| `fastq_2` | header yes, value no | **header must exist even for single-end rows** — `required_columns` is checked against the header set, not per-row; value may be empty |
+| `strandedness` | yes | enum `unstranded`/`forward`/`reverse` **only** — `auto` is REJECTED ("unrecognized value"), unlike `rnaseq`'s `strandedness` column which accepts it |
+| `condition` | yes | free-form group label, loosely validated — accepted if it starts with a letter, OR starts with a dot followed by a letter/dot/underscore, OR ends with a literal dot (`.foo`, `1.`, `WT_ctrl` all pass; `1bad`, `_bad` do not); see `scripts/check-samplesheet.sh`'s comment on this column for the full derivation against the pipeline's actual `re.search` semantics |
+
+```csv
+sample,fastq_1,fastq_2,strandedness,condition
+WT_ctrl_rep1,/work/rawdata/.../ERR3450098_1.fastq.gz,/work/rawdata/.../ERR3450098_2.fastq.gz,reverse,WT_ctrl
+WT_ctrl_rep2,/work/rawdata/.../ERR3450099_1.fastq.gz,/work/rawdata/.../ERR3450099_2.fastq.gz,reverse,WT_ctrl
+WT_ibuoh_rep1,/work/rawdata/.../ERR3450100_1.fastq.gz,/work/rawdata/.../ERR3450100_2.fastq.gz,reverse,WT_ibuoh
+WT_ibuoh_rep2,/work/rawdata/.../ERR3450101_1.fastq.gz,/work/rawdata/.../ERR3450101_2.fastq.gz,reverse,WT_ibuoh
+```
+
+Excerpted from `runs/20260814-rnasplice-scer-gln3-ibutanol/samplesheet.csv` (8 rows, 4 conditions
+× 2 replicates total) — strandedness was fixed at `reverse` (a measured fact carried over from a
+prior `nf-core/rnaseq` run on the identical FASTQ files, per that run's own RSeQC/Salmon-agreement
+result), not `auto`, and not re-inferred.
+
+**ID uniqueness rule — the `(sample, fastq_1)` PAIR, not `sample` alone.**
+`validate_unique_samples()` allows the *same* `sample` value to repeat across *different*
+`fastq_1` values (the pipeline's supported multi-run-per-sample merge shape — rows get
+auto-suffixed `_T1`/`_T2`/...), but hard-errors ("The pair of sample name and FASTQ must be
+unique.") on a duplicated `(sample, fastq_1)` pair. Confirmed empirically via `-stub-run`
+(`SAMPLESHEET_CHECK` has no `stub:` block, so it runs for real even under `-stub-run`): a
+constructed sheet with the identical `(sample, fastq_1)` pair on two rows aborted with exactly
+that message.
+
+**A documented pipeline rule that is actually dead code — `check_condition_replicates()`.**
+`check_samplesheet_fastq.py`'s `check_samplesheet()` function calls
+`checker.validate_unique_samples()` then `check_condition_replicates(reader)` — but `reader` is
+the same `csv.DictReader` the preceding `for i, row in enumerate(reader): ...` loop has *already
+fully consumed*. `check_condition_replicates()` then does
+`[row["condition"] for row in samplesheet]` over the exhausted iterator, gets an empty list, and
+`all(v > 1 for k, v in Counter([]).items())` is vacuously `True` — the assertion never fires, for
+any input. **Confirmed empirically 2026-08-14** via `-stub-run`: a 3-row sheet with one
+`condition` value appearing on only one row passed `SAMPLESHEET_CHECK` cleanly, producing a valid
+`samplesheet.valid.csv` with the singleton condition intact — no error at all. `scripts/
+check-samplesheet.sh --pipeline rnasplice` flags a singleton condition as a **WARN, not a FAIL**,
+for exactly this reason: the constraint is real and matters for any downstream contrast/DE step
+that needs replicates, but nothing in the pipeline at this pin will actually stop a run that
+violates it.
+
+---
+
 ## Common breakages, with the text you will actually see
 
 ### Relative path

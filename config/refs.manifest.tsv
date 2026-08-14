@@ -70,6 +70,14 @@ genomes/R64-1-1/fasta/genome.fa.fai	build	nf-core/rnaseq SAMTOOLS_FAIDX (in-run)
 genomes/R64-1-1/gtf/genes.gtf.gz	fetch	https://ftp.ensembl.org/pub/release-116/gtf/saccharomyces_cerevisiae/Saccharomyces_cerevisiae.R64-1-1.63.gtf.gz	Ensembl annotation build 63 (fungi versioning, not release-116)	253bd4013785b3c85a6a488bd541c12d8264aa4989046c3530d0d9ea2ecc931e
 genomes/R64-1-1/index/star/	build	nf-core/rnaseq --save_reference	first rnaseq run at this build; genome is tiny (~12 Mb), build is minutes not hours
 genomes/R64-1-1/index/salmon/	build	nf-core/rnaseq --save_reference
+# genomes/R64-1-1/fasta/genome.fa and genomes/R64-1-1/gtf/genes.gtf.gz REUSED (not re-fetched)
+# 2026-08-14 for nf-core/rnasplice's first real-sample run (20260814-rnasplice-scer-gln3-ibutanol)
+# -- no new manifest row needed, --fasta/--gtf point straight at the existing rows above.
+# Deliberately NOT reusing the star/salmon index rows above for rnasplice: that index was built
+# by nf-core/rnaseq's own PREPARE_GENOME/SALMON_INDEX chain, a different, unverified
+# transcript-fasta-extraction path than rnasplice's own GTF_GENE_FILTER -> RSEM_PREPAREREFERENCE
+# -> SALMON_INDEX chain (see pipeline-selection.md sec 4.15) -- rnasplice builds its own index
+# in-run instead (seconds, at this genome size) rather than risk a format/decoy mismatch.
 
 # ---------------------------------------------------------------- E. coli K12 MG1655 (cutandrun spike-in)
 # Added 2026-08-06 for the first nf-core/cutandrun run on this host

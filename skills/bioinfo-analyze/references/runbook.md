@@ -14,10 +14,12 @@ Docker **engine** inside the distro, distro ext4 on `D:\wsl\ubuntu-24.04\ext4.vh
 2. Write the run plan to `$RUNDIR/plan.md`. Get approval if the estimate exceeds 24 h.
 3. Write `samplesheet.csv`, `params.yaml`, `cmd.sh` into `$RUNDIR`.
 4. Preflight. Any FAIL is a hard stop.
-5. `-preview`, then `-stub-run`. Both must be clean — with exactly five documented departures, the
+5. `-preview`, then `-stub-run`. Both must be clean — with exactly seven documented departures, the
    rnaseq `strandedness: auto` waived stub failure, the differentialabundance `--features`
    substitute stub, the sarek `haplotypecaller_filter` skip, the ampliseq `CUTADAPT_BASIC` true
-   waiver, and the mag `UNTAR`/local-modules-without-stubs finding, all defined in section 4.
+   waiver, the mag `UNTAR`/local-modules-without-stubs finding, the nanoseq
+   `SAMTOOLS_IDXSTATS`/`SAMTOOLS_FLAGSTAT` true waiver, and the rnasplice
+   `GTF_GENE_FILTER`/`RSEM_PREPAREREFERENCE` true waiver, all defined in section 4.
 6. Launch on ext4 with reports and `-resume`, always through `tmux` (mandatory, not optional).
 7. Monitor the trace, not the terminal.
 8. On completion: read MultiQC, rsync results out to `/mnt/d`, write the handoff.
@@ -559,6 +561,44 @@ waive.** Resolution: `-preview` (clean) is the pre-launch gate this pipeline act
 modules; the real command is what proves the rest, and the first real run
 (`20260812-mag-drr027580-realsample`, `completed=19 failed=2 cached=0`, both failures tolerated —
 see that run's `handoff.md`) is that proof for this pin.
+
+**`nf-core/nanoseq`, `-stub-run`, and `SAMTOOLS_IDXSTATS`/`SAMTOOLS_FLAGSTAT` — a true waiver,
+upstream shared-module stub-coverage gap, same shape as the ampliseq case above.** Confirmed
+2026-08-13 (`20260813-nanoseq-srr25466853`) against this pin's `3.1.0`. Both the CI `test` profile
+and this procurement's own real command fail identically (`completed=24 failed=4` /
+`completed=13 failed=2`), always at `BAM_STATS_SAMTOOLS:SAMTOOLS_IDXSTATS`/`SAMTOOLS_FLAGSTAT`
+(`"failed to read header for ... .sorted.bam"`). Read the modules directly:
+`modules/nf-core/samtools/sort/main.nf` HAS a `stub:` block (writes a header-less, touch'd empty
+`.bam`), but `modules/nf-core/samtools/idxstats/main.nf` and `.../flagstat/main.nf` have **no**
+`stub:` block at all — under `-stub-run` those two run for real against the fake empty BAM and
+correctly refuse to read it, no substitute-input workaround possible (the crash is in reading the
+stub's own placeholder output, not in anything this repo's config controls). **Waived, 6th
+documented departure** — `-preview` (clean) is the pre-launch gate; the real command is what
+actually proves this pipeline, `SAMTOOLS_STATS` (which does have a stub block) succeeds cleanly in
+the same run.
+
+**`nf-core/rnasplice`, `-stub-run`, and `GTF_GENE_FILTER`/`RSEM_PREPAREREFERENCE` — a true waiver,
+upstream shared-module stub-coverage gap, same shape as the ampliseq/nanoseq cases above.**
+Confirmed 2026-08-14 (`20260814-rnasplice-scer-gln3-ibutanol`) against this pin's `1.0.4`.
+`modules/nf-core/gunzip/main.nf`'s `stub:` block does `touch $gunzip` — an empty placeholder file
+— for whichever of `--fasta`/`--gtf` is gzipped, and the downstream
+`modules/local/gtf_gene_filter.nf` + `modules/nf-core/rsem/preparereference/main.nf` have **no**
+`stub:` block at all, so they run for real against that empty stub input. Reproduced both ways:
+on the nf-core CI fixture (gzipped fasta, plain gtf), `filter_gtf_for_genes_in_genome.py`
+extracts 0 chromosome names from the empty stub fasta and writes an empty GTF, then
+`rsem-prepare-reference` fails with "The reference contains no transcripts!"; on this
+procurement's own real-sample sheet (plain fasta, gzipped gtf) the fasta is real but the GTF
+comes from `GUNZIP_GTF`'s empty stub, so `filter_gtf_for_genes_in_genome.py` instead extracts
+0/0 lines and SUPPA's `GENERATE_EVENTS` fails with "No exons found" — same root cause, different
+file triggers it depending on which input the samplesheet happens to gzip. No substitute-input
+workaround possible, same reasoning as the ampliseq/nanoseq cases. **Waived, 7th documented
+departure** — `-preview` (clean) is the pre-launch gate; the real (non-stub) `-profile
+test,docker` command with the identical flag set completes cleanly (`completed=34 failed=0`).
+**Separately** (not a stub artifact, found on the real 8-sample run, not covered by this waiver):
+`SUPPA_SALMON:GENERATE_EVENTS_IOE` has a genuine infinite-loop bug in its own real script when
+zero local splicing events exist for some event type — see `pipeline-selection.md` §4.15 and
+`config/pipelines.tsv` for the full writeup; routed around with `--suppa_per_local_event false`,
+which is now part of this pipeline's stocked default rather than an optional flag.
 
 ---
 
