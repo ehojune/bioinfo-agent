@@ -739,7 +739,7 @@ script.
 | `fastq_1` | yes | must end `.fq.gz` or `.fastq.gz` |
 | `fastq_2` | header yes, value no | **header must exist even for single-end rows** — `required_columns` is checked against the header set, not per-row; value may be empty |
 | `strandedness` | yes | enum `unstranded`/`forward`/`reverse` **only** — `auto` is REJECTED ("unrecognized value"), unlike `rnaseq`'s `strandedness` column which accepts it |
-| `condition` | yes | free-form group label, loosely validated (must start with a letter) |
+| `condition` | yes | free-form group label, loosely validated — accepted if it starts with a letter, OR starts with a dot followed by a letter/dot/underscore, OR ends with a literal dot (`.foo`, `1.`, `WT_ctrl` all pass; `1bad`, `_bad` do not); see `scripts/check-samplesheet.sh`'s comment on this column for the full derivation against the pipeline's actual `re.search` semantics |
 
 ```csv
 sample,fastq_1,fastq_2,strandedness,condition
