@@ -93,7 +93,7 @@ Do them in order. Do not skip step 3 or step 4.
    samplesheet. Neither substitutes for the other: `-preview` resolves params and the DAG without
    running anything, `-stub-run` exercises the process wiring. A stub run that fails is a real
    failure — fix it, do not "try it for real and see". `references/runbook.md` section 4.
-   **Five documented departures from "stub the real command as-is," and only these five —
+   **Seven documented departures from "stub the real command as-is," and only these seven —
    `references/runbook.md` section 4 is the canonical list, do not generalise beyond it:**
    - **A true waiver** (the failing stub is accepted, not avoided): an rnaseq samplesheet with
      `strandedness: auto` makes the real-command stub fail unavoidably, because the pipeline
@@ -142,9 +142,26 @@ Do them in order. Do not skip step 3 or step 4.
      crash in a chain that no finite set of stub-only substitutions clears. Runbook section 4
      states both findings and why, for this pipeline, `-preview` is the pre-launch gate that
      actually works past the first stage; the real command is what proves the rest.
-   All five are partial gates, not full substitutes for testing the real command — runbook
+   - **A true waiver, upstream shared-module stub-coverage gap, same shape as ampliseq's** (the
+     failing stub is accepted because nothing in this repo's control can route around it): nanoseq
+     at this pin's `3.1.0` (`config/pipelines.tsv`) fails `-stub-run` at
+     `SAMTOOLS_IDXSTATS`/`SAMTOOLS_FLAGSTAT` — `samtools/sort`'s stub writes a header-less empty
+     BAM, but `idxstats`/`flagstat` have no `stub:` block and run for real against it, correctly
+     refusing to read a header-less file. Runbook section 4 states the exact error; `-preview` is
+     the pre-launch gate, the real command is what proves the rest.
+   - **A true waiver, the same upstream shared-module stub-coverage gap, plus a real (non-stub)
+     bug found on the first real run**: rnasplice at this pin's `1.0.4` (`config/pipelines.tsv`)
+     fails `-stub-run` at `GTF_GENE_FILTER`/`RSEM_PREPAREREFERENCE` for the identical reason as
+     ampliseq/nanoseq — `GUNZIP`'s stub touches an empty placeholder for whichever input is
+     gzipped, and the downstream local modules have no `stub:` block and run for real against it.
+     Runbook section 4 states the exact error; the real (non-stub) command proves the rest.
+     **Separately**, not a stub artifact: `SUPPA_SALMON:GENERATE_EVENTS_IOE` hung for 53 real
+     minutes on the first real run (an `awk` infinite-loop bug triggered by zero local splicing
+     events of some type), routed around with `--suppa_per_local_event false` — see
+     `pipeline-selection.md` §4.15.
+   All seven are partial gates, not full substitutes for testing the real command — runbook
    section 4 states plainly what each one does not cover. Nothing else in this skill waives or
-   substitutes a stub; a sixth pipeline hitting a similar shape needs its own documented case
+   substitutes a stub; an eighth pipeline hitting a similar shape needs its own documented case
    here and in the runbook, not an ad hoc workaround.
 5. **Execution.** Launch from ext4, logging to file, always through `tmux` (`references/runbook.md`
    section 5) — not a bare foreground command, not `nohup … &`, and not your own backgrounded

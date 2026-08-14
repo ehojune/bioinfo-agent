@@ -63,6 +63,7 @@ If step 1 or 2 cannot be answered from what the user said, stop and ask. §8 lis
 |---|---|---|---|
 | Bulk RNA-seq FASTQ (poly-A or ribo-depleted) | gene/transcript counts, QC | `nf-core/rnaseq` | terminal, or → differentialabundance |
 | Bulk RNA-seq FASTQ | differential expression between groups | `nf-core/rnaseq` **then** `nf-core/differentialabundance` | two runs, always |
+| Bulk RNA-seq FASTQ | alternative splicing / isoform usage (PSI, differential splicing) — NOT gene expression | `nf-core/rnasplice` | terminal — see §4.15, contrasted against rnaseq above |
 | Existing count matrix (any origin) | differential expression | `nf-core/differentialabundance` | standalone |
 | SRA / ENA / GEO accessions | get the FASTQs + a valid samplesheet | `nf-core/fetchngs` | → rnaseq / atacseq / etc. |
 | Germline WGS or WES FASTQ | SNV + indel VCF per sample | `nf-core/sarek` | `--tools haplotypecaller` |
