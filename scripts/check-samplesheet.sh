@@ -495,13 +495,17 @@ elif [[ -n "$REQ" ]]; then
     fi
 
     # condition: check_samplesheet_fastq.py._validate_condition_value applies
-    # re.search("^(([A-Za-z]|[.][._A-Za-z])[._A-Za-z0-9]*)|[.]$", value) -- practically, every
-    # value actually used here starts with a letter, so this approximates the real constraint
-    # (a leading letter, then letters/digits/dot/underscore only) rather than re-implementing
-    # Python's un-anchored re.search verbatim in awk.
+    # re.search("^(([A-Za-z]|[.][._A-Za-z])[._A-Za-z0-9]*)|[.]$", value). Mirrored here as three
+    # alternatives rather than approximated as "must start with a letter" (Codex review, PR #39:
+    # the letter-only approximation rejected valid dot-prefixed values like ".foo", which the
+    # pipeline's own regex accepts through its `[.][._A-Za-z]` branch, and would have failed the
+    # mandatory preflight gate on an otherwise-valid rnasplice samplesheet). Verified directly
+    # against Python's `re.search` semantics (not re-derived by inspection): a leading letter, OR
+    # a leading dot followed by a letter/dot/underscore, OR the bare single character `.` -- but
+    # NOT a leading dot followed by a digit (`.1bad` is rejected by the real regex too).
     CDI=$(colidx condition)
     if [[ -n "$CDI" ]]; then
-      BADCOND=$(colvals condition | grep -vE '^[A-Za-z][A-Za-z0-9._]*$' | sort -u | paste -sd, - || true)
+      BADCOND=$(colvals condition | grep -vE '^([A-Za-z][A-Za-z0-9._]*|\.[._A-Za-z][A-Za-z0-9._]*|\.)$' | sort -u | paste -sd, - || true)
       [[ -z "$BADCOND" ]] && ok "rnasplice condition values syntactically valid" \
                           || fail "rnasplice: condition value(s) not matching a syntactically valid name (letters/digits/dot/underscore, starting with a letter): $BADCOND"
 
