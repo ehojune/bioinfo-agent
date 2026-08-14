@@ -1,0 +1,9 @@
+sample,fastq_1,fastq_2,strandedness,condition
+WT_ctrl_rep1,/work/rawdata/20260807-rnaseq-scer-gln3-ibutanol-prep/ERR3450098_1.fastq.gz,/work/rawdata/20260807-rnaseq-scer-gln3-ibutanol-prep/ERR3450098_2.fastq.gz,reverse,WT_ctrl
+WT_ctrl_rep2,/work/rawdata/20260807-rnaseq-scer-gln3-ibutanol-prep/ERR3450099_1.fastq.gz,/work/rawdata/20260807-rnaseq-scer-gln3-ibutanol-prep/ERR3450099_2.fastq.gz,reverse,WT_ctrl
+WT_ibuoh_rep1,/work/rawdata/20260807-rnaseq-scer-gln3-ibutanol-prep/ERR3450100_1.fastq.gz,/work/rawdata/20260807-rnaseq-scer-gln3-ibutanol-prep/ERR3450100_2.fastq.gz,reverse,WT_ibuoh
+WT_ibuoh_rep2,/work/rawdata/20260807-rnaseq-scer-gln3-ibutanol-prep/ERR3450101_1.fastq.gz,/work/rawdata/20260807-rnaseq-scer-gln3-ibutanol-prep/ERR3450101_2.fastq.gz,reverse,WT_ibuoh
+gln3_ctrl_rep1,/work/rawdata/20260807-rnaseq-scer-gln3-ibutanol-prep/ERR3450094_1.fastq.gz,/work/rawdata/20260807-rnaseq-scer-gln3-ibutanol-prep/ERR3450094_2.fastq.gz,reverse,gln3_ctrl
+gln3_ctrl_rep2,/work/rawdata/20260807-rnaseq-scer-gln3-ibutanol-prep/ERR3450095_1.fastq.gz,/work/rawdata/20260807-rnaseq-scer-gln3-ibutanol-prep/ERR3450095_2.fastq.gz,reverse,gln3_ctrl
+gln3_ibuoh_rep1,/work/rawdata/20260807-rnaseq-scer-gln3-ibutanol-prep/ERR3450096_1.fastq.gz,/work/rawdata/20260807-rnaseq-scer-gln3-ibutanol-prep/ERR3450096_2.fastq.gz,reverse,gln3_ibuoh
+gln3_ibuoh_rep2,/work/rawdata/20260807-rnaseq-scer-gln3-ibutanol-prep/ERR3450097_1.fastq.gz,/work/rawdata/20260807-rnaseq-scer-gln3-ibutanol-prep/ERR3450097_2.fastq.gz,reverse,gln3_ibuoh

@@ -121,6 +121,7 @@ case "$PIPELINE" in
   taxprofiler)           REQ='sample run_accession instrument_platform' ;;  # fastq_1/fastq_2/fasta NOT in schema's required[] -- see below
   raredisease)           REQ='sample sex phenotype case_id' ;;              # plus fastq_1/spring_1/bam, below
   nanoseq)               REQ='group replicate' ;;                          # plus input_file/fasta/gtf shape, below
+  rnasplice)              REQ='sample fastq_1 strandedness condition' ;;    # fastq_2 header required but value may be empty (SE) -- see below
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
@@ -461,6 +462,82 @@ elif [[ -n "$REQ" ]]; then
                        || fail "nanoseq: group(s) whose replicate ids are not a contiguous 1..N run: $GAPS"
     fi
   fi
+  if [[ "$PIPELINE" == rnasplice ]]; then
+    # nf-core/rnasplice 1.0.4: assets/schema_input.json exists but (same class of finding as
+    # nanoseq) is NOT referenced by any .nf file at this pin -- grepped workflows/subworkflows/
+    # modules for schema_input/validateParameters/nf-validation and found nothing wired to it
+    # for the fastq source. The samplesheet actually enforced (source=fastq, the only source this
+    # procurement stocks) is the pipeline's own bin/check_samplesheet_fastq.py, invoked via the
+    # local SAMPLESHEET_CHECK module. Every check below mirrors that script's RowChecker methods.
+    #
+    # required_columns there is a HEADER-presence set of {sample,fastq_1,fastq_2,strandedness,
+    # condition} -- fastq_2's header must exist even though its per-row VALUE may be empty for
+    # single-end (RowChecker._validate_second only checks format when non-empty). $REQ above
+    # covers sample/fastq_1/strandedness/condition (value non-empty enforced); fastq_2 header
+    # presence is checked here on its own, the same asymmetry rnaseq's REQ already carries.
+    if [[ -z "$(colidx fastq_2)" ]]; then
+      fail "rnasplice: missing fastq_2 column header (required even for single-end rows -- check_samplesheet_fastq.py's required_columns set)"
+    else
+      ok "rnasplice: fastq_2 header present"
+    fi
+
+    # strandedness: check_samplesheet_fastq.py's OWN enum is {unstranded,forward,reverse} --
+    # NOT the {auto,forward,reverse,unstranded} the generic section-6 check below allows for
+    # rnaseq/other pipelines. 'auto' is a real, common rnaseq value (this repo's own rnaseq runs
+    # use it) that rnasplice's samplesheet checker rejects outright with "unrecognized value" --
+    # confirmed by reading bin/check_samplesheet_fastq.py._validate_strandedness_value directly.
+    # Override the generic check for this pipeline rather than let it pass 'auto' through.
+    STI=$(colidx strandedness)
+    if [[ -n "$STI" ]]; then
+      B=$(colvals strandedness | grep -vE '^(unstranded|forward|reverse)$' | sort -u | paste -sd, - || true)
+      [[ -z "$B" ]] && ok "rnasplice strandedness values valid (unstranded/forward/reverse; 'auto' is NOT accepted here)" \
+                    || fail "rnasplice: bad strandedness value ('auto' rejected by check_samplesheet_fastq.py; must be unstranded/forward/reverse): $B"
+    fi
+
+    # condition: check_samplesheet_fastq.py._validate_condition_value applies
+    # re.search("^(([A-Za-z]|[.][._A-Za-z])[._A-Za-z0-9]*)|[.]$", value) -- practically, every
+    # value actually used here starts with a letter, so this approximates the real constraint
+    # (a leading letter, then letters/digits/dot/underscore only) rather than re-implementing
+    # Python's un-anchored re.search verbatim in awk.
+    CDI=$(colidx condition)
+    if [[ -n "$CDI" ]]; then
+      BADCOND=$(colvals condition | grep -vE '^[A-Za-z][A-Za-z0-9._]*$' | sort -u | paste -sd, - || true)
+      [[ -z "$BADCOND" ]] && ok "rnasplice condition values syntactically valid" \
+                          || fail "rnasplice: condition value(s) not matching a syntactically valid name (letters/digits/dot/underscore, starting with a letter): $BADCOND"
+
+      # check_condition_replicates() LOOKS like it enforces "every condition needs >=2 rows",
+      # and check_samplesheet(file_in, file_out) calls it -- but it is DEAD CODE at this pin.
+      # check_samplesheet() calls it as check_condition_replicates(reader) AFTER the preceding
+      # `for i, row in enumerate(reader): ...` loop has already fully consumed that same
+      # csv.DictReader iterator; check_condition_replicates() then does
+      # `[row["condition"] for row in samplesheet]` over the exhausted iterator, gets an empty
+      # list, and `all(v > 1 for k, v in Counter([]).items())` is vacuously True (nothing to
+      # iterate) -- so the assertion never fires, for any input. Empirically confirmed
+      # 2026-08-14 via `-stub-run` (SAMPLESHEET_CHECK has no stub: block, so this runs for
+      # real): a 3-row sheet with one condition value appearing on only one row passed
+      # SAMPLESHEET_CHECK cleanly and produced a `samplesheet.valid.csv` with that singleton
+      # condition intact -- no CRITICAL, no exit 1, nothing. WARN, not FAIL: the documented
+      # constraint is real (and matters for the DOWNSTREAM SUPPA/DEXSeq/edgeR contrasts, which
+      # need >=2 replicates per condition to produce a meaningful comparison), but nothing in
+      # the pipeline at this pin will stop a run that violates it.
+      SINGLETONS=$(colvals condition | sort | uniq -c | awk '$1==1{print $2}' | paste -sd' ' -)
+      [[ -z "$SINGLETONS" ]] && ok "rnasplice: every condition has >=2 rows" \
+                             || warn "rnasplice: condition(s) with only 1 row: $SINGLETONS -- check_condition_replicates() is DEAD CODE at 1.0.4 (reader exhausted before it runs, confirmed via -stub-run) so the pipeline will NOT reject this at samplesheet-check time; a singleton condition will still break any contrast/DE step that needs replicates"
+    fi
+
+    # validate_unique_samples(): the actual key is the (sample, fastq_1) PAIR, not sample alone
+    # -- repeating a sample name across DIFFERENT fastq_1 values is the pipeline's supported
+    # multi-run-per-sample shape (rows get auto-suffixed _T1/_T2/...). Only a duplicated
+    # (sample, fastq_1) pair is a hard error. This must override, not stack with, the generic
+    # section-5 "repeated sample ids" WARN below, which would otherwise mischaracterise a
+    # legitimate multi-run sample as merely worth a second look.
+    SMI=$(colidx sample); F1I=$(colidx fastq_1)
+    if [[ -n "$SMI" && -n "$F1I" ]]; then
+      DUPPAIR=$(awk -F, -v s="$SMI" -v f="$F1I" 'NR>1{print $s"\t"$f}' "$TMP" | sort | uniq -d | paste -sd';' -)
+      [[ -z "$DUPPAIR" ]] && ok "rnasplice: (sample, fastq_1) pairs unique (validate_unique_samples)" \
+                          || fail "rnasplice: duplicate (sample, fastq_1) pair -- validate_unique_samples() aborts the run: $DUPPAIR"
+    fi
+  fi
 elif [[ -z "$PIPELINE" ]]; then
   ID=''
   for C in sample patient group id; do [[ -z "$(colidx "$C")" ]] || { ID="$C"; break; }; done
@@ -672,10 +749,11 @@ elif [[ -n "$(colidx patient)" && -n "$(colidx sample)" ]]; then  # sarek restar
         'NR>1{print $p"/"$s}' "$TMP" | sort | uniq -d | paste -sd' ' -)
   [[ -z "$D" ]] && ok "patient/sample pairs unique" \
                 || fail "duplicate patient/sample: $D"
-elif [[ "$PIPELINE" == ampliseq || "$PIPELINE" == mag || "$PIPELINE" == taxprofiler ]]; then
+elif [[ "$PIPELINE" == ampliseq || "$PIPELINE" == mag || "$PIPELINE" == taxprofiler || "$PIPELINE" == rnasplice ]]; then
   : # already checked as a hard FAIL, correctly, in the pipeline-specific branch above -- this
     # generic branch's WARN ("merged as technical replicates") is the wrong severity here and
-    # would be a redundant, softer second message for the same row
+    # would be a redundant, softer second message for the same row (rnasplice's real key is the
+    # (sample, fastq_1) pair, not sample alone -- checked above)
 elif [[ -n "$(colidx sample)" ]]; then
   D=$(colvals sample | sort | uniq -d | paste -sd' ' -)
   [[ -z "$D" ]] && ok "sample ids unique" \
@@ -683,7 +761,7 @@ elif [[ -n "$(colidx sample)" ]]; then
 fi
 
 # ---- 6. enums ---------------------------------------------------------------
-if [[ -n "$(colidx strandedness)" ]]; then
+if [[ "$PIPELINE" != rnasplice && -n "$(colidx strandedness)" ]]; then
   B=$(colvals strandedness | grep -vE '^(auto|forward|reverse|unstranded)$' | sort -u | paste -sd, - || true)
   [[ -z "$B" ]] && ok "strandedness values valid" || fail "bad strandedness: $B"
   if [[ -n "$(colidx sample)" ]]; then
