@@ -495,19 +495,25 @@ elif [[ -n "$REQ" ]]; then
     fi
 
     # condition: check_samplesheet_fastq.py._validate_condition_value applies
-    # re.search("^(([A-Za-z]|[.][._A-Za-z])[._A-Za-z0-9]*)|[.]$", value). Mirrored here as three
-    # alternatives rather than approximated as "must start with a letter" (Codex review, PR #39:
-    # the letter-only approximation rejected valid dot-prefixed values like ".foo", which the
-    # pipeline's own regex accepts through its `[.][._A-Za-z]` branch, and would have failed the
-    # mandatory preflight gate on an otherwise-valid rnasplice samplesheet). Verified directly
-    # against Python's `re.search` semantics (not re-derived by inspection): a leading letter, OR
-    # a leading dot followed by a letter/dot/underscore, OR the bare single character `.` -- but
-    # NOT a leading dot followed by a digit (`.1bad` is rejected by the real regex too).
+    # re.search("^(([A-Za-z]|[.][._A-Za-z])[._A-Za-z0-9]*)|[.]$", value) -- and re.search is a
+    # PARTIAL match: neither alternative is fully anchored (the first has no trailing $, the
+    # second has no leading ^), so the real check is far looser than "the whole value matches
+    # this grammar" (Codex review, PR #39 round 2, caught a first attempt at mirroring this that
+    # WAS fully ^...$-anchored and therefore still too strict -- e.g. it rejected "a-bad" and
+    # "1.", which the real un-anchored regex accepts). Verified directly against Python's
+    # re.search on a dozen cases (a-bad, .foo-bar, 1., 1bad, 1bad., _bad, _bad., a, ., WT_ctrl,
+    # 9, xyz!!!) before writing this: the value passes if it STARTS with a letter (any suffix
+    # whatsoever, since the character-class tail can match zero characters and re.search does
+    # not require consuming the rest of the string), OR STARTS with a dot followed by a
+    # letter/dot/underscore (same "any suffix" caveat), OR ENDS with a literal dot (matches
+    # anywhere via the un-anchored-at-start `[.]$` alternative, regardless of what precedes it).
+    # It rejects only a value satisfying none of those three -- in practice just about anything
+    # not starting with a digit/underscore/symbol AND not ending in a dot.
     CDI=$(colidx condition)
     if [[ -n "$CDI" ]]; then
-      BADCOND=$(colvals condition | grep -vE '^([A-Za-z][A-Za-z0-9._]*|\.[._A-Za-z][A-Za-z0-9._]*|\.)$' | sort -u | paste -sd, - || true)
+      BADCOND=$(colvals condition | grep -vE '^[A-Za-z]|^\.[._A-Za-z]|\.$' | sort -u | paste -sd, - || true)
       [[ -z "$BADCOND" ]] && ok "rnasplice condition values syntactically valid" \
-                          || fail "rnasplice: condition value(s) not matching a syntactically valid name (letters/digits/dot/underscore, starting with a letter): $BADCOND"
+                          || fail "rnasplice: condition value(s) not accepted by the pipeline's condition regex (must start with a letter, start with a dot+letter/dot/underscore, or end with a dot): $BADCOND"
 
       # check_condition_replicates() LOOKS like it enforces "every condition needs >=2 rows",
       # and check_samplesheet(file_in, file_out) calls it -- but it is DEAD CODE at this pin.
