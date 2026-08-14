@@ -1,0 +1,7 @@
+input: /mnt/d/bioinfo-agent/runs/20260814-isoseq-alz-chr19/samplesheet.csv
+entrypoint: isoseq
+chunk: 5
+aligner: minimap2
+fasta: /refs/genomes/GRCh38_chr1318_19/fasta/genome.fa
+primers: /work/staging/isoseq-realsample/primers.fasta
+capped: false

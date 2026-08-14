@@ -780,6 +780,66 @@ violates it.
 
 ---
 
+### nf-core/isoseq — 2.0.0
+
+**`assets/schema_input.json` IS what this pipeline validates against — a contrast with nanoseq
+and rnasplice above.** At this pin, `subworkflows/local/utils_nfcore_isoseq_pipeline/main.nf`
+calls `samplesheetToList(params.input, ..., "$projectDir/assets/schema_input.json")` directly;
+there is no bundled `bin/check_samplesheet*.py` anywhere in the clone. So for isoseq, unlike the
+last two pipelines stocked here, the JSON schema is the real, authoritative validator.
+
+| column | required | notes |
+|---|---|---|
+| `sample` | yes | schema's only `required[]` entry; free-form string |
+| `bam` | no* | raw PacBio subreads BAM (`.bam`) — needed when `--entrypoint isoseq` (default); pattern `^\S+\.bam$` or the literal string `None` |
+| `pbi` | no* | that BAM's **PacBio index** (`.bam.pbi`) — **not** a samtools `.bai`; pattern `^\S+\.bam\.pbi$` or `None` |
+| `reads` | no* | already-processed FLNC fasta (`.fa.gz`) — needed only when `--entrypoint map`; pattern `^\S+\.fa\.gz$` or `None` |
+
+\* None of `bam`/`pbi`/`reads` is in the schema's `required[]` — only `sample` is. Which pair a
+row actually needs is decided by the **pipeline-wide** `--entrypoint` param (`isoseq`, the
+default, or `map`), not by anything in the CSV itself: `entrypoint: isoseq` reads `bam`+`pbi`
+and ignores `reads`; `entrypoint: map` reads `reads` and ignores `bam`/`pbi`. The literal string
+`None` is the pipeline's own placeholder for "not applicable to this entrypoint" — both bundled
+example sheets (`assets/samplesheet.csv`, `assets/samplesheet_map_entrypoint.csv`) use it this
+way. `scripts/check-samplesheet.sh --pipeline isoseq` treats `None` as a valid placeholder for
+these three columns specifically (and only these three), and separately flags a row where `bam`
+is set but `pbi` is `None` (or vice versa) as a FAIL even though the schema's own per-column
+patterns each pass individually — `PBCCS` needs both together at runtime.
+
+```csv
+sample,bam,pbi
+alz,/work/staging/isoseq-realsample/alz.1perc.subreads.10000.bam,/work/staging/isoseq-realsample/alz.1perc.subreads.10000.bam.pbi
+```
+
+This is the exact sheet from `runs/20260814-isoseq-alz-chr19/samplesheet.csv` — `entrypoint:
+isoseq` (the default, so the column is omitted from the CSV/params and only `bam`/`pbi` are
+populated). The `map` entrypoint's own bundled example, for reference:
+
+```csv
+sample,bam,pbi,reads
+alz,None,None,/home/sguizard/Work/Dev/github/nf-core/isoseq/assets/long_reads.fa.gz
+```
+
+**Why this repo stocks `entrypoint: isoseq`, not `map`, as the default.** `map` looks lighter
+(skip CCS generation) the way nanoseq's `--skip_demultiplexing` is lighter — but it is not the
+same shape of "lighter." `map`'s `reads` column wants a **fully-processed FLNC fasta**: the
+product of CCS + primer removal (LIMA) + chimera detection (`ISOSEQ_REFINE`) + polyA cleanup
+(`GSTAMA_POLYACLEANUP`) — i.e. `entrypoint: isoseq`'s own output, not raw CCS/HiFi reads. No
+public SRA/ENA PacBio Iso-Seq deposit ships an FLNC fasta directly; producing one outside the
+pipeline to feed back in as `map` input would mean hand-running the pipeline's own tool chain
+externally, which this repo's hard rules forbid. `entrypoint: isoseq` is stocked because it is
+the only entry point obtainable from an unmodified public deposit.
+
+**ID uniqueness — no `uniqueEntries` keyword anywhere in the schema.** Unlike mag/taxprofiler
+(composite `[sample, run]`/`[sample, run_accession]` keys) or ampliseq (hard per-field
+uniqueness), isoseq's `schema_input.json` declares no uniqueness constraint on `sample` or any
+other column at all — confirmed by reading the file directly, no `uniqueEntries`/`unique` key
+present anywhere in it. A repeated `sample` value is not a schema error at this pin;
+`scripts/check-samplesheet.sh`'s generic identifier check (no isoseq-specific override needed)
+only WARNs on it, same as the pipelines with no stricter rule.
+
+---
+
 ## Common breakages, with the text you will actually see
 
 ### Relative path

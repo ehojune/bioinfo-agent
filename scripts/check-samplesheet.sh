@@ -122,6 +122,7 @@ case "$PIPELINE" in
   raredisease)           REQ='sample sex phenotype case_id' ;;              # plus fastq_1/spring_1/bam, below
   nanoseq)               REQ='group replicate' ;;                          # plus input_file/fasta/gtf shape, below
   rnasplice)              REQ='sample fastq_1 strandedness condition' ;;    # fastq_2 header required but value may be empty (SE) -- see below
+  isoseq)                REQ='sample' ;;                                   # bam+pbi (isoseq entrypoint) or reads (map entrypoint) -- see below
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
@@ -548,6 +549,59 @@ elif [[ -n "$REQ" ]]; then
                           || fail "rnasplice: duplicate (sample, fastq_1) pair -- validate_unique_samples() aborts the run: $DUPPAIR"
     fi
   fi
+  if [[ "$PIPELINE" == isoseq ]]; then
+    # nf-core/isoseq 2.0.0: unlike nanoseq/rnasplice, assets/schema_input.json IS the
+    # authoritative validator here -- samplesheetToList(params.input, ...schema_input.json)
+    # is called directly from subworkflows/local/utils_nfcore_isoseq_pipeline/main.nf, no
+    # bundled bin/check_samplesheet*.py sits in front of it (confirmed by reading that file
+    # and grepping bin/ for a samplesheet script -- none exists). Only `sample` is in the
+    # schema's required[]; bam/pbi/reads are each optional at the schema level but every row
+    # must carry the pair matching whichever --entrypoint the RUN uses (a param, not a sheet
+    # column) -- 'isoseq' (default) wants bam+pbi populated and reads='None'; 'map' wants
+    # reads populated and bam=pbi='None'. The CSV alone cannot say which entrypoint a row is
+    # for, so this block checks internal consistency (every row is unambiguously isoseq-shaped
+    # or map-shaped) rather than a fixed column requirement.
+    BMI=$(colidx bam); PBI=$(colidx pbi); RDI=$(colidx reads)
+    if [[ -z "$BMI$PBI$RDI" ]]; then
+      fail "isoseq: sheet has none of bam/pbi/reads columns -- no read source for either entrypoint"
+    else
+      # schema patterns: bam ^\S+\.bam$|^None$ ; pbi ^\S+\.bam\.pbi$|^None$ ; reads ^\S+\.fa\.gz$|^None$
+      if [[ -n "$BMI" ]]; then
+        BAD=$(awk -F, -v i="$BMI" 'NR>1 && $i!="" && $i!="None" && $i !~ /\.bam$/ {print NR-1}' "$TMP" | paste -sd' ' -)
+        [[ -z "$BAD" ]] && ok "isoseq: bam values match .bam or 'None'" \
+                        || fail "isoseq: bam value(s) not matching ^\\S+\\.bam\$ or 'None' (schema pattern) on row(s): $BAD"
+      fi
+      if [[ -n "$PBI" ]]; then
+        BAD=$(awk -F, -v i="$PBI" 'NR>1 && $i!="" && $i!="None" && $i !~ /\.bam\.pbi$/ {print NR-1}' "$TMP" | paste -sd' ' -)
+        [[ -z "$BAD" ]] && ok "isoseq: pbi values match .bam.pbi or 'None'" \
+                        || fail "isoseq: pbi value(s) not matching ^\\S+\\.bam\\.pbi\$ or 'None' (schema pattern -- a plain samtools .bai does NOT satisfy this) on row(s): $BAD"
+      fi
+      if [[ -n "$RDI" ]]; then
+        BAD=$(awk -F, -v i="$RDI" 'NR>1 && $i!="" && $i!="None" && $i !~ /\.fa\.gz$/ {print NR-1}' "$TMP" | paste -sd' ' -)
+        [[ -z "$BAD" ]] && ok "isoseq: reads values match .fa.gz or 'None'" \
+                        || fail "isoseq: reads value(s) not matching ^\\S+\\.fa\\.gz\$ or 'None' (schema pattern -- must be the FLNC output of the isoseq entrypoint, not raw CCS/HiFi reads) on row(s): $BAD"
+      fi
+      # bam/pbi must appear together (both real, or both 'None') on every row -- a row with a
+      # real bam but pbi='None' (or vice versa) passes the two pattern checks above individually
+      # but PBCCS will fail at runtime for want of an index.
+      if [[ -n "$BMI" && -n "$PBI" ]]; then
+        MISMATCH=$(awk -F, -v b="$BMI" -v p="$PBI" \
+          'NR>1 { bset=($b!="" && $b!="None"); pset=($p!="" && $p!="None"); if (bset!=pset) print NR-1 }' \
+          "$TMP" | paste -sd' ' -)
+        [[ -z "$MISMATCH" ]] && ok "isoseq: bam and pbi are both set or both 'None' on every row" \
+                             || fail "isoseq: row(s) with bam set but pbi 'None' (or vice versa) -- PBCCS needs both together: $MISMATCH"
+      fi
+      # A row that sets BOTH bam/pbi AND reads is not a schema violation by itself, but no
+      # --entrypoint makes use of more than one of the two read sources per row -- worth a
+      # second look, not a hard failure (schema itself does not forbid it).
+      if [[ -n "$BMI" && -n "$RDI" ]]; then
+        BOTH=$(awk -F, -v b="$BMI" -v r="$RDI" \
+          'NR>1 { bset=($b!="" && $b!="None"); rset=($r!="" && $r!="None"); if (bset && rset) print NR-1 }' \
+          "$TMP" | paste -sd' ' -)
+        [[ -z "$BOTH" ]] || warn "isoseq: row(s) with BOTH bam/pbi AND reads set -- only one is used per --entrypoint, the other is silently ignored: $BOTH"
+      fi
+    fi
+  fi
 elif [[ -z "$PIPELINE" ]]; then
   ID=''
   for C in sample patient group id; do [[ -z "$(colidx "$C")" ]] || { ID="$C"; break; }; done
@@ -561,19 +615,29 @@ fi
 # fasta-only taxprofiler sheet pointing at a nonexistent/relative/zero-byte/wrong-suffix path
 # reported PASS, because this loop is what does path-exists/suffix/gzip checking and `fasta`
 # was never in it.
-for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads input_file gtf; do
+for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads input_file gtf pbi reads; do
   # input_file and gtf are nanoseq-specific column NAMES, not universal path columns like
   # fastq_1/fasta/bam -- another pipeline's samplesheet (e.g. differentialabundance's free-form
   # observations table) can legitimately use either name for an ordinary metadata variable with
   # no filesystem meaning at all (Codex review, PR #38, round 2: an `input_file` column holding
   # a batch label would otherwise be rejected here as "relative path"). Only apply this loop's
-  # path semantics to them when the target pipeline actually is nanoseq.
+  # path semantics to them when the target pipeline actually is nanoseq. pbi/reads are the same
+  # shape of isoseq-specific column name (a `reads` header on some other pipeline's sheet is
+  # ordinary metadata, not a path).
   if [[ ( "$C" == input_file || "$C" == gtf ) && "$PIPELINE" != nanoseq ]]; then continue; fi
+  if [[ ( "$C" == pbi || "$C" == reads ) && "$PIPELINE" != isoseq ]]; then continue; fi
   I=$(colidx "$C"); [[ -n "$I" ]] || continue
   N=0
   while IFS= read -r P; do
     [[ -n "$P" ]] || continue
     N=$((N+1))
+    # isoseq's bam/pbi/reads columns use the literal string 'None' as "not applicable to the
+    # entrypoint this row is for" (schema patterns above accept it explicitly) -- it is not a
+    # relative path typo and must not be flagged as one, unlike every other pipeline's path
+    # columns where a bare word in a path column IS a mistake.
+    if [[ "$PIPELINE" == isoseq && ( "$C" == bam || "$C" == pbi || "$C" == reads ) && "$P" == "None" ]]; then
+      continue
+    fi
     if [[ "$P" != /* ]]; then
       fail "$C: relative path '$P' (resolves against the launch dir, not the sheet)"; continue
     fi
@@ -814,7 +878,8 @@ fi
 # unconditional collection still fed such a value into the du/stat loop below even after section
 # 3 stopped path-validating it).
 IFCOL=''; [[ "$PIPELINE" == nanoseq ]] && IFCOL='input_file'
-PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads $IFCOL; do colvals "$C"; done; } | grep '^/' | sort -u || true )
+ISOCOL=''; [[ "$PIPELINE" == isoseq ]] && ISOCOL='pbi reads'
+PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads $IFCOL $ISOCOL; do colvals "$C"; done; } | grep '^/' | sort -u || true )
 if [[ -z "$PATHS" ]]; then
   printf 'size  nothing to size (no absolute fastq/bam/cram/spring paths)\n'
 else
