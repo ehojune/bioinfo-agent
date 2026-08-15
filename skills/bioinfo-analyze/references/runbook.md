@@ -14,12 +14,13 @@ Docker **engine** inside the distro, distro ext4 on `D:\wsl\ubuntu-24.04\ext4.vh
 2. Write the run plan to `$RUNDIR/plan.md`. Get approval if the estimate exceeds 24 h.
 3. Write `samplesheet.csv`, `params.yaml`, `cmd.sh` into `$RUNDIR`.
 4. Preflight. Any FAIL is a hard stop.
-5. `-preview`, then `-stub-run`. Both must be clean — with exactly seven documented departures, the
+5. `-preview`, then `-stub-run`. Both must be clean — with exactly eight documented departures, the
    rnaseq `strandedness: auto` waived stub failure, the differentialabundance `--features`
    substitute stub, the sarek `haplotypecaller_filter` skip, the ampliseq `CUTADAPT_BASIC` true
    waiver, the mag `UNTAR`/local-modules-without-stubs finding, the nanoseq
-   `SAMTOOLS_IDXSTATS`/`SAMTOOLS_FLAGSTAT` true waiver, and the rnasplice
-   `GTF_GENE_FILTER`/`RSEM_PREPAREREFERENCE` true waiver, all defined in section 4.
+   `SAMTOOLS_IDXSTATS`/`SAMTOOLS_FLAGSTAT` true waiver, the rnasplice
+   `GTF_GENE_FILTER`/`RSEM_PREPAREREFERENCE` true waiver, and the isoseq `ULTRA_INDEX` true waiver
+   (confined to the `aligner: ultra` branch this repo does not stock), all defined in section 4.
 6. Launch on ext4 with reports and `-resume`, always through `tmux` (mandatory, not optional).
 7. Monitor the trace, not the terminal.
 8. On completion: read MultiQC, rsync results out to `/mnt/d`, write the handoff.
@@ -599,6 +600,30 @@ test,docker` command with the identical flag set completes cleanly (`completed=3
 zero local splicing events exist for some event type — see `pipeline-selection.md` §4.15 and
 `config/pipelines.tsv` for the full writeup; routed around with `--suppa_per_local_event false`,
 which is now part of this pipeline's stocked default rather than an optional flag.
+
+**`nf-core/isoseq`, `-stub-run`, and `ULTRA_INDEX` — a true waiver, upstream shared-module
+stub-coverage gap, confined to a branch this repo does not stock.** Confirmed 2026-08-14
+(`20260814-isoseq-alz-chr19`) against this pin's `2.0.0`, **only when run with the CI test
+profile's own `aligner: ultra`**. `modules/nf-core/gnu/sort/main.nf`'s `stub:` block does
+`touch ${output_file}` — an empty placeholder GTF — and `modules/nf-core/ultra/index/main.nf`
+has **no** `stub:` block at all (confirmed by reading it directly), so it runs for real against
+that empty GTF and crashes: `gffutils.exceptions.EmptyInputError: No lines parsed -- was an
+empty file provided?`. `completed=12 failed=1`. No substitute-input workaround possible, same
+reasoning as ampliseq/nanoseq/rnasplice. **Waived, 8th documented departure** — `-preview`
+(clean) is the pre-launch gate for the `ultra` branch specifically. **This procurement's own
+stocked config (`aligner: minimap2`) needs no waiver at all**: `-stub-run` on that exact flag
+set passes cleanly on both the CI test data (`completed=11 failed=0`) and the real command
+(`completed=81 failed=0`) — same class of clean pass as taxprofiler/raredisease, not a waiver.
+**Separately** (not a stub artifact, found on the real run): the pipeline's own default
+`--chunk 40` against a small (531-ZMW) input produced 29/40 empty per-chunk
+`GSTAMA_COLLAPSE` outputs and crashed `GSTAMA_MERGE` (`tama_merge.py`, `IndexError: list index
+out of range` reading an empty bed) — fixed with `--chunk 5` (matching `conf/test.config`'s own
+value for the identical bam) and a `-resume` relaunch. **Also separately, a real (non-stub) bug
+affecting every configuration**: `workflows/isoseq.nf`'s own `MULTIQC(...)` call passes bare,
+non-`.collect()`'d `channel.empty()` for two of the module's plain `path` inputs, so `MULTIQC`
+is invoked zero times regardless of flags — no MultiQC report is ever produced at this pin. See
+`pipeline-selection.md` §4.16 and `config/pipelines.tsv` for the full writeup on all three
+findings.
 
 ---
 

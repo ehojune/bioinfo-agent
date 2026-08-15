@@ -93,7 +93,7 @@ Do them in order. Do not skip step 3 or step 4.
    samplesheet. Neither substitutes for the other: `-preview` resolves params and the DAG without
    running anything, `-stub-run` exercises the process wiring. A stub run that fails is a real
    failure — fix it, do not "try it for real and see". `references/runbook.md` section 4.
-   **Seven documented departures from "stub the real command as-is," and only these seven —
+   **Eight documented departures from "stub the real command as-is," and only these eight —
    `references/runbook.md` section 4 is the canonical list, do not generalise beyond it:**
    - **A true waiver** (the failing stub is accepted, not avoided): an rnaseq samplesheet with
      `strandedness: auto` makes the real-command stub fail unavoidably, because the pipeline
@@ -159,9 +159,19 @@ Do them in order. Do not skip step 3 or step 4.
      minutes on the first real run (an `awk` infinite-loop bug triggered by zero local splicing
      events of some type), routed around with `--suppa_per_local_event false` — see
      `pipeline-selection.md` §4.15.
-   All seven are partial gates, not full substitutes for testing the real command — runbook
+   - **A true waiver, upstream shared-module stub-coverage gap, confined to a branch this repo
+     does not stock**: isoseq at this pin's `2.0.0` (`config/pipelines.tsv`) fails `-stub-run`
+     **only when run with the CI test profile's own `aligner: ultra`** at `ULTRA_INDEX` —
+     `GNU_SORT`'s stub touches an empty placeholder GTF, and `ULTRA_INDEX` has no `stub:` block
+     at all and runs for real against it, crashing (`gffutils.exceptions.EmptyInputError`).
+     `completed=12 failed=1`. Runbook section 4 states the exact error. **This procurement's own
+     stocked config (`aligner: minimap2`) needs no waiver at all** — `-stub-run` on that exact
+     flag set passes cleanly on both the CI test data and the real command
+     (`completed=11 failed=0` / `completed=81 failed=0`), same class of clean pass as
+     taxprofiler/raredisease. See `pipeline-selection.md` §4.16.
+   All eight are partial gates, not full substitutes for testing the real command — runbook
    section 4 states plainly what each one does not cover. Nothing else in this skill waives or
-   substitutes a stub; an eighth pipeline hitting a similar shape needs its own documented case
+   substitutes a stub; a ninth pipeline hitting a similar shape needs its own documented case
    here and in the runbook, not an ad hoc workaround.
 5. **Execution.** Launch from ext4, logging to file, always through `tmux` (`references/runbook.md`
    section 5) — not a bare foreground command, not `nohup … &`, and not your own backgrounded
