@@ -565,6 +565,16 @@ elif [[ -n "$REQ" ]]; then
     if [[ -z "$BMI$PBI$RDI" ]]; then
       fail "isoseq: sheet has none of bam/pbi/reads columns -- no read source for either entrypoint"
     else
+      # schema patterns are all `^\S+...$` -- whitespace anywhere fails validation even when
+      # the suffix matches (Codex review, PR #40, round 1, P2: same shape as the bam/bai/fastq
+      # whitespace gaps fixed on raredisease in PR #37 -- checked here up front so the suffix
+      # checks below never see a value that should already have failed).
+      for FLD in "$BMI:bam" "$PBI:pbi" "$RDI:reads"; do
+        IDX="${FLD%%:*}"; NAME="${FLD##*:}"
+        [[ -n "$IDX" ]] || continue
+        WS=$(awk -F, -v i="$IDX" 'NR>1 && $i ~ /[[:space:]]/ {print NR-1}' "$TMP" | paste -sd' ' -)
+        [[ -z "$WS" ]] || fail "isoseq: $NAME value(s) contain whitespace (schema pattern ^\\S+... forbids it) on row(s): $WS"
+      done
       # schema patterns: bam ^\S+\.bam$|^None$ ; pbi ^\S+\.bam\.pbi$|^None$ ; reads ^\S+\.fa\.gz$|^None$
       if [[ -n "$BMI" ]]; then
         BAD=$(awk -F, -v i="$BMI" 'NR>1 && $i!="" && $i!="None" && $i !~ /\.bam$/ {print NR-1}' "$TMP" | paste -sd' ' -)
@@ -591,14 +601,35 @@ elif [[ -n "$REQ" ]]; then
         [[ -z "$MISMATCH" ]] && ok "isoseq: bam and pbi are both set or both 'None' on every row" \
                              || fail "isoseq: row(s) with bam set but pbi 'None' (or vice versa) -- PBCCS needs both together: $MISMATCH"
       fi
-      # A row that sets BOTH bam/pbi AND reads is not a schema violation by itself, but no
-      # --entrypoint makes use of more than one of the two read sources per row -- worth a
-      # second look, not a hard failure (schema itself does not forbid it).
-      if [[ -n "$BMI" && -n "$RDI" ]]; then
-        BOTH=$(awk -F, -v b="$BMI" -v r="$RDI" \
-          'NR>1 { bset=($b!="" && $b!="None"); rset=($r!="" && $r!="None"); if (bset && rset) print NR-1 }' \
-          "$TMP" | paste -sd' ' -)
-        [[ -z "$BOTH" ]] || warn "isoseq: row(s) with BOTH bam/pbi AND reads set -- only one is used per --entrypoint, the other is silently ignored: $BOTH"
+      # Every row must resolve to EXACTLY ONE complete source shape (bam+pbi both real, XOR
+      # reads real), and every row in the sheet must resolve to the SAME shape -- --entrypoint
+      # is a single run-wide param, not a per-row choice, so a sheet mixing bam/pbi-shaped rows
+      # with reads-shaped rows, or a row with neither shape complete (e.g. all three columns
+      # 'None', or a bam-only row with no pbi column at all), means at least one row cannot
+      # supply the entrypoint the run actually uses and would silently fail or be skipped
+      # (Codex review, PR #40, round 1, P1: the previous version only checked bam/pbi
+      # PAIRWISE-consistency and bam+reads co-occurrence -- it never required a row to have a
+      # complete shape at all, nor that the whole sheet agree on one).
+      SHAPES=$(awk -F, -v b="${BMI:-0}" -v p="${PBI:-0}" -v r="${RDI:-0}" \
+        'NR>1 {
+           bset = (b!=0 && $b!="" && $b!="None")
+           pset = (p!=0 && $p!="" && $p!="None")
+           rset = (r!=0 && $r!="" && $r!="None")
+           bp = (bset && pset)
+           if (bp && rset) { print NR-1":both"; next }
+           if (bp)         { print NR-1":isoseq"; next }
+           if (rset)       { print NR-1":map"; next }
+           print NR-1":none"
+         }' "$TMP")
+      BADROWS=$(printf '%s\n' "$SHAPES" | awk -F: '$2=="none" || $2=="both" {print}' | paste -sd' ' -)
+      MIXED=$(printf '%s\n' "$SHAPES" | awk -F: '$2=="isoseq"||$2=="map" {print $2}' | sort -u | wc -l)
+      if [[ -n "$BADROWS" ]]; then
+        fail "isoseq: row(s) with neither a complete bam+pbi pair nor reads, or with both set (must be exactly one source shape per row): $BADROWS"
+      elif [[ "$MIXED" -gt 1 ]]; then
+        MIXROWS=$(printf '%s\n' "$SHAPES" | paste -sd' ' -)
+        fail "isoseq: sheet mixes bam/pbi-shaped rows with reads-shaped rows -- --entrypoint is one run-wide choice, not per-row: $MIXROWS"
+      else
+        ok "isoseq: every row has exactly one complete source shape, consistent across the sheet"
       fi
     fi
   fi
