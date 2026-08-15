@@ -123,6 +123,7 @@ case "$PIPELINE" in
   nanoseq)               REQ='group replicate' ;;                          # plus input_file/fasta/gtf shape, below
   rnasplice)              REQ='sample fastq_1 strandedness condition' ;;    # fastq_2 header required but value may be empty (SE) -- see below
   isoseq)                REQ='sample' ;;                                   # bam+pbi (isoseq entrypoint) or reads (map entrypoint) -- see below
+  bacass)                REQ='ID' ;;                                       # R1/R2/LongFastQ/Fast5/GenomeSize all optional at schema level -- see below
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
@@ -650,6 +651,105 @@ elif [[ -n "$REQ" ]]; then
       fi
     fi
   fi
+  if [[ "$PIPELINE" == bacass ]]; then
+    # nf-core/bacass 2.6.1: assets/schema_input.json IS the live validator here --
+    # subworkflows/local/utils_nfcore_bacass_pipeline/main.nf:105 calls samplesheetToList()
+    # straight against it, no bundled bin/check_samplesheet*.py in the clone (bin/ holds only
+    # csv_to_yaml.py/find_common_reference.py/kmerfinder_summary.py/multiqc_to_custom_csv.py --
+    # none a samplesheet validator). Only `ID` is in required[]; R1/R2/LongFastQ/Fast5/GenomeSize
+    # are each individually optional (anyOf accepts an empty string OR the literal 'NA' OR a
+    # matching value) -- confirmed empirically via -preview (2026-08-16): a row with R1=R2=
+    # LongFastQ=Fast5='NA' (no read source of ANY kind) VALIDATES CLEANLY, completed=0 failed=0,
+    # no error -- the same class of schema gap as taxprofiler/mag/raredisease's "no read source"
+    # rows, checked explicitly below since the schema alone will not catch it.
+    #
+    # ID uniqueness: schema_input.json declares "unique": false on ID explicitly, and the
+    # pipeline's OWN CI fixture (bacass_short_reseq.tsv) repeats ID=ERR044595 across two
+    # different R1/R2 pairs as its normal, working re-sequencing-merge shape -- confirmed
+    # empirically via -preview (2026-08-16, a synthetic duplicate-ID sheet: completed=0
+    # failed=0, no error). Do not FAIL or WARN on a repeated ID here; that would
+    # mischaracterise the pipeline's own intended and exercised shape as a problem.
+    IDI=$(colidx ID); R1I=$(colidx R1); R2I=$(colidx R2); LFI=$(colidx LongFastQ)
+    F5I=$(colidx Fast5); GSI=$(colidx GenomeSize)
+
+    # column-value checks: whitespace anywhere fails the schema's \S+-based patterns even when
+    # the suffix/shape otherwise matches (same shape as raredisease/isoseq's whitespace gaps).
+    # 'NA' and '' are the two schema-legal "not supplied" spellings for R1/R2/LongFastQ/Fast5;
+    # anything else must match that column's own suffix/shape pattern.
+    bacass_field_check() {
+      local col="$1" idx="$2" pattern="$3" label="$4"
+      [[ -n "$idx" ]] || return 0
+      local ws bad
+      ws=$(awk -F, -v i="$idx" 'NR>1 && $i!="" && $i ~ /[[:space:]]/ {print NR-1}' "$TMP" | paste -sd' ' -)
+      if [[ -n "$ws" ]]; then
+        fail "bacass: $col value(s) contain whitespace (schema pattern forbids it) on row(s): $ws"
+        return
+      fi
+      bad=$(awk -F, -v i="$idx" -v pat="$pattern" \
+              'NR>1 && $i!="" && $i!="NA" && $i !~ pat {print NR-1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$bad" ]] && ok "bacass: $col values match $label or NA/empty" \
+                      || fail "bacass: $col value(s) not matching $label, empty, or the literal 'NA' on row(s): $bad"
+    }
+    bacass_field_check R1 "$R1I" '\.f(ast)?q\.gz$' '.fq.gz/.fastq.gz'
+    bacass_field_check R2 "$R2I" '\.f(ast)?q\.gz$' '.fq.gz/.fastq.gz'
+    bacass_field_check LongFastQ "$LFI" '\.f(ast)?q\.gz$' '.fq.gz/.fastq.gz'
+    if [[ -n "$F5I" ]]; then
+      bad=$(awk -F, -v i="$F5I" 'NR>1 && $i!="" && $i!="NA" && $i !~ /^\// {print NR-1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$bad" ]] && ok "bacass: Fast5 values are absolute paths or NA/empty" \
+                      || fail "bacass: Fast5 value(s) not an absolute path, empty, or 'NA' on row(s): $bad"
+    fi
+    if [[ -n "$GSI" ]]; then
+      bad=$(awk -F, -v i="$GSI" 'NR>1 && $i!="" && $i!="NA" && $i !~ /^[0-9]+\.[0-9]+m$/ {print NR-1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$bad" ]] && ok "bacass: GenomeSize values match \\d+.\\d+m or NA/empty" \
+                      || fail "bacass: GenomeSize value(s) not matching \\d+.\\d+m (e.g. '2.8m'), empty, or 'NA' on row(s): $bad -- a bare decimal with no trailing 'm' (e.g. '2.8') additionally mismatches the schema's expected STRING type, not just the pattern"
+    fi
+
+    # R1/R2/LongFastQ: schema URLs are legal (the pipeline's own CI fixture uses raw GitHub
+    # URLs, confirmed by reading conf/test.config's resolved bacass_short_reseq.tsv), so unlike
+    # every other stocked pipeline's path columns, a bare http(s):// value here is NOT a
+    # relative-path mistake and must not be flagged as one. Existence/readability is only
+    # checkable for local absolute paths; a URL's reachability is a network check, out of scope
+    # for this static gate.
+    for FLD in "$R1I:R1" "$R2I:R2" "$LFI:LongFastQ"; do
+      IDX="${FLD%%:*}"; NAME="${FLD##*:}"
+      [[ -n "$IDX" ]] || continue
+      while IFS= read -r P; do
+        [[ -n "$P" && "$P" != "NA" ]] || continue
+        case "$P" in
+          http://*|https://*) : ;;
+          /*)
+            [[ -r "$P" ]] || fail "$NAME: not readable: $P"
+            [[ -s "$P" ]] || fail "$NAME: zero bytes: $P"
+            ;;
+          *) fail "$NAME: not an absolute path, http(s):// URL, or 'NA': $P" ;;
+        esac
+      done < <(awk -F, -v i="$IDX" 'NR>1{print $i}' "$TMP")
+    done
+
+    # No read source at all: the schema accepts an all-NA/all-empty row (confirmed above), but
+    # the pipeline has nothing to assemble for it regardless of --assembly_type. FAIL, matching
+    # the taxprofiler/mag/raredisease "no read source" pattern -- this is a per-row check, not a
+    # per-column one, since a sheet can have the R1/LongFastQ columns present with only some
+    # rows actually empty.
+    if [[ -n "$R1I$LFI" ]]; then
+      NOSRC=$(awk -F, -v r1="${R1I:-0}" -v lf="${LFI:-0}" \
+                'NR>1 && (r1==0||$r1==""||$r1=="NA") && (lf==0||$lf==""||$lf=="NA") {print NR-1}' \
+                "$TMP" | paste -sd' ' -)
+      [[ -z "$NOSRC" ]] && ok "bacass: every row has R1 and/or LongFastQ (a read source)" \
+                        || fail "bacass: row(s) with neither R1 nor LongFastQ populated (schema accepts this silently -- nothing for the pipeline to assemble for that row): $NOSRC"
+    else
+      fail "bacass: sheet has neither an R1 nor a LongFastQ column at all -- no read source for any row"
+    fi
+
+    # R2 without R1: short-read mate pairing implies R1 must also be set whenever R2 is.
+    if [[ -n "$R1I" && -n "$R2I" ]]; then
+      BADPAIR=$(awk -F, -v r1="$R1I" -v r2="$R2I" \
+                  'NR>1 && $r2!="" && $r2!="NA" && ($r1==""||$r1=="NA") {print NR-1}' \
+                  "$TMP" | paste -sd' ' -)
+      [[ -z "$BADPAIR" ]] && ok "bacass: no row has R2 set without R1" \
+                          || fail "bacass: row(s) with R2 set but R1 empty/NA (short-read mate pairing needs both): $BADPAIR"
+    fi
+  fi
 elif [[ -z "$PIPELINE" ]]; then
   ID=''
   for C in sample patient group id; do [[ -z "$(colidx "$C")" ]] || { ID="$C"; break; }; done
@@ -927,7 +1027,11 @@ fi
 # 3 stopped path-validating it).
 IFCOL=''; [[ "$PIPELINE" == nanoseq ]] && IFCOL='input_file'
 ISOCOL=''; [[ "$PIPELINE" == isoseq ]] && ISOCOL='pbi reads'
-PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads $IFCOL $ISOCOL; do colvals "$C"; done; } | grep '^/' | sort -u || true )
+# bacass's R1/R2/LongFastQ/Fast5 are frequently URLs (the pipeline's own CI fixture uses raw
+# GitHub URLs), which the `grep '^/'` filter below already excludes on its own -- only a LOCAL
+# absolute-path bacass sheet contributes to the footprint here, same as every other pipeline.
+BACOL=''; [[ "$PIPELINE" == bacass ]] && BACOL='R1 R2 LongFastQ Fast5'
+PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads $IFCOL $ISOCOL $BACOL; do colvals "$C"; done; } | grep '^/' | sort -u || true )
 if [[ -z "$PATHS" ]]; then
   printf 'size  nothing to size (no absolute fastq/bam/cram/spring paths)\n'
 else

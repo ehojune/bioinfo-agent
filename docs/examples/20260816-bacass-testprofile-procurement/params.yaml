@@ -1,0 +1,7 @@
+# nf-core/bacass 2.6.1 -- test-profile procurement (CI fixture). -profile test,docker itself
+# supplies --input/--assembly_type/--assembler/--skip_kraken2/--skip_kmerfinder/--prokka_args
+# via conf/test.config, so this params file is deliberately empty of overrides -- it exists
+# only so cmd.sh has a consistent shape with every other stocked pipeline's launch script.
+# See samplesheet.csv in this directory for a copy of the fixture the test profile resolves to
+# (bacass_short_reseq.tsv, fetched from the nf-core/test-datasets "bacass" branch).
+{}

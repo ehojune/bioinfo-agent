@@ -14,13 +14,14 @@ Docker **engine** inside the distro, distro ext4 on `D:\wsl\ubuntu-24.04\ext4.vh
 2. Write the run plan to `$RUNDIR/plan.md`. Get approval if the estimate exceeds 24 h.
 3. Write `samplesheet.csv`, `params.yaml`, `cmd.sh` into `$RUNDIR`.
 4. Preflight. Any FAIL is a hard stop.
-5. `-preview`, then `-stub-run`. Both must be clean — with exactly eight documented departures, the
+5. `-preview`, then `-stub-run`. Both must be clean — with exactly nine documented departures, the
    rnaseq `strandedness: auto` waived stub failure, the differentialabundance `--features`
    substitute stub, the sarek `haplotypecaller_filter` skip, the ampliseq `CUTADAPT_BASIC` true
    waiver, the mag `UNTAR`/local-modules-without-stubs finding, the nanoseq
    `SAMTOOLS_IDXSTATS`/`SAMTOOLS_FLAGSTAT` true waiver, the rnasplice
-   `GTF_GENE_FILTER`/`RSEM_PREPAREREFERENCE` true waiver, and the isoseq `ULTRA_INDEX` true waiver
-   (confined to the `aligner: ultra` branch this repo does not stock), all defined in section 4.
+   `GTF_GENE_FILTER`/`RSEM_PREPAREREFERENCE` true waiver, the isoseq `ULTRA_INDEX` true waiver
+   (confined to the `aligner: ultra` branch this repo does not stock), and the bacass `UNICYCLER`
+   true waiver, all defined in section 4.
 6. Launch on ext4 with reports and `-resume`, always through `tmux` (mandatory, not optional).
 7. Monitor the trace, not the terminal.
 8. On completion: read MultiQC, rsync results out to `/mnt/d`, write the handoff.
@@ -624,6 +625,27 @@ non-`.collect()`'d `channel.empty()` for two of the module's plain `path` inputs
 is invoked zero times regardless of flags — no MultiQC report is ever produced at this pin. See
 `pipeline-selection.md` §4.16 and `config/pipelines.tsv` for the full writeup on all three
 findings.
+
+**`nf-core/bacass`, `-stub-run`, and `UNICYCLER` — a true waiver, upstream module authoring bug,
+different shape from every prior case (a hardcoded literal, not a stub-coverage gap).** Confirmed
+2026-08-16 (`20260816-bacass-testprofile-procurement`) against this pin's `2.6.1`, on the CI
+`-profile test,docker` config unmodified (`assembly_type: short`, `assembler: unicycler`).
+`modules/nf-core/unicycler/main.nf`'s `stub:` block reads, verbatim:
+```
+cat "" | gzip > ${prefix}.scaffolds.fa.gz
+cat "" | gzip >  ${prefix}.assembly.gfa.gz
+```
+`cat ""` passes a literal empty string as a filename argument, which every prior case in this
+list did not do — the ampliseq/mag/nanoseq/rnasplice/isoseq cases all involve a stub in one
+module writing an empty PLACEHOLDER FILE that a downstream module with no `stub:` block then
+reads for real; here the failing process's OWN stub script is malformed on its own, no
+downstream module involved at all. `completed=8 failed=1`, exact error
+(`Command error: cat: '': No such file or directory`), confirmed by reading the module source
+directly. No substitute-input workaround possible — there is no shortreads/longreads-shaped
+input that fixes a hardcoded `cat ""`. **Waived, 9th documented departure** — `-preview` (clean)
+is the pre-launch gate; the full (non-stub) `-profile test,docker` command is what actually
+proves this pipeline, see `pipeline-selection.md` §4.17 and `config/pipelines.tsv` for the full
+writeup.
 
 ---
 
