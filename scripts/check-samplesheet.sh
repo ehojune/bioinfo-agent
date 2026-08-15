@@ -606,6 +606,17 @@ elif [[ -n "$REQ" ]]; then
           "$TMP" | paste -sd' ' -)
         [[ -z "$MISMATCH" ]] && ok "isoseq: bam and pbi are both set or both 'None' on every row" \
                              || fail "isoseq: row(s) with bam set but pbi 'None' (or vice versa) -- PBCCS needs both together: $MISMATCH"
+        # PBCCS discovers the PacBio index as the BAM's own sidecar (<bam>.pbi) -- a real pbi
+        # value that is merely SET but points at an unrelated file (e.g. bam=/data/a.bam,
+        # pbi=/data/b.bam.pbi) passes every check above yet fails at runtime, since the pipeline
+        # stages `pbi` under its own basename, not renamed to match `bam` (Codex review, PR #40,
+        # round 5, P1). Require pbi == bam + '.pbi' exactly whenever both are real.
+        NAMEMISMATCH=$(awk -F, -v b="$BMI" -v p="$PBI" \
+          'NR>1 { bv=$b; pv=$p; bset=(bv!="" && bv!="None"); pset=(pv!="" && pv!="None");
+                  if (bset && pset && pv != bv".pbi") print NR-1 }' \
+          "$TMP" | paste -sd' ' -)
+        [[ -z "$NAMEMISMATCH" ]] && ok "isoseq: pbi filename matches its row's bam + .pbi" \
+                                 || fail "isoseq: row(s) where pbi is not exactly <bam>.pbi -- PBCCS looks for the index as the BAM's own sidecar, a differently-named pbi is not found at runtime: $NAMEMISMATCH"
       fi
       # Every row must resolve to EXACTLY ONE complete source shape (bam+pbi both real, XOR
       # reads real), and every row in the sheet must resolve to the SAME shape -- --entrypoint
