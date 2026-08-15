@@ -1681,12 +1681,17 @@ needs only the plain FASTA. `--gtf` is consumed **only** when `aligner: ultra`
 the stocked minimap2 default needs no GTF at all.
 
 **Reference-store paths:** `--fasta`, standard manifest path. No prebuilt index required for
-minimap2 (built in-run). This procurement added `genomes/GRCh38_chr1318_19/fasta/genome.fa` +
+minimap2 (built in-run). This procurement added `genomes/GRCh38_isoseq_chr19/fasta/genome.fa` +
 `.../gtf/genes.gtf` — **not** the existing chr-prefixed `genomes/GRCh38/fasta/genome.fa` — because
 the real-sample reads (see below) are a subset restricted to Ensembl-numbered (no `chr` prefix)
-chr13/18/19 sequence; reusing the full UCSC-style hg38 build would silently break mapping on the
-naming mismatch and cost far more mapping time against sequence none of the reads originate from.
-See `config/refs.manifest.tsv` for the fetch rows and reasoning.
+sequence; reusing the full UCSC-style hg38 build would silently break mapping on the naming
+mismatch and cost far more mapping time. **The fasta is chr19 sequence ONLY** — despite the
+directory name mentioning "isoseq" broadly and the paired GTF covering chr13+chr18+chr19 (Codex
+review, PR #40, round 2: an earlier `GRCh38_chr1318_19` name incorrectly implied three-chromosome
+fasta coverage) — a chr13/chr18 read in the "alz" real-sample subset has no target sequence to
+align to at all under this fasta, which is a genuine mapping-rate ceiling for this reference
+choice, not a contig-naming artifact. See `config/refs.manifest.tsv` for the fetch rows and
+reasoning.
 
 **Known gaps / stub-run behaviour — CI test profile vs. this procurement's stocked config
 diverge.** The CI `test` profile itself (`-profile test,docker`, upstream's own `aligner=ultra`)
@@ -1701,6 +1706,14 @@ but this failure is confined to the `ultra` branch this procurement does not sto
 identical) — both the CI test-data variant and the real-sample command below — **passes
 cleanly, no waiver needed**: `completed=11 failed=0` (CI data) and `completed=81 failed=0` (real
 command), same class of clean pass as taxprofiler/raredisease.
+
+**The mandatory full `-profile test,docker` gate** (`new-pipeline.md` §2.4(c) — this is "the
+gate", not optional) was run non-stub, on the CI profile's own `aligner: ultra` default, and
+**passes cleanly**: `succeededCount=19 failedCount=0 cachedCount=26`. This confirms the
+`-stub-run` `ULTRA_INDEX` failure above is genuinely stub-coverage-specific and does not recur
+in a real run — `ULTRA_INDEX` completed in ~62 min wall clock, the entire cost being `gffutils`
+GTF-database creation over 55,652 features (measured incrementally in the task's own
+`.command.err`, not a hang or an infinite loop). See `estimates.md` for the full measurement.
 
 **Key outputs (numbered stage directories, not lowercase process names):** `09_GSTAMA_MERGE/
 *.bed` (the final merged gene-model annotation) + `*_gene_report.txt`/`*_trans_report.txt`,

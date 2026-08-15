@@ -4,7 +4,7 @@
 subset (real, non-synthetic 1% subsample of PacBio's public "Alzheimer's Brain Iso-Seq" release,
 human chr13/18/19-restricted), `bam`+`pbi` (`entrypoint: isoseq`, default). Samplesheet:
 `/mnt/d/bioinfo-agent/runs/20260814-isoseq-alz-chr19/samplesheet.csv`
-**Reference**    `$BIOINFO_REFS/genomes/GRCh38_chr1318_19/fasta/genome.fa` (Ensembl GRCh38
+**Reference**    `$BIOINFO_REFS/genomes/GRCh38_isoseq_chr19/fasta/genome.fa` (Ensembl GRCh38
 release-104, chr19-only slice, fetched this run — new manifest rows, not the existing
 chr-prefixed `genomes/GRCh38` build; see `plan.md`). `aligner: minimap2`, no `--gtf` needed;
 index built in-run (seconds at this genome size)
@@ -76,11 +76,16 @@ my default, stated in `pipeline-selection.md` §4.16). No sample flagged/exclude
   exceeded this repo's ~10 GB silent-download ceiling by ~9× (the pipeline's own full pig
   fixture, `ERR8606831`, 91.3 GB submitted). Full search record in `plan.md`. This dataset is
   itself real, non-synthetic PacBio data, not a synthetic CI-only construct.
-- **New reference rows (`genomes/GRCh38_chr1318_19/`), not the existing chr-prefixed
+- **New reference rows (`genomes/GRCh38_isoseq_chr19/`), not the existing chr-prefixed
   `genomes/GRCh38` build**: the real-sample reads are restricted to Ensembl-numbered (no `chr`
-  prefix) chr13/18/19 sequence; reusing the full UCSC-style hg38 build would silently break
-  mapping on the naming mismatch and cost far more mapping time. Undo: not applicable to this
-  dataset; a future isoseq run against a different organism/build needs its own reference choice.
+  prefix) sequence; reusing the full UCSC-style hg38 build would silently break mapping on the
+  naming mismatch and cost far more mapping time. **The stocked fasta is chr19 sequence ONLY**
+  (Codex review, PR #40, round 2, corrected an earlier misleading directory name) — a chr13/chr18
+  read in this "alz" subset has no target sequence to align to at all under this fasta, which
+  caps the achievable mapping rate for this reference choice regardless of naming; it is not a
+  contig-naming artifact that `--aligner ultra` or the paired chr13/18/19 GTF could fix. Undo:
+  fetch the full three-chromosome or whole-genome fasta if chr13/18 coverage is ever needed; a
+  future isoseq run against a different organism/build needs its own reference choice regardless.
 - **Stale published outputs from the abandoned `--chunk 40` attempt were removed from
   `results/`** (not from the work dir) before rsyncing to the run record, so the published
   results reflect only the successful `--chunk 5` configuration. This is a cleanup of published
@@ -101,10 +106,17 @@ my default, stated in `pipeline-selection.md` §4.16). No sample flagged/exclude
   pipeline's own per-process report files instead (`01_PBCCS/*.report.txt`,
   `02_LIMA/*.lima.summary`, `03_ISOSEQ_REFINE/*.filter_summary.report.json`,
   `09_GSTAMA_MERGE/*_gene_report.txt`/`*_trans_report.txt`).
-- **`aligner: ultra` was not exercised on the real command this procurement** — only `-stub-run`
-  on the CI test data was run with `ultra` (and it hit the waived `ULTRA_INDEX` gap; see
-  `config/pipelines.tsv`/`pipeline-selection.md` §4.16/`runbook.md` §4). A real `ultra` run,
-  with a real `--gtf`, is unvalidated.
+- **`aligner: ultra` was not exercised on this procurement's own real-sample command** (which
+  used the stocked `aligner: minimap2`) — but the mandatory full `-profile test,docker` gate
+  (`references/new-pipeline.md` §2.4(c), initially skipped and added after Codex review, PR #40,
+  round 2) DOES exercise `ultra` (the CI test profile's own default) end to end, non-stub, and
+  it **passed cleanly**: `succeededCount=19 failedCount=0 cachedCount=26`, `ULTRA_INDEX`
+  completed in ~62 min wall clock (dominated by `gffutils` GTF database creation over the
+  combined chr13/18/19 GTF's 55,652 features — a real, measured cost, not a hang), a real
+  `--gtf` consumed throughout. The `-stub-run` `ULTRA_INDEX` failure documented in
+  `pipelines.tsv`/`runbook.md` §4 (8th departure) is confirmed stub-only: it does not recur in
+  the real (non-stub) run. `ultra` against a REAL SAMPLE (not the CI fixture) is still
+  unexercised by this procurement.
 - **`entrypoint: map` was not exercised at all this procurement** — no suitable public FLNC
   input was found or manufactured (see "Bounded choices" above).
 - **No CADD/VEP/annotation-style enrichment of the output BED** — isoseq produces a raw

@@ -65,13 +65,15 @@ alone. This keeps the real-sample run to fasta + primers only, no annotation fil
 ## Reference
 **New manifest rows, not the existing `genomes/GRCh38` build.** isoseq's own CI test data (see
 "Real sample" below) is a real, PacBio-published 1% subread subsample restricted to human
-chr19/13/18 reads, paired with an **Ensembl-numbered** (`19`, not `chr19`), release-104,
-chr19/13/18-only FASTA+GTF slice — a different accession stream and chromosome-naming
-convention from the UCSC-style, chr-prefixed `genomes/GRCh38/fasta/genome.fa` already in
-`config/refs.manifest.tsv`. Reusing the full hg38 build would (a) silently break minimap2
-mapping against chr19-restricted reads that carry no `chr` prefix, and (b) cost ~15-20x more
-mapping time against sequence that contains none of the source reads' true origin outside
-chr13/18/19. Stocked instead as new rows `genomes/GRCh38_chr1318_19/{fasta,gtf}/...`, `fetch`
+chr19/13/18 reads, paired with an **Ensembl-numbered** (`19`, not `chr19`), release-104
+FASTA+GTF pair — the FASTA is chr19 sequence ONLY, the GTF covers chr13+chr18+chr19 (upstream's
+own CI pairing; a chr13/chr18 read has no target sequence to align to at all under this fasta,
+capping the achievable mapping rate, not a naming issue) — a different accession stream and
+chromosome-naming convention from the UCSC-style, chr-prefixed `genomes/GRCh38/fasta/genome.fa`
+already in `config/refs.manifest.tsv`. Reusing the full hg38 build would (a) silently break
+minimap2 mapping against reads that carry no `chr` prefix, and (b) cost far more mapping time
+against sequence outside chr19 that none of the source reads that CAN map originate from.
+Stocked instead as new rows `genomes/GRCh38_isoseq_chr19/{fasta,gtf}/...`, `fetch`
 mode, sourced directly from the nf-core/test-datasets `isoseq` branch (same URLs `conf/test.config`
 uses) — see `config/refs.manifest.tsv` diff. Sizes: fasta 59,594,634 B (~57 MB), gtf
 76,298,435 B (~73 MB), both already gzip-free plain text per the CI config. Well under the

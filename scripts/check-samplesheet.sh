@@ -576,20 +576,26 @@ elif [[ -n "$REQ" ]]; then
         [[ -z "$WS" ]] || fail "isoseq: $NAME value(s) contain whitespace (schema pattern ^\\S+... forbids it) on row(s): $WS"
       done
       # schema patterns: bam ^\S+\.bam$|^None$ ; pbi ^\S+\.bam\.pbi$|^None$ ; reads ^\S+\.fa\.gz$|^None$
+      # An EMPTY cell in a present column is not a valid value under either branch of the
+      # pattern -- only an exact 'None' or a matching path satisfies it -- so the awk condition
+      # must NOT exclude $i=="" from BAD (Codex review, PR #40, round 2, P1: the previous
+      # `$i!=""` guard silently treated a blank cell the same as 'None' here, and the shape
+      # check below also reads blank as unset, so a sheet with all source headers present but
+      # an unused cell left blank instead of literally 'None' printed PASS).
       if [[ -n "$BMI" ]]; then
-        BAD=$(awk -F, -v i="$BMI" 'NR>1 && $i!="" && $i!="None" && $i !~ /\.bam$/ {print NR-1}' "$TMP" | paste -sd' ' -)
+        BAD=$(awk -F, -v i="$BMI" 'NR>1 && $i!="None" && $i !~ /\.bam$/ {print NR-1}' "$TMP" | paste -sd' ' -)
         [[ -z "$BAD" ]] && ok "isoseq: bam values match .bam or 'None'" \
-                        || fail "isoseq: bam value(s) not matching ^\\S+\\.bam\$ or 'None' (schema pattern) on row(s): $BAD"
+                        || fail "isoseq: bam value(s) not matching ^\\S+\\.bam\$ or the literal 'None' (schema pattern -- an empty cell does not satisfy either branch) on row(s): $BAD"
       fi
       if [[ -n "$PBI" ]]; then
-        BAD=$(awk -F, -v i="$PBI" 'NR>1 && $i!="" && $i!="None" && $i !~ /\.bam\.pbi$/ {print NR-1}' "$TMP" | paste -sd' ' -)
+        BAD=$(awk -F, -v i="$PBI" 'NR>1 && $i!="None" && $i !~ /\.bam\.pbi$/ {print NR-1}' "$TMP" | paste -sd' ' -)
         [[ -z "$BAD" ]] && ok "isoseq: pbi values match .bam.pbi or 'None'" \
-                        || fail "isoseq: pbi value(s) not matching ^\\S+\\.bam\\.pbi\$ or 'None' (schema pattern -- a plain samtools .bai does NOT satisfy this) on row(s): $BAD"
+                        || fail "isoseq: pbi value(s) not matching ^\\S+\\.bam\\.pbi\$ or the literal 'None' (schema pattern -- a plain samtools .bai does NOT satisfy this, and neither does an empty cell) on row(s): $BAD"
       fi
       if [[ -n "$RDI" ]]; then
-        BAD=$(awk -F, -v i="$RDI" 'NR>1 && $i!="" && $i!="None" && $i !~ /\.fa\.gz$/ {print NR-1}' "$TMP" | paste -sd' ' -)
+        BAD=$(awk -F, -v i="$RDI" 'NR>1 && $i!="None" && $i !~ /\.fa\.gz$/ {print NR-1}' "$TMP" | paste -sd' ' -)
         [[ -z "$BAD" ]] && ok "isoseq: reads values match .fa.gz or 'None'" \
-                        || fail "isoseq: reads value(s) not matching ^\\S+\\.fa\\.gz\$ or 'None' (schema pattern -- must be the FLNC output of the isoseq entrypoint, not raw CCS/HiFi reads) on row(s): $BAD"
+                        || fail "isoseq: reads value(s) not matching ^\\S+\\.fa\\.gz\$ or the literal 'None' (schema pattern -- must be the FLNC output of the isoseq entrypoint, not raw CCS/HiFi reads, and an empty cell does not satisfy either branch) on row(s): $BAD"
       fi
       # bam/pbi must appear together (both real, or both 'None') on every row -- a row with a
       # real bam but pbi='None' (or vice versa) passes the two pattern checks above individually
