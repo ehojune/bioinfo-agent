@@ -67,17 +67,22 @@ alone. This keeps the real-sample run to fasta + primers only, no annotation fil
 "Real sample" below) is a real, PacBio-published 1% subread subsample restricted to human
 chr19/13/18 reads, paired with an **Ensembl-numbered** (`19`, not `chr19`), release-104
 FASTA+GTF pair — the FASTA is chr19 sequence ONLY, the GTF covers chr13+chr18+chr19 (upstream's
-own CI pairing; a chr13/chr18 read has no target sequence to align to at all under this fasta,
-capping the achievable mapping rate, not a naming issue) — a different accession stream and
-chromosome-naming convention from the UCSC-style, chr-prefixed `genomes/GRCh38/fasta/genome.fa`
-already in `config/refs.manifest.tsv`. Reusing the full hg38 build would (a) silently break
-minimap2 mapping against reads that carry no `chr` prefix, and (b) cost far more mapping time
-against sequence outside chr19 that none of the source reads that CAN map originate from.
+own CI pairing). **The chr-prefix naming mismatch is not actually a mapping-correctness issue**
+(Codex review, PR #40, round 3, corrected a prior wrong claim in this file): these are raw,
+unaligned PacBio subreads carrying sequence, not contig-name references, so minimap2 would map
+them against the full chr-prefixed `genomes/GRCh38/fasta/genome.fa` just as well, chr13/18
+included — reusing the full hg38 build would NOT silently break anything. The chr19-only
+reference is used instead purely for cost and provenance reasons: it is a fraction of the size
+(well under the ~10 GB silent-download line) and is exactly upstream's own CI test-config
+pairing, so the CI-derived "alz" real sample gets aligned against the same reference upstream
+itself validates it against. The accepted tradeoff is real and explicit: a chr13/chr18 read has
+no target sequence at all under this chr19-only fasta, which caps the achievable mapping rate —
+that is a deliberate scope limitation for this validation run, not a defect. A future run
+wanting full chr13/18 coverage should point at the existing full `genomes/GRCh38` build instead.
 Stocked instead as new rows `genomes/GRCh38_isoseq_chr19/{fasta,gtf}/...`, `fetch`
 mode, sourced directly from the nf-core/test-datasets `isoseq` branch (same URLs `conf/test.config`
 uses) — see `config/refs.manifest.tsv` diff. Sizes: fasta 59,594,634 B (~57 MB), gtf
-76,298,435 B (~73 MB), both already gzip-free plain text per the CI config. Well under the
-~10 GB silent-download line.
+76,298,435 B (~73 MB), both already gzip-free plain text per the CI config.
 
 ## Real sample
 Sample count: 1. **`alz.1perc.subreads.10000.bam`** — the nf-core/isoseq project's own CI test
@@ -146,7 +151,9 @@ future isoseq run.
 
 ## Post-launch addendum — `--chunk` finding
 The first launch used the pipeline's own `--chunk 40` default. Against this input's 531 ZMWs
-(~106-107 per would-be chunk), 29 of 40 per-chunk `GSTAMA_COLLAPSE` outputs came out empty and
+(~13 per would-be chunk at `--chunk 40` — too few for `GSTAMA_COLLAPSE` to find any transcripts
+in most chunks; the eventual working `--chunk 5` gives ~106 ZMWs/chunk instead), 29 of 40
+per-chunk `GSTAMA_COLLAPSE` outputs came out empty and
 `GSTAMA_MERGE` crashed reading the first one. Fixed with `--chunk 5` (matching
 `conf/test.config`'s own value for the identical bam) and a `-resume` relaunch, which completed
 cleanly. `params.yaml`/`cmd.sh` in this directory reflect the corrected `--chunk 5` value. See

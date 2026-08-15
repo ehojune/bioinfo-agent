@@ -77,13 +77,17 @@ my default, stated in `pipeline-selection.md` §4.16). No sample flagged/exclude
   fixture, `ERR8606831`, 91.3 GB submitted). Full search record in `plan.md`. This dataset is
   itself real, non-synthetic PacBio data, not a synthetic CI-only construct.
 - **New reference rows (`genomes/GRCh38_isoseq_chr19/`), not the existing chr-prefixed
-  `genomes/GRCh38` build**: the real-sample reads are restricted to Ensembl-numbered (no `chr`
-  prefix) sequence; reusing the full UCSC-style hg38 build would silently break mapping on the
-  naming mismatch and cost far more mapping time. **The stocked fasta is chr19 sequence ONLY**
-  (Codex review, PR #40, round 2, corrected an earlier misleading directory name) — a chr13/chr18
-  read in this "alz" subset has no target sequence to align to at all under this fasta, which
-  caps the achievable mapping rate for this reference choice regardless of naming; it is not a
-  contig-naming artifact that `--aligner ultra` or the paired chr13/18/19 GTF could fix. Undo:
+  `genomes/GRCh38` build**: the real-sample reads are raw, unaligned subreads paired here with
+  the CI-matched, Ensembl-numbered (no `chr` prefix) reference for cost/provenance reasons, not
+  because reusing the full UCSC-style hg38 build would break mapping (Codex review, PR #40,
+  round 3: an earlier version of this note wrongly claimed a naming mismatch would silently
+  break minimap2 mapping — it would not, since raw subreads carry sequence, not contig-name
+  references). **The stocked fasta is chr19 sequence ONLY** (Codex review, PR #40, round 2,
+  corrected an earlier misleading directory name) — a chr13/chr18 read in this "alz" subset has
+  no target sequence to align to at all under this fasta, which caps the achievable mapping rate
+  for this reference choice; it is not a contig-naming artifact that `--aligner ultra` or the
+  paired chr13/18/19 GTF could fix, and a future run wanting chr13/18 coverage should point at
+  the existing full `genomes/GRCh38` build instead. Undo:
   fetch the full three-chromosome or whole-genome fasta if chr13/18 coverage is ever needed; a
   future isoseq run against a different organism/build needs its own reference choice regardless.
 - **Stale published outputs from the abandoned `--chunk 40` attempt were removed from

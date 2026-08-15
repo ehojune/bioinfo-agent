@@ -1683,9 +1683,14 @@ the stocked minimap2 default needs no GTF at all.
 **Reference-store paths:** `--fasta`, standard manifest path. No prebuilt index required for
 minimap2 (built in-run). This procurement added `genomes/GRCh38_isoseq_chr19/fasta/genome.fa` +
 `.../gtf/genes.gtf` — **not** the existing chr-prefixed `genomes/GRCh38/fasta/genome.fa` — because
-the real-sample reads (see below) are a subset restricted to Ensembl-numbered (no `chr` prefix)
-sequence; reusing the full UCSC-style hg38 build would silently break mapping on the naming
-mismatch and cost far more mapping time. **The fasta is chr19 sequence ONLY** — despite the
+the real-sample reads (see below) are raw, unaligned PacBio subreads paired here with the
+CI-matched, Ensembl-numbered (no `chr` prefix) reference — **not** because reusing the full
+UCSC-style hg38 build would break minimap2 mapping (Codex review, PR #40, round 3: an earlier
+version of this note wrongly claimed a chr-prefix naming mismatch would silently break mapping;
+raw subreads carry sequence, not contig-name references, so minimap2 would map them against
+either build just as well) — but for cost/provenance: the chr19-only reference is a small
+fraction of the size and is exactly upstream's own CI test-config pairing. **The fasta is chr19
+sequence ONLY** — despite the
 directory name mentioning "isoseq" broadly and the paired GTF covering chr13+chr18+chr19 (Codex
 review, PR #40, round 2: an earlier `GRCh38_chr1318_19` name incorrectly implied three-chromosome
 fasta coverage) — a chr13/chr18 read in the "alz" real-sample subset has no target sequence to
@@ -1761,8 +1766,8 @@ fixture, `ERR8606831`, 91.3 GB submitted — see `runs/20260814-isoseq-alz-chr19
 full search record).
 
 **Real (non-stub) bug hit on the first launch, load-bearing for `--chunk`.** Left at the
-pipeline's own default (`--chunk 40`) against a dataset with only 531 ZMWs total (~106-107 per
-would-be chunk), 29 of the 40 per-chunk `GSTAMA_COLLAPSE` outputs came out empty (zero reads
+pipeline's own default (`--chunk 40`) against a dataset with only 531 ZMWs total (~13 per
+would-be chunk — 106-107/chunk is the figure for the working `--chunk 5`), 29 of the 40 per-chunk `GSTAMA_COLLAPSE` outputs came out empty (zero reads
 survived mapping/collapse in that chunk), and `GSTAMA_MERGE`'s `tama_merge.py` crashed reading
 the first empty bed (`IndexError: list index out of range` at line 1 of a blank file) —
 `completed=12 failed=1` before the crash. Confirmed real, not a stub artifact: reproduced by

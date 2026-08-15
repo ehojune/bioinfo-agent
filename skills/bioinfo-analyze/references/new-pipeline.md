@@ -2,7 +2,7 @@
 
 The stocked set is the row set of `config/pipelines.tsv`: rnaseq, differentialabundance, fetchngs,
 sarek, methylseq, atacseq, chipseq, cutandrun, scrnaseq, ampliseq, mag, taxprofiler, nanoseq,
-raredisease, rnasplice. Anything else goes through
+raredisease, rnasplice, isoseq. Anything else goes through
 this procedure before it touches real data. The
 procedure exists because the expensive failure is not "no pipeline exists" — it is committing to an
 unmaintained pipeline, discovering at hour six that it needs a reference nobody has, and having no
