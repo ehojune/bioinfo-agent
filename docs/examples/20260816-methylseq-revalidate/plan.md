@@ -30,7 +30,7 @@ per `estimates.md`) just to confirm the pin still works. Three checks, escalatin
    silently drifted and that shared config (`local.config`, `genomes.config`) still merges cleanly.
 2. `-stub-run` on `-profile test,docker` — exercises process wiring against the pipeline's own tiny
    CI fixture (not our real data), cheap and fast.
-3. **Full non-stub `-profile test,doc300ker` run — the gate, not skipped.** Uses the pipeline's
+3. **Full non-stub `-profile test,docker` run — the gate, not skipped.** Uses the pipeline's
    built-in CI test data (small, synthetic, downloaded by the pipeline itself, not from this repo's
    own ~10 GB budget). Confirms the pipeline actually executes end-to-end under Docker on this host
    right now, independent of our own reference store.

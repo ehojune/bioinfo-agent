@@ -667,10 +667,13 @@ the crash on the real samplesheet's 2-sample stub, `completed=9 failed=0` on the
 fixture. No substitute-input workaround possible, same reasoning as bacass's `UNICYCLER`. The
 real (non-stub) script path is unaffected — confirmed by a full `-profile test,docker` run
 (`completed=36 failed=0`, `BISMARK_SUMMARY` and `MULTIQC` both succeed) and a real-sample
-`-resume` run, both 2026-08-16. **Waived, 10th documented departure** — `-preview` is not
-separately needed here (the real command's own full non-stub `-profile test,docker` run is what
-proves the pipeline, per `new-pipeline.md` §2.4c); see `pipeline-selection.md` §4.5 for the full
-writeup.
+`-resume` run, both 2026-08-16. **Waived, 10th documented departure** — same as every prior case,
+this waives `-stub-run` only, not `-preview`: run `-preview` against the real command and real
+samplesheet as usual (it resolves params and the DAG without executing anything, so it is
+unaffected by this stub-mode-only bug and stays the pre-launch gate exactly as it does for
+bacass's `UNICYCLER` case above); the full non-stub `-profile test,docker` run is what then
+proves the pipeline actually executes, per `new-pipeline.md` §2.4c. See `pipeline-selection.md`
+§4.5 for the full writeup.
 
 ---
 
