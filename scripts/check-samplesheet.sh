@@ -787,14 +787,24 @@ elif [[ -n "$REQ" ]]; then
     # the taxprofiler/mag/raredisease "no read source" pattern -- this is a per-row check, not a
     # per-column one, since a sheet can have the R1/LongFastQ columns present with only some
     # rows actually empty.
-    if [[ -n "$R1I$LFI" ]]; then
-      NOSRC=$(awk -F, -v r1="${R1I:-0}" -v lf="${LFI:-0}" \
-                'NR>1 && (r1==0||$r1==""||$r1=="NA") && (lf==0||$lf==""||$lf=="NA") {print NR-1}' \
-                "$TMP" | paste -sd' ' -)
-      [[ -z "$NOSRC" ]] && ok "bacass: every row has R1 and/or LongFastQ (a read source)" \
-                        || fail "bacass: row(s) with neither R1 nor LongFastQ populated (schema accepts this silently -- nothing for the pipeline to assemble for that row): $NOSRC"
+    #
+    # This checker has no way to see --assembly_type -- it is a pipeline-wide run param, not a
+    # sheet column, and this script only ever sees the CSV. The generic "R1 or LongFastQ"
+    # check below is therefore necessarily loose: it passed a LongFastQ-only sheet even though
+    # this REPO's only stocked bacass configuration is assembly_type: short
+    # (config/pipelines.tsv), which needs R1 specifically and ignores LongFastQ entirely
+    # (confirmed by reading workflows/bacass.nf's assembly_type-gated channel construction) --
+    # a LongFastQ-only sheet run against this repo's stocked flags has NO usable read input at
+    # all, not merely a degraded one (Codex review, PR #41, round 5, P2: reproduced PASS with
+    # `ID,LongFastQ` and a valid URL). Enforce R1 specifically, matching the actual scope this
+    # repo runs -- if a future procurement extends stocked scope to long/hybrid, this check
+    # needs revisiting alongside that scope change, not left silently over-strict.
+    if [[ -n "$R1I" ]]; then
+      NOSRC=$(awk -F, -v r1="$R1I" 'NR>1 && ($r1==""||$r1=="NA") {print NR-1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$NOSRC" ]] && ok "bacass: every row has R1 populated (this repo's stocked assembly_type: short needs it)" \
+                        || fail "bacass: row(s) with R1 empty/NA -- this repo's stocked configuration is assembly_type: short, which needs R1 regardless of LongFastQ: $NOSRC"
     else
-      fail "bacass: sheet has neither an R1 nor a LongFastQ column at all -- no read source for any row"
+      fail "bacass: sheet has no R1 column at all -- this repo's stocked configuration is assembly_type: short, which needs R1 (a LongFastQ-only sheet has no usable read source under that scope)"
     fi
 
     # R2 without R1: short-read mate pairing implies R1 must also be set whenever R2 is. An
