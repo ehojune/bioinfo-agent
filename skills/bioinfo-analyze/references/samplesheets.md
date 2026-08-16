@@ -887,6 +887,19 @@ no error either time). `scripts/check-samplesheet.sh --pipeline bacass` does not
 row. Same class of gap as taxprofiler/mag/raredisease's "no read source" rows —
 `check-samplesheet.sh` FAILs this per row, the schema does not.
 
+**`check-samplesheet.sh --pipeline bacass` enforces `R1` specifically, not "R1 or LongFastQ" —
+this is a repo-scope rule layered on top of the pipeline's own looser schema, not the schema
+itself.** The upstream schema is satisfied by `R1` alone, `LongFastQ` alone, or both (any
+combination that is not all-`NA`/all-empty). But the checker has no way to see
+`--assembly_type` (a pipeline-wide run param, not a sheet column), and this repo's **only
+stocked bacass configuration is `assembly_type: short`** (`config/pipelines.tsv`), which needs
+`R1` and never consumes `LongFastQ` at all (confirmed by reading `workflows/bacass.nf`'s
+`assembly_type`-gated channel construction). A `LongFastQ`-only sheet therefore validates
+against the upstream schema but is **rejected by this repo's checker** — it has no usable read
+source under the only scope this repo actually runs. A future procurement that stocks
+`assembly_type: long` or `hybrid` would need to revisit this check alongside that scope change,
+not assume the current strict-R1 behavior still applies.
+
 **`GenomeSize` without a trailing `m` fails as a TYPE mismatch, not just a pattern mismatch.**
 A bare decimal cell like `2.8` (no `m` suffix) gets parsed by the CSV reader as a numeric value,
 and the schema expects a string — confirmed via `-preview`: `Value is [number] but should be

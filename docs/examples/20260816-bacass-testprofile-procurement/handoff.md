@@ -3,8 +3,10 @@
 **Inputs**       2 samples (3 rows, ID `ERR044595` repeated across two read pairs — the
                  pipeline's own CI re-sequencing-merge fixture), short-read paired-end,
                  samplesheet: `/mnt/d/bioinfo-agent/runs/20260816-bacass-testprofile-procurement/samplesheet.csv`
-                 (tab-delimited reference copy of the CI fixture; not actually consumed —
-                 `-profile test` supplies its own `--input` via `conf/test.config`)
+                 (comma-delimited reference copy of the CI fixture's content, converted from
+                 the pipeline's own tab-delimited `.tsv` per Codex review round 6 — not actually
+                 consumed at launch, `-profile test` supplies its own `--input` via
+                 `conf/test.config`, but now passes both mandatory gates cleanly on its own)
 **Reference**    none (de novo assembly, no reference genome used)
 **Command**      `/mnt/d/bioinfo-agent/runs/20260816-bacass-testprofile-procurement/cmd.sh`
 **Wall clock**   ~13m8s (08:18:18 - 08:31:26)   **Peak disk**  work dir 1.3 GB, results 123 MB
@@ -27,21 +29,21 @@ real-sample run's handoff for measured assembly/annotation QC numbers.
 - Ran `-stub-run` first (failed at `UNICYCLER`, a genuine upstream module bug: its `stub:` block
   hardcodes `cat ""`), then confirmed the full test-profile gate passes clean before treating the
   stub failure as waivable — order matters here, per SKILL.md.
-- Did not modify the samplesheet.csv committed to this run dir to be comma-delimited (it is a
-  reference copy of the pipeline's own tab-delimited CI fixture, undisturbed); the actual
-  comma-delimited format requirement for a real `.csv`-named samplesheet is documented in
-  `config/pipelines.tsv` and exercised on the real-sample run instead.
+- Converted the samplesheet.csv committed to this run dir from the pipeline's own tab-delimited
+  CI fixture to comma-delimited (same content, same URLs) after Codex review round 6 pointed
+  out that a `.csv`-named file which is not actually comma-parseable fails both mandatory gates
+  regardless of whether `cmd.sh` consumes it — SKILL.md makes both gates mandatory "before
+  launch" with no carve-out for a reference-only sheet. The comma-delimited format requirement
+  itself is documented in `config/pipelines.tsv`.
 
 ## Known gaps
-- `bin/preflight.sh`'s generic samplesheet checks assume comma-delimited CSV. This run dir's
-  reference samplesheet.csv is a **tab-delimited** copy of the CI fixture (undisturbed on
-  purpose — see "Bounded choices" above), so `preflight.sh`'s comma-splitting still reports 3
-  "input MISSING" FAILs against it — expected and harmless, since cmd.sh never passes `--input`
-  for this run (`-profile test` supplies its own). **Fixed, separately**: `preflight.sh`'s
-  generic local-path existence check (`[ -e "$p" ]` against every `/`-bearing field) previously
-  hard-failed any *comma-delimited* bacass sheet using bacass's legal `http(s)://` URL values
-  too — fixed in this PR (Codex review round 4) to recognize and skip remote URLs instead of
-  treating them as missing local files; verified against a synthetic comma-delimited URL sheet.
+- `bin/preflight.sh`'s generic local-path existence check (`[ -e "$p" ]` against every
+  `/`-bearing field) previously hard-failed any comma-delimited bacass sheet using bacass's
+  legal `http(s)://` URL values — fixed in this PR (Codex review round 4) to recognize and note
+  (not fail) remote URLs instead of treating them as missing local files; verified against a
+  synthetic comma-delimited URL sheet and against this run dir's own (now comma-delimited)
+  samplesheet.csv, which passes both `check-samplesheet.sh` and `preflight.sh` cleanly
+  (0 failures each).
 - Long-read/hybrid assembly, Bakta/DFAST/Liftoff annotation, Kraken2/KmerFinder contamination
   screening not exercised this procurement — see `config/pipelines.tsv` and
   `pipeline-selection.md` §4.17 for the full out-of-scope list.

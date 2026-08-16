@@ -1815,12 +1815,20 @@ clone holds only `csv_to_yaml.py`/`find_common_reference.py`/`kmerfinder_summary
 `multiqc_to_custom_csv.py` — none a samplesheet validator. Confirmed by reading that
 subworkflow file directly.
 
-**Minimum input:** `ID` (schema's only `required[]` field) plus at least one of `R1`
-(short-read mate 1, pairs with optional `R2`) or `LongFastQ` (ONT long reads) — the schema
-itself does **not** enforce this "at least one read source" rule (an all-`NA` row validates
-cleanly, confirmed via `-preview`), so `scripts/check-samplesheet.sh --pipeline bacass` checks
-it explicitly. See `samplesheets.md` for the full column table, the comma-vs-tab delimiter
-finding, and the `NA`/empty-string placeholder convention.
+**Minimum input, at the upstream schema level:** `ID` (schema's only `required[]` field) plus
+at least one of `R1` (short-read mate 1, pairs with optional `R2`) or `LongFastQ` (ONT long
+reads) — the schema itself does **not** enforce even this "at least one read source" rule (an
+all-`NA` row validates cleanly, confirmed via `-preview`).
+
+**Minimum input, for THIS REPO'S stocked scope specifically:** `R1` is required, full stop.
+`scripts/check-samplesheet.sh --pipeline bacass` enforces `R1` directly, not the looser
+"R1 or LongFastQ" the upstream schema would allow — because this repo's only stocked
+configuration is `assembly_type: short` (see Scope below), which needs `R1` and never consumes
+`LongFastQ` at all. A `LongFastQ`-only sheet is schema-valid upstream but will be **rejected by
+this repo's checker**, since it has no usable read source under the only scope this repo
+actually runs; a future procurement stocking `long`/`hybrid` would need to revisit that check
+alongside the scope change. See `samplesheets.md` for the full column table, the comma-vs-tab
+delimiter finding, and the `NA`/empty-string placeholder convention.
 
 **Parameters that matter:** `--assembly_type` (`short`/`long`/`hybrid`, no default — selects
 which read-source columns are actually consumed) and `--assembler` (comma-list; the workflow
