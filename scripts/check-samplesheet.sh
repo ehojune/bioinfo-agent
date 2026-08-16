@@ -672,10 +672,30 @@ elif [[ -n "$REQ" ]]; then
     IDI=$(colidx ID); R1I=$(colidx R1); R2I=$(colidx R2); LFI=$(colidx LongFastQ)
     F5I=$(colidx Fast5); GSI=$(colidx GenomeSize)
 
+    # ID: schema pattern is ^\S+$ -- whitespace fails validation even though ID is otherwise
+    # free-form and non-empty (Codex review, PR #41, round 1, P2: IDI was collected but never
+    # actually checked here, and the generic section-5 identifier loop only covers
+    # sample/group/patient/sampleID, not the uppercase ID column bacass actually uses -- a
+    # whitespace-bearing ID previously passed this checker only to be rejected by nf-schema).
+    if [[ -n "$IDI" ]]; then
+      BADID=$(awk -F, -v i="$IDI" 'NR>1 && $i ~ /[[:space:]]/ {print NR-1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$BADID" ]] && ok "bacass: ID values contain no whitespace (schema pattern ^\\S+\$)" \
+                        || fail "bacass: ID value(s) contain whitespace (schema pattern ^\\S+\$ forbids it) on row(s): $BADID"
+    fi
+
     # column-value checks: whitespace anywhere fails the schema's \S+-based patterns even when
     # the suffix/shape otherwise matches (same shape as raredisease/isoseq's whitespace gaps).
     # 'NA' and '' are the two schema-legal "not supplied" spellings for R1/R2/LongFastQ/Fast5;
     # anything else must match that column's own suffix/shape pattern.
+    #
+    # The pattern is passed through awk's -v, which -- like a string literal in an awk program
+    # -- runs its own backslash-escape processing on the VALUE (Codex review, PR #41, round 1,
+    # P2): an unrecognised escape such as \. is silently reduced to a bare . (a wildcard, not a
+    # literal dot), so `\.f(ast)?q\.gz$` arrived inside awk as `.f(ast)?q.gz$` and something like
+    # "https://x/aXfastqYgz" wrongly matched and passed. Doubling the backslashes here
+    # (`\\.` -> awk's -v unescaping turns `\\` into a single `\`, yielding the literal `\.` the
+    # regex actually needs) round-trips correctly -- verified by re-running the same negative
+    # case below after this fix.
     bacass_field_check() {
       local col="$1" idx="$2" pattern="$3" label="$4"
       [[ -n "$idx" ]] || return 0
@@ -690,13 +710,31 @@ elif [[ -n "$REQ" ]]; then
       [[ -z "$bad" ]] && ok "bacass: $col values match $label or NA/empty" \
                       || fail "bacass: $col value(s) not matching $label, empty, or the literal 'NA' on row(s): $bad"
     }
-    bacass_field_check R1 "$R1I" '\.f(ast)?q\.gz$' '.fq.gz/.fastq.gz'
-    bacass_field_check R2 "$R2I" '\.f(ast)?q\.gz$' '.fq.gz/.fastq.gz'
-    bacass_field_check LongFastQ "$LFI" '\.f(ast)?q\.gz$' '.fq.gz/.fastq.gz'
+    bacass_field_check R1 "$R1I" '\\.f(ast)?q\\.gz$' '.fq.gz/.fastq.gz'
+    bacass_field_check R2 "$R2I" '\\.f(ast)?q\\.gz$' '.fq.gz/.fastq.gz'
+    bacass_field_check LongFastQ "$LFI" '\\.f(ast)?q\\.gz$' '.fq.gz/.fastq.gz'
+    # Fast5: a path to a directory of FAST5 files (used for long-read polishing). Beyond the
+    # absolute-path shape check, verify local paths actually exist and (for a directory) are
+    # non-empty -- otherwise a nonexistent path like /definitely/not/here previously passed as
+    # PASS here only to fail once the pipeline tries to consume it (Codex review, PR #41,
+    # round 1, P2). Same existence/non-empty-directory pattern as nanoseq's input_file check.
     if [[ -n "$F5I" ]]; then
-      bad=$(awk -F, -v i="$F5I" 'NR>1 && $i!="" && $i!="NA" && $i !~ /^\// {print NR-1}' "$TMP" | paste -sd' ' -)
-      [[ -z "$bad" ]] && ok "bacass: Fast5 values are absolute paths or NA/empty" \
-                      || fail "bacass: Fast5 value(s) not an absolute path, empty, or 'NA' on row(s): $bad"
+      while IFS= read -r P; do
+        [[ -n "$P" && "$P" != "NA" ]] || continue
+        if [[ "$P" != /* ]]; then
+          fail "Fast5: not an absolute path or the literal 'NA': $P"
+          continue
+        fi
+        if [[ -d "$P" ]]; then
+          [[ -n "$(find -L "$P" -mindepth 1 -type f -print -quit 2>/dev/null)" ]] \
+            || fail "Fast5: directory has no files: $P"
+        elif [[ -e "$P" ]]; then
+          [[ -r "$P" ]] || fail "Fast5: not readable: $P"
+        else
+          fail "Fast5: path does not exist: $P"
+        fi
+      done < <(awk -F, -v i="$F5I" 'NR>1{print $i}' "$TMP")
+      ok "Fast5: local absolute paths checked for existence/readability"
     fi
     if [[ -n "$GSI" ]]; then
       bad=$(awk -F, -v i="$GSI" 'NR>1 && $i!="" && $i!="NA" && $i !~ /^[0-9]+\.[0-9]+m$/ {print NR-1}' "$TMP" | paste -sd' ' -)
