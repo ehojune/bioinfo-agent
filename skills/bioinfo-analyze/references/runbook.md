@@ -14,14 +14,14 @@ Docker **engine** inside the distro, distro ext4 on `D:\wsl\ubuntu-24.04\ext4.vh
 2. Write the run plan to `$RUNDIR/plan.md`. Get approval if the estimate exceeds 24 h.
 3. Write `samplesheet.csv`, `params.yaml`, `cmd.sh` into `$RUNDIR`.
 4. Preflight. Any FAIL is a hard stop.
-5. `-preview`, then `-stub-run`. Both must be clean — with exactly nine documented departures, the
+5. `-preview`, then `-stub-run`. Both must be clean — with exactly ten documented departures, the
    rnaseq `strandedness: auto` waived stub failure, the differentialabundance `--features`
    substitute stub, the sarek `haplotypecaller_filter` skip, the ampliseq `CUTADAPT_BASIC` true
    waiver, the mag `UNTAR`/local-modules-without-stubs finding, the nanoseq
    `SAMTOOLS_IDXSTATS`/`SAMTOOLS_FLAGSTAT` true waiver, the rnasplice
    `GTF_GENE_FILTER`/`RSEM_PREPAREREFERENCE` true waiver, the isoseq `ULTRA_INDEX` true waiver
-   (confined to the `aligner: ultra` branch this repo does not stock), and the bacass `UNICYCLER`
-   true waiver, all defined in section 4.
+   (confined to the `aligner: ultra` branch this repo does not stock), the bacass `UNICYCLER`
+   true waiver, and the methylseq `BISMARK_SUMMARY` true waiver, all defined in section 4.
 6. Launch on ext4 with reports and `-resume`, always through `tmux` (mandatory, not optional).
 7. Monitor the trace, not the terminal.
 8. On completion: read MultiQC, rsync results out to `/mnt/d`, write the handoff.
@@ -645,6 +645,31 @@ directly. No substitute-input workaround possible — there is no shortreads/lon
 input that fixes a hardcoded `cat ""`. **Waived, 9th documented departure** — `-preview` (clean)
 is the pre-launch gate; the full (non-stub) `-profile test,docker` command is what actually
 proves this pipeline, see `pipeline-selection.md` §4.17 and `config/pipelines.tsv` for the full
+writeup.
+
+**`nf-core/methylseq`, `-stub-run`, and `BISMARK_SUMMARY` — a true waiver, upstream module
+authoring bug, same shape as bacass's `UNICYCLER` (the failing process's own stub script is
+malformed, not a downstream-reads-an-empty-placeholder gap).** First observed 2026-08-05
+(`20260805-methylseq-sle-rrbs-smoke`, real samplesheet) but not written down at the time;
+reconfirmed and documented 2026-08-16 (`20260816-methylseq-revalidate`) against this pin's
+`3.0.0`, on **both** the CI `-profile test,docker` config and the real RRBS samplesheet.
+`modules/nf-core/bismark/summary/main.nf` declares `input: val(bam)` — always a list, since this
+process collects every sample's BAM into one call (`script:` correctly uses `${bam.join(' ')}`)
+— but its `stub:` block reads:
+```
+def prefix = task.ext.prefix ?: "${bam.baseName()}"
+```
+`.baseName()` is not a method on `nextflow.util.ArrayBag`, so the stub errors unconditionally
+regardless of sample count or input shape: `No signature of method:
+nextflow.util.ArrayBag.baseName() is applicable for argument types: () values: []`. Every
+upstream process (FASTQC through BISMARK_REPORT) succeeds first — `completed=25 failed=0` before
+the crash on the real samplesheet's 2-sample stub, `completed=9 failed=0` on the 4-sample CI
+fixture. No substitute-input workaround possible, same reasoning as bacass's `UNICYCLER`. The
+real (non-stub) script path is unaffected — confirmed by a full `-profile test,docker` run
+(`completed=36 failed=0`, `BISMARK_SUMMARY` and `MULTIQC` both succeed) and a real-sample
+`-resume` run, both 2026-08-16. **Waived, 10th documented departure** — `-preview` is not
+separately needed here (the real command's own full non-stub `-profile test,docker` run is what
+proves the pipeline, per `new-pipeline.md` §2.4c); see `pipeline-selection.md` §4.5 for the full
 writeup.
 
 ---

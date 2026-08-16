@@ -93,7 +93,7 @@ Do them in order. Do not skip step 3 or step 4.
    samplesheet. Neither substitutes for the other: `-preview` resolves params and the DAG without
    running anything, `-stub-run` exercises the process wiring. A stub run that fails is a real
    failure — fix it, do not "try it for real and see". `references/runbook.md` section 4.
-   **Nine documented departures from "stub the real command as-is," and only these nine —
+   **Ten documented departures from "stub the real command as-is," and only these ten —
    `references/runbook.md` section 4 is the canonical list, do not generalise beyond it:**
    - **A true waiver** (the failing stub is accepted, not avoided): an rnaseq samplesheet with
      `strandedness: auto` makes the real-command stub fail unavoidably, because the pipeline
@@ -178,9 +178,20 @@ Do them in order. Do not skip step 3 or step 4.
      `completed=8 failed=1`. Runbook section 4 quotes the exact stub script and error; `-preview`
      is the pre-launch gate, the full (non-stub) `-profile test,docker` command is what actually
      proves this pipeline. See `pipeline-selection.md` §4.17.
-   All nine are partial gates, not full substitutes for testing the real command — runbook
+   - **A true waiver, upstream module authoring bug, same shape as bacass's `UNICYCLER`** (the
+     failing process's own stub script is malformed, not a downstream-reads-an-empty-placeholder
+     gap): methylseq at this pin's `3.0.0` (`config/pipelines.tsv`) fails `-stub-run` at
+     `BISMARK_SUMMARY` — `input: val(bam)` is always a list (all samples collected into one
+     call), and the `stub:` block calls `${bam.baseName()}` on it, a method `ArrayBag` does not
+     have (`No signature of method: nextflow.util.ArrayBag.baseName()`), regardless of sample
+     count or dataset. First hit 2026-08-05 but not written down until re-confirmed 2026-08-16.
+     Every upstream process succeeds first; the real `script:` block uses `${bam.join(' ')}`
+     correctly and is unaffected — confirmed by a full non-stub `-profile test,docker` run
+     (`completed=36 failed=0`) and a real-sample run, both passing. Runbook section 4 quotes the
+     exact stub line and error. See `pipeline-selection.md` §4.5.
+   All ten are partial gates, not full substitutes for testing the real command — runbook
    section 4 states plainly what each one does not cover. Nothing else in this skill waives or
-   substitutes a stub; a tenth pipeline hitting a similar shape needs its own documented case
+   substitutes a stub; an eleventh pipeline hitting a similar shape needs its own documented case
    here and in the runbook, not an ad hoc workaround.
 5. **Execution.** Launch from ext4, logging to file, always through `tmux` (`references/runbook.md`
    section 5) — not a bare foreground command, not `nohup … &`, and not your own backgrounded
