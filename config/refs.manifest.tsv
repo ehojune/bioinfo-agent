@@ -66,10 +66,10 @@ db/expansionhunter/variant_catalog.GRCh38.json	fetch	https://github.com/Clinical
 # directly (fetch mode materialised straight to the standard path - no source
 # copy sits on /mnt/d for this build, so there is nothing to `link` to).
 genomes/R64-1-1/fasta/genome.fa	fetch	https://ftp.ensembl.org/pub/release-116/fasta/saccharomyces_cerevisiae/dna/Saccharomyces_cerevisiae.R64-1-1.dna.toplevel.fa.gz	gunzip'd on arrival; Ensembl R64-1-1 toplevel	35cc97fccb91762c7a1f0f71b4adb1037b143d48b63fbd3b3f8bad45e5afa44c
-genomes/R64-1-1/fasta/genome.fa.fai	built	nf-core/rnaseq SAMTOOLS_FAIDX (in-run)	built + promoted 2026-08-07 during rnaseq --save_reference runs; present on disk, confirmed again 2026-08-16 revalidation
+genomes/R64-1-1/fasta/genome.fa.fai	build	nf-core/rnaseq SAMTOOLS_FAIDX (in-run)	COMPLETED 2026-08-07 during rnaseq --save_reference runs; present on disk, confirmed again 2026-08-16 revalidation
 genomes/R64-1-1/gtf/genes.gtf.gz	fetch	https://ftp.ensembl.org/pub/release-116/gtf/saccharomyces_cerevisiae/Saccharomyces_cerevisiae.R64-1-1.63.gtf.gz	Ensembl annotation build 63 (fungi versioning, not release-116)	253bd4013785b3c85a6a488bd541c12d8264aa4989046c3530d0d9ea2ecc931e
-genomes/R64-1-1/index/star/	built	nf-core/rnaseq --save_reference	built + promoted 2026-08-07; present on disk (Genome/SA/SAindex etc.), confirmed again 2026-08-16 revalidation -- no longer needs a fresh build
-genomes/R64-1-1/index/salmon/	built	nf-core/rnaseq --save_reference	built + promoted 2026-08-07; present on disk, confirmed again 2026-08-16 revalidation -- no longer needs a fresh build
+genomes/R64-1-1/index/star/	build	nf-core/rnaseq --save_reference	COMPLETED 2026-08-07; present on disk (Genome/SA/SAindex etc.), confirmed again 2026-08-16 revalidation -- no longer needs a fresh build
+genomes/R64-1-1/index/salmon/	build	nf-core/rnaseq --save_reference	COMPLETED 2026-08-07; present on disk, confirmed again 2026-08-16 revalidation -- no longer needs a fresh build
 # genomes/R64-1-1/fasta/genome.fa and genomes/R64-1-1/gtf/genes.gtf.gz REUSED (not re-fetched)
 # 2026-08-14 for nf-core/rnasplice's first real-sample run (20260814-rnasplice-scer-gln3-ibutanol)
 # -- no new manifest row needed, --fasta/--gtf point straight at the existing rows above.
