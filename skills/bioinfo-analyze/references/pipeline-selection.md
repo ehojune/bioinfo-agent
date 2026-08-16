@@ -455,6 +455,21 @@ otherwise from non-CpG methylation), duplication rate, M-bias plots flat across 
 clipping is wrong and the run should be redone), mean CpG coverage, and CpGs covered at depth.
 Bands: `references/qc-interpretation.md` §3.3.
 
+**`-stub-run` always fails at `BISMARK_SUMMARY`, harmlessly.** Confirmed on this host both
+2026-08-05 (`20260805-methylseq-sle-rrbs-smoke`, real samplesheet — reproduced but not written
+down at the time) and re-confirmed 2026-08-16 (`20260816-methylseq-revalidate`, both the real
+samplesheet and the pipeline's own `-profile test` fixture): `modules/nf-core/bismark/summary/
+main.nf`'s **stub** block calls `${bam.baseName()}` on `val(bam)`, which is always a list (all
+samples' BAMs collected into one call) — `nextflow.util.ArrayBag` has no `baseName()` method, so
+the stub errors with `No signature of method: ... ArrayBag.baseName()`. This is a bug in
+nf-core/methylseq 3.0.0's own bundled module code, not this repo's config — the **real** script
+block uses `${bam.join(' ')}` correctly and is unaffected; both a full non-stub `-profile
+test,docker` run and a real-sample run complete `BISMARK_SUMMARY`/`MULTIQC` successfully on this
+host. Treat a stub-run stopping here, with every upstream process (FASTQC through
+BISMARK_REPORT) cached/succeeded, as this known issue, not a new regression — but still run the
+full non-stub test-profile pass (`new-pipeline.md` §2.4c) before trusting a methylseq run on this
+pin; do not extrapolate past this one process from the stub alone.
+
 ### 4.6 `nf-core/atacseq`
 
 **For:** ATAC-seq → filtered alignments, per-sample and consensus peak sets, a consensus-peak count
