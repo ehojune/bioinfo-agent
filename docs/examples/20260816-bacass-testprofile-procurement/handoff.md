@@ -33,11 +33,15 @@ real-sample run's handoff for measured assembly/annotation QC numbers.
   `config/pipelines.tsv` and exercised on the real-sample run instead.
 
 ## Known gaps
-- `bin/preflight.sh`'s generic samplesheet checks assume comma-delimited CSV and local
-  filesystem paths; this run dir's tab-delimited, URL-based reference samplesheet.csv produces
-  3 expected FAILs there ("input MISSING") that do not reflect a real problem — cmd.sh never
-  passes `--input` for this run, `-profile test` supplies its own. Not fixed in preflight.sh
-  (out of this procurement's scope); documented here instead.
+- `bin/preflight.sh`'s generic samplesheet checks assume comma-delimited CSV. This run dir's
+  reference samplesheet.csv is a **tab-delimited** copy of the CI fixture (undisturbed on
+  purpose — see "Bounded choices" above), so `preflight.sh`'s comma-splitting still reports 3
+  "input MISSING" FAILs against it — expected and harmless, since cmd.sh never passes `--input`
+  for this run (`-profile test` supplies its own). **Fixed, separately**: `preflight.sh`'s
+  generic local-path existence check (`[ -e "$p" ]` against every `/`-bearing field) previously
+  hard-failed any *comma-delimited* bacass sheet using bacass's legal `http(s)://` URL values
+  too — fixed in this PR (Codex review round 4) to recognize and skip remote URLs instead of
+  treating them as missing local files; verified against a synthetic comma-delimited URL sheet.
 - Long-read/hybrid assembly, Bakta/DFAST/Liftoff annotation, Kraken2/KmerFinder contamination
   screening not exercised this procurement — see `config/pipelines.tsv` and
   `pipeline-selection.md` §4.17 for the full out-of-scope list.
