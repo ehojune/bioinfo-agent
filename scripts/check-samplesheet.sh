@@ -1013,7 +1013,16 @@ if [[ -n "$I1" && -n "$I2" ]]; then
     P2=$(gzip -cd < "$R2" 2>/dev/null | head -2 || true)
     H1=${P1%%$'\n'*}; S1=${P1#*$'\n'}
     H2=${P2%%$'\n'*}; S2=${P2#*$'\n'}
-    [[ "${H1%% *}" == "${H2%% *}" ]] \
+    # Legacy pre-Casava headers carry the mate number as a /1 or /2 suffix on the read NAME
+    # itself (e.g. "@read1/1" vs "@read1/2"), rather than in a separate Casava-style
+    # " 1:N:0:..." field -- comparing the raw first token therefore reported "mate names
+    # differ" on a perfectly valid legacy-format pair (Codex review, PR #41, round 8, P2: this
+    # generic check pre-dates bacass but was only newly exercised once bacass got routed
+    # through it in round 7's fix; strip a trailing /1 or /2 before comparing, same as any
+    # standard fastq-pairing tool does).
+    N1=${H1%% *}; N2=${H2%% *}
+    N1=${N1%/[12]}; N2=${N2%/[12]}
+    [[ "$N1" == "$N2" ]] \
       || fail "mate names differ on record 1: ${H1%% *} vs ${H2%% *}  ($R1)"
     F1=${H1#* }; F2=${H2#* }
     case "${F1%%:*}/${F2%%:*}" in
