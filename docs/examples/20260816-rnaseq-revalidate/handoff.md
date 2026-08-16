@@ -56,9 +56,12 @@ output shape (ok/WARN lines, PASS) matches the 2026-08-03/08-04 precedent runs e
 | DRR220759 | 1,320,569 | 87.53% | 7.21% | 7,127 genes (5,953 with counts >0) |
 
 Thresholds applied: no formal cutoff stated by the user; both samples' uniquely-mapped rates are
-comfortably in the typical yeast-RNA-seq range and consistent (to 4 significant figures) with the
-2026-08-04 verification run's own numbers on the identical dataset, confirming byte-for-byte
-alignment reproducibility across the two runs. No sample flagged.
+comfortably in the typical yeast-RNA-seq range and agree (to 4 significant figures) with the
+2026-08-04 verification run's own numbers on the identical dataset. This is agreement of the
+reported STAR summary metrics (uniquely-mapped %, multimapped %) only -- BAM records, ordering,
+or per-alignment tags were not diffed/checksummed between the two runs, so this does not by
+itself establish byte-for-byte alignment reproducibility, only that the same summary QC numbers
+recur. No sample flagged.
 
 ## Bounded choices I made
 - Reused the 2-sample DRR220758/DRR220759 dataset (2026-08-03 origin) rather than fetching new
