@@ -999,6 +999,13 @@ done
 I1=$(colidx fastq_1); I2=$(colidx fastq_2)
 if [[ -z "$I1" ]]; then I1=$(colidx forwardReads); I2=$(colidx reverseReads); fi
 if [[ -z "$I1" ]]; then I1=$(colidx short_reads_1); I2=$(colidx short_reads_2); fi
+# bacass uses uppercase R1/R2 -- without this fallback, a local paired bacass sheet only got
+# readability/gzip-integrity checks from the bacass-specific loop above, never the
+# header-orientation/mate-count checks below (Codex review, PR #41, round 7, P2: reproduced a
+# PASS with Casava read-2 content placed in R1 and read-1 content in R2). $R1/$R2 values of
+# 'NA' or a URL simply fail the `-r` readability test below and are skipped, same as any other
+# pipeline's unreadable/remote mate value -- this only activates for local, readable pairs.
+if [[ -z "$I1" && "$PIPELINE" == bacass ]]; then I1=$(colidx R1); I2=$(colidx R2); fi
 if [[ -n "$I1" && -n "$I2" ]]; then
   while IFS=$'\t' read -r R1 R2; do
     [[ -n "$R2" && -r "$R1" && -r "$R2" ]] || continue

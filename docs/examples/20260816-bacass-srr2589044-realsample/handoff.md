@@ -52,6 +52,12 @@ Samples flagged: none.
 - Bakta/DFAST/Liftoff annotation, long-read/hybrid assembly not exercised.
 - Only 1 sample run — cohort-scale timing/disk not measured; see `estimates.md` for how this
   scales.
+- This run did not set `--busco_db_path`, so BUSCO fetched `bacteria_odb10` into the ephemeral
+  work dir rather than a manifest-tracked location — fixed after Codex review (PR #41, round 7):
+  `config/refs.manifest.tsv` now carries a `db/busco/` row, materialized from this same fetched
+  dataset, and any future bacass launch should add `--busco_db_path /refs/db/busco` (confirmed
+  via `-preview`) to reuse it instead of re-fetching — see `docs/examples/
+  20260816-bacass-srr2589044-realsample/params.yaml` for the recommended addition.
 
 ## Next step for you
 Review `results/multiqc/multiqc_report.html` and `results/QUAST/report/report.txt` /
