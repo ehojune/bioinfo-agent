@@ -779,13 +779,22 @@ elif [[ -n "$REQ" ]]; then
       fail "bacass: sheet has neither an R1 nor a LongFastQ column at all -- no read source for any row"
     fi
 
-    # R2 without R1: short-read mate pairing implies R1 must also be set whenever R2 is.
-    if [[ -n "$R1I" && -n "$R2I" ]]; then
-      BADPAIR=$(awk -F, -v r1="$R1I" -v r2="$R2I" \
-                  'NR>1 && $r2!="" && $r2!="NA" && ($r1==""||$r1=="NA") {print NR-1}' \
-                  "$TMP" | paste -sd' ' -)
+    # R2 without R1: short-read mate pairing implies R1 must also be set whenever R2 is. An
+    # R1-less sheet (R2 + LongFastQ present, no R1 header at all) previously skipped this check
+    # entirely -- LongFastQ satisfied the earlier "has a read source" test, so an orphaned R2
+    # with no possible mate reported PASS (Codex review, PR #41, round 2, P2). A missing R1
+    # column means EVERY populated R2 value is orphaned by construction, not something that
+    # needs a per-row R1 value to compare against.
+    if [[ -n "$R2I" ]]; then
+      if [[ -z "$R1I" ]]; then
+        BADPAIR=$(awk -F, -v r2="$R2I" 'NR>1 && $r2!="" && $r2!="NA" {print NR-1}' "$TMP" | paste -sd' ' -)
+      else
+        BADPAIR=$(awk -F, -v r1="$R1I" -v r2="$R2I" \
+                    'NR>1 && $r2!="" && $r2!="NA" && ($r1==""||$r1=="NA") {print NR-1}' \
+                    "$TMP" | paste -sd' ' -)
+      fi
       [[ -z "$BADPAIR" ]] && ok "bacass: no row has R2 set without R1" \
-                          || fail "bacass: row(s) with R2 set but R1 empty/NA (short-read mate pairing needs both): $BADPAIR"
+                          || fail "bacass: row(s) with R2 set but R1 empty/NA or the R1 column absent entirely (short-read mate pairing needs both): $BADPAIR"
     fi
   fi
 elif [[ -z "$PIPELINE" ]]; then
