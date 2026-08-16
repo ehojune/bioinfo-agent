@@ -54,8 +54,9 @@ far over 1.5x any estimate here.
 - Strandedness `auto` (unchanged from prior runs; RSeQC/Salmon previously confirmed `reverse`
   for this dataset).
 - STAR+salmon default aligner path (`star_salmon`), no `--skip_*` flags.
-- Will update `config/refs.manifest.tsv`'s two R64-1-1 index rows from `build`/[!] to reflect
-  they are actually present on disk now, as a small accuracy fix discovered during this
+- Will update `config/refs.manifest.tsv`'s two R64-1-1 index rows' `[!]` status comments to
+  reflect that they are actually present on disk now (mode column stays `build`, the only value
+  `bootstrap/04-refs.sh`'s dispatcher accepts), as a small accuracy fix discovered during this
   revalidation — not a functional pipeline change, and it's a shared file two sibling
   revalidation agents (sarek, methylseq) may also be touching, so it will be committed
   immediately if changed, per the shared-config discipline.

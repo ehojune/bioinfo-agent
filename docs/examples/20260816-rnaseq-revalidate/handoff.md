@@ -74,8 +74,11 @@ recur. No sample flagged.
   steady at 3-4 throughout, sibling using only ~3 cores/3 GB on a single non-scattered task.
   Proceeded on that basis given this run's trivial footprint; documented in `plan.md` before
   launch, not after. No contention symptom appeared during the run.
-- Fixed stale `build`/`[!]` markers on R64-1-1's fasta_fai/star/salmon rows in
-  `config/refs.manifest.tsv` and `config/genomes.config` (comment-only, no functional change) —
+- Fixed stale `[!]`-not-built status comments on R64-1-1's fasta_fai/star/salmon rows in
+  `config/refs.manifest.tsv` and `config/genomes.config` (comment-only, no functional change; the
+  mode column correctly stayed `build` throughout — that is the only value
+  `bootstrap/04-refs.sh`'s dispatcher accepts, only the completion status noted alongside it was
+  stale) —
   those paths were actually built and promoted 2026-08-07 but the bookkeeping was never updated;
   discovered when `-preview` resolved them cleanly with no override needed, unlike the 2026-08-04
   run which needed `--star_index false --salmon_index false`. Committed immediately as
