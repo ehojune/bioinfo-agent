@@ -1021,9 +1021,24 @@ if [[ -n "$I1" && -n "$I2" ]]; then
     # through it in round 7's fix; strip a trailing /1 or /2 before comparing, same as any
     # standard fastq-pairing tool does).
     N1=${H1%% *}; N2=${H2%% *}
+    # Capture the legacy /1,/2 suffix BEFORE stripping it for the name comparison -- stripping
+    # both independently makes "@read/2" and "@read/1" compare equal on name alone, which
+    # would silently accept a genuinely swapped legacy-format pair (Codex review, PR #42,
+    # round 1, P2: the Casava-field check below cannot recover this, since it only warns
+    # "non-Casava headers" for a /1,/2-style name and never inspects the suffix itself).
+    LSUF1=""; LSUF2=""
+    case "$N1" in */1) LSUF1=1 ;; */2) LSUF1=2 ;; esac
+    case "$N2" in */1) LSUF2=1 ;; */2) LSUF2=2 ;; esac
     N1=${N1%/[12]}; N2=${N2%/[12]}
     [[ "$N1" == "$N2" ]] \
       || fail "mate names differ on record 1: ${H1%% *} vs ${H2%% *}  ($R1)"
+    if [[ -n "$LSUF1" && -n "$LSUF2" ]]; then
+      case "$LSUF1/$LSUF2" in
+        1/2) : ;;
+        2/1) fail "R1/R2 SWAPPED (legacy /1,/2 mate suffix): $R1 holds read 2 and $R2 holds read 1" ;;
+        *)   fail "legacy mate suffix pair is not 1/2 (got $LSUF1/$LSUF2 on $R1/$R2) -- both mates claim the same read number" ;;
+      esac
+    fi
     F1=${H1#* }; F2=${H2#* }
     case "${F1%%:*}/${F2%%:*}" in
       1/2) : ;;
