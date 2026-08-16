@@ -1032,11 +1032,16 @@ if [[ -n "$I1" && -n "$I2" ]]; then
     N1=${N1%/[12]}; N2=${N2%/[12]}
     [[ "$N1" == "$N2" ]] \
       || fail "mate names differ on record 1: ${H1%% *} vs ${H2%% *}  ($R1)"
-    if [[ -n "$LSUF1" && -n "$LSUF2" ]]; then
+    # `||`, not `&&`: exactly one mate carrying a legacy suffix (e.g. R1 "@read/1", R2 "@read"
+    # with no suffix at all) is just as invalid as a mismatched pair -- the previous `&&` guard
+    # skipped validation entirely in that case, and after stripping, both names normalize to
+    # "@read" and compare equal, so the pair passed silently (Codex review, PR #42, round 2,
+    # P2). Any case other than the exact "1/2" pair -- including one side empty -- fails.
+    if [[ -n "$LSUF1" || -n "$LSUF2" ]]; then
       case "$LSUF1/$LSUF2" in
         1/2) : ;;
         2/1) fail "R1/R2 SWAPPED (legacy /1,/2 mate suffix): $R1 holds read 2 and $R2 holds read 1" ;;
-        *)   fail "legacy mate suffix pair is not 1/2 (got $LSUF1/$LSUF2 on $R1/$R2) -- both mates claim the same read number" ;;
+        *)   fail "legacy mate suffix pair is not 1/2 (got '$LSUF1'/'$LSUF2' on $R1/$R2) -- both mates must carry matching /1,/2 suffixes" ;;
       esac
     fi
     F1=${H1#* }; F2=${H2#* }
