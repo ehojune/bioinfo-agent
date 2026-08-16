@@ -758,6 +758,24 @@ elif [[ -n "$REQ" ]]; then
           /*)
             [[ -r "$P" ]] || fail "$NAME: not readable: $P"
             [[ -s "$P" ]] || fail "$NAME: zero bytes: $P"
+            # R1/R2/LongFastQ are handled in this bacass-specific loop, not section 3's generic
+            # path-columns loop (they are not in that loop's fixed column-name list at all), so
+            # without this they never got the gzip-magic/`--deep gzip -t` integrity check every
+            # other pipeline's FASTQ columns get -- reproduced a PASS from `--deep --pipeline
+            # bacass` against a plain-text file merely NAMED `*.fastq.gz` (Codex review, PR #41,
+            # round 3, P2). Same check as section 3's `*.gz` case, applied here too.
+            if [[ -r "$P" && -s "$P" ]]; then
+              case "$P" in
+                *.fastq|*.fq)
+                  fail "$NAME: uncompressed FASTQ: $P (schema pattern requires .gz)" ;;
+                *.gz)
+                  if [[ "$(head -c2 "$P" | od -An -tx1 | tr -d ' ')" != "1f8b" ]]; then
+                    fail "$NAME: not a gzip stream: $P"
+                  elif (( DEEP )); then
+                    gzip -t "$P" 2>/dev/null || fail "$NAME: gzip integrity / truncated: $P"
+                  fi ;;
+              esac
+            fi
             ;;
           *) fail "$NAME: not an absolute path, http(s):// URL, or 'NA': $P" ;;
         esac
