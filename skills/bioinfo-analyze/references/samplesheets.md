@@ -838,6 +838,73 @@ present anywhere in it. A repeated `sample` value is not a schema error at this 
 `scripts/check-samplesheet.sh`'s generic identifier check (no isoseq-specific override needed)
 only WARNs on it, same as the pipelines with no stricter rule.
 
+### nf-core/bacass — 2.6.1
+
+**`assets/schema_input.json` IS what this pipeline validates against** — same class of finding
+as isoseq, a contrast with nanoseq/rnasplice. `subworkflows/local/utils_nfcore_bacass_pipeline/
+main.nf:105` calls `samplesheetToList(input, "$projectDir/assets/schema_input.json")` directly;
+`bin/` in the clone holds only `csv_to_yaml.py`/`find_common_reference.py`/
+`kmerfinder_summary.py`/`multiqc_to_custom_csv.py`, none a samplesheet validator.
+
+| column | required | notes |
+|---|---|---|
+| `ID` | yes | schema's only `required[]` entry; pattern `^\S+$`; `"unique": false` explicitly — see below |
+| `R1` | no | short-read mate 1, `.fq.gz`/`.fastq.gz`; empty string or the literal `NA` both mean "not supplied" |
+| `R2` | no | short-read mate 2, same pattern/placeholder rules as `R1` |
+| `LongFastQ` | no | long (ONT) reads, same pattern/placeholder rules |
+| `Fast5` | no | path to a FAST5 directory for polishing; pattern `^(\/[\S\s]*|NA)$`, empty or `NA` also accepted |
+| `GenomeSize` | no | size hint to Unicycler/Canu, e.g. `2.8m` — pattern `\d+\.\d+m`; empty or `NA` accepted |
+
+**Comma-delimited `.csv`, not the tab-delimited `.tsv` the pipeline's own docs/CI fixture use —
+confirmed empirically, not assumed.** The `--help` text and `conf/test.config` both call this a
+"tab-separated sample sheet" and the CI fixture is a real `.tsv` file, but nf-schema's
+`samplesheetToList()` sniffs the delimiter from the file's own **extension**, not from its
+content. This repo's `bin/preflight.sh`/`cmd.sh` convention always names the file
+`samplesheet.csv`, so a `.csv`-named sheet must actually be comma-delimited to parse — verified
+2026-08-16 via `-preview` (a comma-delimited synthetic sheet at the CI fixture's own URLs parsed
+cleanly; a tab-delimited copy would not have been sniffed as tab under a `.csv` name).
+
+```csv
+ID,R1,R2,LongFastQ,Fast5,GenomeSize
+SRR2589044,/work/staging/bacass-realsample/SRR2589044_1.fastq.gz,/work/staging/bacass-realsample/SRR2589044_2.fastq.gz,NA,NA,4.6m
+```
+
+This is the exact sheet from `runs/20260816-bacass-srr2589044-realsample/samplesheet.csv`.
+`R1`/`R2`/`LongFastQ` may also legitimately be `http(s)://` URLs — the pipeline's own CI fixture
+(`bacass_short_reseq.tsv`) uses raw GitHub URLs directly, not local paths; `NA` is 'not supplied
+for this row', consistent across all three read-source columns and `Fast5`.
+
+**ID uniqueness — schema says `"unique": false`, and the pipeline's own CI fixture exercises
+the repeat as a real, working shape.** `bacass_short_reseq.tsv` repeats `ID=ERR044595` across
+two different R1/R2 pairs (rows 1 and 3) as its normal re-sequencing-merge input — confirmed
+empirically via `-preview` on both the real fixture and a synthetic duplicate-ID sheet (clean,
+no error either time). `scripts/check-samplesheet.sh --pipeline bacass` does not flag a repeated
+`ID` at all, unlike the generic identifier check's WARN for pipelines with no stated merge rule.
+
+**No read source at all is a schema-legal row — the schema alone will not catch it.** A row with
+`R1`/`R2`/`LongFastQ`/`Fast5` all `NA` validates cleanly (confirmed via `-preview`,
+`completed=0 failed=0`, no error) even though the pipeline then has nothing to assemble for that
+row. Same class of gap as taxprofiler/mag/raredisease's "no read source" rows —
+`check-samplesheet.sh` FAILs this per row, the schema does not.
+
+**`check-samplesheet.sh --pipeline bacass` enforces `R1` specifically, not "R1 or LongFastQ" —
+this is a repo-scope rule layered on top of the pipeline's own looser schema, not the schema
+itself.** The upstream schema is satisfied by `R1` alone, `LongFastQ` alone, or both (any
+combination that is not all-`NA`/all-empty). But the checker has no way to see
+`--assembly_type` (a pipeline-wide run param, not a sheet column), and this repo's **only
+stocked bacass configuration is `assembly_type: short`** (`config/pipelines.tsv`), which needs
+`R1` and never consumes `LongFastQ` at all (confirmed by reading `workflows/bacass.nf`'s
+`assembly_type`-gated channel construction). A `LongFastQ`-only sheet therefore validates
+against the upstream schema but is **rejected by this repo's checker** — it has no usable read
+source under the only scope this repo actually runs. A future procurement that stocks
+`assembly_type: long` or `hybrid` would need to revisit this check alongside that scope change,
+not assume the current strict-R1 behavior still applies.
+
+**`GenomeSize` without a trailing `m` fails as a TYPE mismatch, not just a pattern mismatch.**
+A bare decimal cell like `2.8` (no `m` suffix) gets parsed by the CSV reader as a numeric value,
+and the schema expects a string — confirmed via `-preview`: `Value is [number] but should be
+[string, null]` alongside the pattern-mismatch error. Always quote/spell the trailing `m`.
+
 ---
 
 ## Common breakages, with the text you will actually see

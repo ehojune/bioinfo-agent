@@ -1,0 +1,13 @@
+input: /mnt/d/bioinfo-agent/runs/20260816-bacass-srr2589044-realsample/samplesheet.csv
+assembly_type: short
+assembler: unicycler
+annotation_tool: prokka
+skip_kraken2: true
+skip_kmerfinder: true
+# busco_db_path was NOT set on the actual run this example documents -- BUSCO fetched
+# bacteria_odb10 at runtime into the ephemeral work dir instead (see config/refs.manifest.tsv's
+# db/busco/ row, added after Codex review, PR #41 round 7, which then materialized that same
+# fetched dataset at the standard path). Added here as the recommended addition for any FUTURE
+# bacass launch, so BUSCO reuses the manifest-cached copy instead of re-fetching -- confirmed
+# via -preview that --busco_db_path /refs/db/busco resolves cleanly before adding it here.
+busco_db_path: /refs/db/busco

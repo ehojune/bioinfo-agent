@@ -191,6 +191,18 @@ if [ -f "$SS" ]; then
   fi
   while read -r p; do
     [ -n "$p" ] || continue
+    # bacass's R1/R2/LongFastQ columns legally hold http(s):// URLs (the pipeline's own CI
+    # fixture uses raw GitHub URLs directly, not local paths) -- this loop otherwise treats
+    # every '/'-bearing field as a local path and `[ -e ]` unconditionally fails a URL, which
+    # made the mandatory preflight gate hard-fail every URL-backed bacass sheet regardless of
+    # whether the run's own --input ever consumes it (Codex review, PR #41, round 4, P2:
+    # reproduced "input MISSING" against the checked-in bacass CI-fixture reference sheet).
+    # Existence of a remote URL is a network check, out of scope for this local, offline-safe
+    # gate -- note it instead of failing it, same severity class as the "references nothing
+    # from the store" note a few lines below.
+    case "$p" in
+      http://*|https://*|ftp://*) note "input is a remote URL, not checked for existence here: $p"; continue ;;
+    esac
     if [ -e "$p" ]; then ok "input exists: $p"; else bad "input MISSING: $p"; fi
   done < <(tail -n +2 "$SS" | tr ',' '\n' | tr -d '"' | grep '/' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | sort -u)
 else
