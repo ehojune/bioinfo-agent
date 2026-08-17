@@ -35,7 +35,10 @@ which touched `scripts/check-samplesheet.sh`, `config/refs.manifest.tsv`,
   (not re-tested live this run — mechanism unaffected by anything touched since 2026-08-10).
 - `-stub-run` departure #3 (`GATK4_CNNSCOREVARIANTS` has no `stub:` block at 3.5.1, PR #30 fix
   `--skip_tools haplotypecaller_filter`) still present and correctly documented in `runbook.md` §4
-  and `SKILL.md`'s "nine documented departures" gate line — unreverted.
+  and `SKILL.md`'s gate line — unreverted. The gate line's total count is now **ten** (not nine):
+  PR #43 (methylseq revalidation, merged to `main` at `0669e09` while this run's HaplotypeCaller
+  leg was still in flight) added methylseq's `BISMARK_SUMMARY` as a new, tenth departure. Sarek's
+  own entry (#3) is unchanged text within that updated count.
 
 **No shared-infrastructure regression found.** Everything the 8 intervening procurements touched
 continues to work correctly for sarek.

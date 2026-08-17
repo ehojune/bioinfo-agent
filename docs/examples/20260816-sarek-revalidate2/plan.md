@@ -57,8 +57,12 @@ biological question, no new pipeline decision — a shared-infra regression chec
    from `genomes.config` whenever `--genome` matches a key, regardless of `--step`/`--tools`).
    Carried forward unchanged, not re-litigated this run.
 5. **`-stub-run` departure #3 (`GATK4_CNNSCOREVARIANTS` has no `stub:` block at 3.5.1) is still
-   documented** in `runbook.md` §4 (now indexed among 9 total departures across the repo) and in
-   `SKILL.md`'s gate line ("Nine documented departures..."). The fix
+   documented** in `runbook.md` §4 and in `SKILL.md`'s gate line. At the time this pre-run
+   finding was first written the count there read "nine documented departures"; by the time this
+   PR's actual merge-base (`0669e09`) was checked, methylseq's `BISMARK_SUMMARY` waiver had been
+   added as a tenth (see the round-1 Codex fix above), and `SKILL.md`/`runbook.md` now correctly
+   read "ten documented departures" — sarek's own entry (departure #3) is unchanged text within
+   that updated count, still present, still correct. The fix
    (`--skip_tools haplotypecaller_filter` on the stub invocation only) from PR #30 is present and
    unreverted. This run reuses that fix rather than re-discovering it.
 
