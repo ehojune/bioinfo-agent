@@ -60,9 +60,9 @@ nothing that would move them).
 | Mean genome coverage | 39.7x *(from 2026-07-29, same CRAM)* | >=28x pass (WGS 30x-order) | PASS |
 | Mapping rate | 99.93% *(from 2026-07-29)* | >=98% | PASS |
 | Duplication (Picard) | 4.49% *(from 2026-07-29)* | PCR-free WGS <10% | PASS |
-| SNV count | 4,128,695 | East Asian WGS 3.4-4.3M | PASS — **exact match to both prior runs** (2026-07-29 at sarek 3.9.0, 2026-08-10 at 3.5.1) |
-| Indel count | 994,365 | — | reported, no band — exact match to both prior runs |
-| Total records | 5,117,913 | — | exact match to both prior runs |
+| SNV count | 4,128,695 | East Asian WGS 3.4-4.3M | PASS — aggregate count matches both prior runs (2026-07-29 at sarek 3.9.0, 2026-08-10 at 3.5.1); **record-level identity vs. 2026-08-10 confirmed separately below**, not just this count |
+| Indel count | 994,365 | — | reported, no band — aggregate count matches both prior runs |
+| Total records | 5,117,913 | — | aggregate count matches both prior runs |
 | Ti/Tv | 1.92 (bcftools `TSTV` row; 1.92983 at higher precision in the 2026-08-10 run's own recompute) | WGS 2.0-2.1 pass, +/-0.15 warn | **WARN** — same mechanism as both prior runs: `--skip_tools haplotypecaller_filter`, no GATK bundle, FILTER is `.` on every record |
 | Task failures | 0 (`succeededCount=45; failedCount=0; retriesCount=0`) — cleaner than the 2026-08-10 run, which needed 4 OOM-recovery retries under similar concurrent-pipeline contention | — | Clean end-to-end completion, no retries needed this time |
 
@@ -101,11 +101,29 @@ per-sample anomaly, unchanged across all three sarek runs on this sample.
   mandatory tmux launch method exists. Caught by a coordinator status check, corroborated directly
   against `.nextflow.log` before writing this handoff (not taken on faith).
 
+## Record-level VCF comparison (added after Codex review, PR #45 round 1)
+The QC table's "exact match" rows above were originally aggregate `bcftools stats` counts only
+(SNV/indel/total-record/Ti-Tv), which Codex correctly pointed out can agree even when individual
+loci, alleles, filters, or genotypes differ. Ran `bcftools isec` (via the
+`quay.io/biocontainers/bcftools:1.21` container, never a host binary) between this run's VCF and
+the 2026-08-10 run's VCF: **0 records private to either side**, 5,117,913 records shared by both
+— matching the total record count exactly. Followed up with `bcftools query -f
+'%CHROM\t%POS\t%REF\t%ALT\t%FILTER[\t%GT]\n'` on each side's shared-record set and `diff`'d the
+two field dumps: **byte-identical, 0 diff lines, across all 5,117,913 records.** This confirms
+record-level identity (position, alleles, FILTER, genotype) between this run and 2026-08-10, not
+merely matching aggregate counts. The 2026-07-29 run predates this record-level check (no VCF
+comparison was run against it this session; its own handoff independently reported the same
+aggregate SNV/indel/total-record numbers, and the 2026-08-10 handoff already established
+record-level agreement between 2026-07-29 and 2026-08-10 via the sarek 3.9.0 vs 3.5.1 comparison
+described there) — treat the 2026-07-29 comparison as aggregate-only, the 2026-08-10 comparison as
+record-level-verified.
+
 ## Next step for you
 Nothing new to decide. The VCF
 (`/mnt/d/bioinfo-agent/runs/20260816-sarek-revalidate2/results/variant_calling/haplotypecaller/SRR26793256/SRR26793256.haplotypecaller.vcf.gz`)
-has identical variant calls to both the 2026-07-29 and 2026-08-10 runs — this run's purpose was
-validating current shared infrastructure against the unchanged 3.5.1 pin, which is done and
-found clean. No repo fix was needed; this is a confirmation record, not a defect fix.
+is record-level identical to the 2026-08-10 run's VCF (see above) and aggregate-identical to the
+2026-07-29 run's — this run's purpose was validating current shared infrastructure against the
+unchanged 3.5.1 pin, which is done and found clean. No repo fix was needed; this is a confirmation
+record, not a defect fix.
 
 No biological interpretation is included, by design.

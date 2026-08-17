@@ -15,13 +15,38 @@ biological question, no new pipeline decision — a shared-infra regression chec
 1. **Pin unchanged**: `config/pipelines.tsv` still pins `sarek 3.5.1`. `nextflow info nf-core/sarek`
    confirms `3.5.1` is a real tag and is already cached locally (`>` marker) from the prior run —
    no re-clone needed.
-2. **`check-samplesheet.sh --pipeline sarek` branch re-read line by line** (current `main`,
-   `dc827c7`): `REQ='patient sample'` (line 112) and the follow-up
+2. **`check-samplesheet.sh --pipeline sarek` branch re-read line by line**, initially against
+   `main` at `dc827c7`: `REQ='patient sample'` (line 112) and the follow-up
    `fastq_1/bam/cram/vcf` OR-check (lines 183-185) are both intact, unmodified by any of the 8
    later pipelines' own branches (ampliseq/mag/taxprofiler/raredisease/nanoseq/rnasplice/isoseq/
    bacass each added their own `case` arm or their own `if [[ "$PIPELINE" == ... ]]` block —
    none touch sarek's). The shared empty-required-column-value check (added PR #35, generic to
    every `$REQ`-using pipeline) applies to sarek too and is a strict improvement, not a regression.
+   **Codex review (PR #45, round 1) correctly flagged that `dc827c7` was stale by the time this
+   branch was actually opened**: `main` had since advanced to `0669e09` (PRs #43/#44, the
+   methylseq and rnaseq revalidations, merged mid-run while this run's multi-hour HaplotypeCaller
+   leg was in flight). Re-checked against the actual commit this PR is based on
+   (`0669e09`, this branch's merge-base): `bin/preflight.sh` and
+   `check-samplesheet.sh --deep --pipeline sarek` were both re-run fresh at `HEAD=e055d85`
+   (based on `0669e09`) and both still pass cleanly (0 failures/0 warnings; PASS). A direct
+   `git diff dc827c7 0669e09` on every file this task names as shared-infra
+   (`config/genomes.config`, `config/refs.manifest.tsv`, `scripts/check-samplesheet.sh`,
+   `bin/preflight.sh`, `config/local.config`, `config/pipelines.tsv`,
+   `skills/bioinfo-analyze/SKILL.md`, `skills/bioinfo-analyze/references/runbook.md`) confirms
+   the only changes between those two commits are: (a) `genomes.config`/`refs.manifest.tsv` rows
+   for `R64-1-1` (yeast, rnaseq-only, no `GRCh38gatk` touch at all), and (b) `SKILL.md`/
+   `runbook.md` adding methylseq's `BISMARK_SUMMARY` stub departure as a new documented case
+   (renumbered "nine"->"ten" departures) — sarek's own departure #3 entry is unchanged text, still
+   present, still correctly numbered within that list. **No sarek-relevant file differs between
+   the two commits.** `nextflow -c config/local.config -c config/genomes.config config
+   nf-core/sarek -flat` was attempted again at `0669e09` to re-confirm §2.4(a) directly rather
+   than resting solely on the diff, but repeatedly hit persistent `HTTP 429` rate-limiting from
+   `raw.githubusercontent.com` (the pipeline's own `nextflow.config` remotely includes
+   `nf-core/configs`, unrelated to anything in this repo) across 15+ retries over several
+   minutes — not a regression in this repo's config, an external rate-limit outside this run's
+   control. Given the diff shows zero sarek-relevant change and the preflight/checker re-runs
+   both passed clean at the actual `0669e09`-based commit, this is treated as sufficient; the
+   `-flat` parse is not re-asserted as independently re-observed at this exact commit.
 3. **§2.4(a) — `nextflow config`/`--help`, re-run fresh**: both clean, exit 0.
    `nextflow -c config/local.config -c config/genomes.config config nf-core/sarek -r 3.5.1
    -profile docker -flat` parses without error (the July run's block-comment bug in
@@ -39,8 +64,18 @@ biological question, no new pipeline decision — a shared-infra regression chec
 
 ## Real-sample reuse decision
 `runs/20260729-sarek-srr26793256/results/preprocessing/markduplicates/SRR26793256/SRR26793256.md.cram`
-(+`.crai`) confirmed present, non-empty, byte-identical to both prior handoffs
-(14,454,217,009 bytes, `ls -la` re-checked this run). This is the **lightest reasonable real-sample
+(+`.crai`) confirmed present, non-empty, same size as both prior handoffs (14,454,217,009 bytes,
+`ls -la` re-checked this run). **Codex review (PR #45, round 1) correctly noted equal file size
+alone does not establish byte identity** — a same-size in-place rewrite would pass an `ls -la`
+check unnoticed. Strengthened with two further, independent checks not in the original plan:
+`stat` shows `Modify: 2026-07-29 18:20:28` and `Change: 2026-07-29 22:56:22`, both unchanged since
+the file's creation on the 2026-07-29 run and identical to what that run's own handoff recorded —
+an in-place content rewrite would necessarily bump `Modify`, so an unchanged mtime three weeks
+later is real evidence against silent modification, not merely consistent with it by chance. A
+`sha256sum` was also computed fresh this run (not previously recorded by either prior sarek run,
+so there is no earlier hash to diff against): `c9cdaa37ccaaaf96101d459024e139ab6a59db781b3950d34ea83707f914731d`
+— recorded here so any future re-check of this file has a real baseline to compare against,
+closing the gap Codex identified for next time. This is the **lightest reasonable real-sample
 proof available**: reusing it via `--step variant_calling` (the pipeline's own restart mechanism,
 not hand-continuation) exercises the full current launch path — `bin/preflight.sh`,
 `check-samplesheet.sh --deep --pipeline sarek`, `genome-override.config`, `local.config`,
