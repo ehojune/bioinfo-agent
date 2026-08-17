@@ -4,7 +4,7 @@ Eleven real runs, kept as documentation of what a run record looks like. A full 
 `runs/<runid>/` is five files — `plan.md`, `samplesheet.csv`, `params.yaml`, `cmd.sh`, `handoff.md`
 — but not every example carries all five: `20260804-rnaseq-scer-verify` passes its references on the
 command line and so has no `params.yaml`, the two `-e` runs kept only `cmd.sh` and `handoff.md`, and
-the two `-testprofile-procurement` runs (scratch procurement smokes, not run-record launches) kept
+the three `-testprofile-procurement` runs (scratch procurement smokes, not run-record launches) kept
 only `plan.md`/`handoff.md`. `20260812-taxprofiler-drr027580-realsample` additionally carries a
 `databases.csv` — taxprofiler is the one stocked pipeline whose input is two CSVs, not one.
 
@@ -23,6 +23,7 @@ only `plan.md`/`handoff.md`. `20260812-taxprofiler-drr027580-realsample` additio
 | `20260812-taxprofiler-drr027580-realsample` | nf-core/taxprofiler against the same real shotgun metagenome as the mag example — a `--databases` CSV (separate from `--input`), single-tool (Kraken2) procurement, and a 99%-unclassified real result on a shallow sample |
 | `20260816-bacass-testprofile-procurement` | nf-core/bacass CI-fixture run — `-stub-run` waived (`UNICYCLER`, a hardcoded `cat ""` in the module's own stub script — a different shape of departure from every prior waiver), full test profile clean |
 | `20260816-bacass-srr2589044-realsample` | nf-core/bacass against a real bacterial isolate WGS sample — comma-delimited `.csv` samplesheet despite the pipeline's own tab-delimited docs/CI fixture, and a measured QUAST/BUSCO/Prokka QC table for a single-organism de novo assembly |
+| `20260816-sarek-revalidate2` | second re-verification of the (unchanged) nf-core/sarek 3.5.1 pin, this time against 8 further pipelines' worth of shared-infrastructure drift since the 2026-08-10 revalidation — all three §2.4 escalating tests clean, `check-samplesheet.sh`'s sarek branch untouched by any of the 8, and a real-sample `--step variant_calling` confirmatory run from the reused MarkDuplicates CRAM producing variant counts identical to both prior sarek runs on this sample |
 
 `20260807-rnaseq-testprofile-e` and `20260807-rnaseq-salmononly-e` are the evidence behind the ext4
 rule in `skills/bioinfo-analyze/references/runbook.md` section 1.
