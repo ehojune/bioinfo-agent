@@ -1,0 +1,14 @@
+platform: illumina
+protocol: amplicon
+skip_assembly: true
+fasta: /refs/genomes/SARS-CoV-2-MN908947.3/fasta/genome.fa
+gff: /refs/genomes/SARS-CoV-2-MN908947.3/gff/genome.gff
+primer_bed: /refs/genomes/SARS-CoV-2-MN908947.3/primer/artic-v3/primer.bed
+kraken2_db: /refs/db/kraken2_viralrecon_human/kraken2_human
+pango_database: /refs/db/pangolin
+nextclade_dataset: /refs/db/nextclade/sars-cov-2
+nextclade_dataset_name: sars-cov-2
+freyja_barcodes: /refs/db/freyja/usher_barcodes.feather
+freyja_lineages: /refs/db/freyja/curated_lineages.json
+freyja_repeats: 10
+skip_freyja_boot: true

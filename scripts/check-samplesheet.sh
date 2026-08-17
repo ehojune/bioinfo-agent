@@ -124,6 +124,7 @@ case "$PIPELINE" in
   rnasplice)              REQ='sample fastq_1 strandedness condition' ;;    # fastq_2 header required but value may be empty (SE) -- see below
   isoseq)                REQ='sample' ;;                                   # bam+pbi (isoseq entrypoint) or reads (map entrypoint) -- see below
   bacass)                REQ='ID' ;;                                       # R1/R2/LongFastQ/Fast5/GenomeSize all optional at schema level -- see below
+  viralrecon)            REQ='sample' ;;                                   # fastq_1/fastq_2/barcode all optional at schema level -- see below
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
@@ -825,6 +826,49 @@ elif [[ -n "$REQ" ]]; then
                           || fail "bacass: row(s) with R2 set but R1 empty/NA or the R1 column absent entirely (short-read mate pairing needs both): $BADPAIR"
     fi
   fi
+  if [[ "$PIPELINE" == viralrecon ]]; then
+    # nf-core/viralrecon 3.0.0: assets/schema_input.json IS the live validator here --
+    # subworkflows/local/utils_nfcore_viralrecon_pipeline/main.nf:100/122 calls
+    # samplesheetToList() straight against it, no bundled bin/check_samplesheet*.py in the
+    # clone (bin/ holds only fastq_dir_to_samplesheet.py, a samplesheet GENERATOR, not a
+    # validator). Only `sample` is in required[]; fastq_1/fastq_2/barcode are each
+    # individually optional at schema level -- a row with fastq_1 empty/absent validates
+    # cleanly and reaches the illumina-branch .map{} with a null read source (confirmed by
+    # reading subworkflows/local/utils_nfcore_viralrecon_pipeline/main.nf:98-117), same class
+    # of gap as taxprofiler/mag/raredisease/bacass's "no read source" rows. This repo's stocked
+    # scope is --platform illumina only (config/pipelines.tsv) -- barcode is the nanopore
+    # branch's read-source column and is not checked here at all.
+    #
+    # sample uniqueness: NOT enforced by the schema (no uniqueEntries on `sample`), and the
+    # illumina branch's own .groupTuple() keyed on meta.id is a SUPPORTED multi-lane/multi-run
+    # merge shape (same pattern as mag/rnasplice) -- do not FAIL or WARN on a repeated sample
+    # name here. validateInputSamplesheet() only rejects a repeated sample whose rows disagree
+    # on single_end vs paired_end (mixing a fastq_2-bearing row with a fastq_2-empty row under
+    # one sample name) -- checked below since that failure only surfaces deep in the pipeline
+    # otherwise (a Groovy error(), not a schema validation failure).
+    SI=$(colidx sample); F1I=$(colidx fastq_1); F2I=$(colidx fastq_2)
+    if [[ -n "$F1I" ]]; then
+      NOSRC=$(awk -F, -v f1="$F1I" 'NR>1 && ($f1==""||$f1=="NA") {print NR-1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$NOSRC" ]] && ok "viralrecon: every row has fastq_1 populated (illumina platform needs it; schema itself does not require it)" \
+                        || fail "viralrecon: row(s) with fastq_1 empty/NA -- schema validates this cleanly but the illumina branch has no read source for that row: $NOSRC"
+    else
+      fail "viralrecon: sheet has no fastq_1 column at all -- illumina platform (this repo's stocked scope) has no usable read source without it"
+    fi
+    if [[ -n "$SI" && -n "$F2I" ]]; then
+      # A sample name whose rows disagree on fastq_2-presence (single-end vs paired-end) passes
+      # schema validation but fails deep inside validateInputSamplesheet()'s endedness check
+      # with a bare Groovy error() -- not a schema message, not something -preview surfaces as
+      # a per-row problem. Detect the same condition here, per-sample-name, before launch.
+      MIXED=$(awk -F, -v s="$SI" -v f2="$F2I" '
+        NR>1 {
+          se = ($f2=="" || $f2=="NA") ? "SE" : "PE"
+          if (($s) in seen && seen[$s] != se) { print $s }
+          seen[$s] = se
+        }' "$TMP" | sort -u | paste -sd' ' -)
+      [[ -z "$MIXED" ]] && ok "viralrecon: no sample name mixes single-end and paired-end rows" \
+                        || fail "viralrecon: sample(s) with both a paired-end row (fastq_2 set) and a single-end row (fastq_2 empty/NA/absent) -- validateInputSamplesheet() rejects this at runtime with 'Multiple runs of a sample must be of the same datatype': $MIXED"
+    fi
+  fi
 elif [[ -z "$PIPELINE" ]]; then
   ID=''
   for C in sample patient group id; do [[ -z "$(colidx "$C")" ]] || { ID="$C"; break; }; done
@@ -859,6 +903,18 @@ for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 for
     # relative path typo and must not be flagged as one, unlike every other pipeline's path
     # columns where a bare word in a path column IS a mistake.
     if [[ "$PIPELINE" == isoseq && ( "$C" == bam || "$C" == pbi || "$C" == reads ) && "$P" == "None" ]]; then
+      continue
+    fi
+    # viralrecon's fastq_1/fastq_2 legitimately hold http(s):// URLs -- the pipeline's OWN
+    # -profile test samplesheet (nf-core/test-datasets, viralrecon branch) is built entirely
+    # of raw.githubusercontent.com URLs and validates cleanly against schema_input.json's
+    # format:file-path,exists:true (nf-schema's existence check recognises a remote scheme and
+    # does not require local readability), same shape as bacass's R1/R2/LongFastQ columns
+    # above. Scoped to viralrecon only -- not verified for any other pipeline's fastq_1/
+    # fastq_2 columns, so left FAILing (relative-path-shaped) there rather than silently
+    # widened repo-wide on an unconfirmed assumption.
+    if [[ "$PIPELINE" == viralrecon && ( "$C" == fastq_1 || "$C" == fastq_2 ) && "$P" =~ ^https?:// ]]; then
+      ok "$C: remote URL, not checked for existence here: $P"
       continue
     fi
     if [[ "$P" != /* ]]; then

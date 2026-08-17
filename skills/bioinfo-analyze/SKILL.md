@@ -93,7 +93,7 @@ Do them in order. Do not skip step 3 or step 4.
    samplesheet. Neither substitutes for the other: `-preview` resolves params and the DAG without
    running anything, `-stub-run` exercises the process wiring. A stub run that fails is a real
    failure — fix it, do not "try it for real and see". `references/runbook.md` section 4.
-   **Ten documented departures from "stub the real command as-is," and only these ten —
+   **Eleven documented departures from "stub the real command as-is," and only these eleven —
    `references/runbook.md` section 4 is the canonical list, do not generalise beyond it:**
    - **A true waiver** (the failing stub is accepted, not avoided): an rnaseq samplesheet with
      `strandedness: auto` makes the real-command stub fail unavoidably, because the pipeline
@@ -189,9 +189,22 @@ Do them in order. Do not skip step 3 or step 4.
      correctly and is unaffected — confirmed by a full non-stub `-profile test,docker` run
      (`completed=36 failed=0`) and a real-sample run, both passing. Runbook section 4 quotes the
      exact stub line and error. See `pipeline-selection.md` §4.5.
-   All ten are partial gates, not full substitutes for testing the real command — runbook
+   - **A true waiver, upstream shared-module stub-coverage gap, same shape as ampliseq/nanoseq/
+     rnasplice/isoseq**: viralrecon at this pin's `3.0.0` (`config/pipelines.tsv`) fails
+     `-stub-run` on the CI test profile at the primer/reference contig-match check
+     ("Contigs in primer BED file do not match those in the reference genome") —
+     `CUSTOM_GETCHROMSIZES`'s `stub:` block does `touch ${fasta}.fai` (an empty placeholder),
+     and `lib/WorkflowCommons.groovy`'s `checkContigsInBED()` reads that empty `.fai` for real,
+     comparing an empty contig list against the primer BED's real contig name and failing —
+     `completed=4 failed=0` (a script `error()`, not a task failure). Confirmed data/config-
+     independent — reproduces regardless of which fasta/primer_bed content is supplied,
+     since the root cause is the stub's empty `.fai`, not this procurement's own reference
+     choices. Runbook section 4 states the exact error; `-preview` is the pre-launch gate, the
+     full (non-stub) `-profile test,docker` command is what actually proves this pipeline
+     (`completed=187 failed=0 cached=8`). See `pipeline-selection.md` §4.18.
+   All eleven are partial gates, not full substitutes for testing the real command — runbook
    section 4 states plainly what each one does not cover. Nothing else in this skill waives or
-   substitutes a stub; an eleventh pipeline hitting a similar shape needs its own documented case
+   substitutes a stub; a twelfth pipeline hitting a similar shape needs its own documented case
    here and in the runbook, not an ad hoc workaround.
 5. **Execution.** Launch from ext4, logging to file, always through `tmux` (`references/runbook.md`
    section 5) — not a bare foreground command, not `nohup … &`, and not your own backgrounded

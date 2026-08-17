@@ -905,6 +905,53 @@ A bare decimal cell like `2.8` (no `m` suffix) gets parsed by the CSV reader as 
 and the schema expects a string — confirmed via `-preview`: `Value is [number] but should be
 [string, null]` alongside the pattern-mismatch error. Always quote/spell the trailing `m`.
 
+### nf-core/viralrecon — 3.0.0
+
+**`assets/schema_input.json` IS what this pipeline validates against** — same class of finding
+as isoseq/bacass. `subworkflows/local/utils_nfcore_viralrecon_pipeline/main.nf:100/122` calls
+`samplesheetToList(params.input, "${projectDir}/assets/schema_input.json")` directly; `bin/` in
+the clone holds only `fastq_dir_to_samplesheet.py`, a samplesheet *generator*, not a validator.
+
+| column | required | notes |
+|---|---|---|
+| `sample` | yes | schema's only `required[]` entry; pattern `^\S+$`, type `["string","integer"]`, `meta:["id"]` |
+| `fastq_1` | no (schema) / yes (this repo's illumina-only stocked scope) | `.fq.gz`/`.fastq.gz`, `format:file-path,exists:true` — see below |
+| `fastq_2` | no | same pattern as `fastq_1`; empty/absent means single-end |
+| `barcode` | no | **nanopore branch only** — bare integer, zero-padded into `barcode01` etc; not used at all on the illumina branch this repo stocks |
+
+```csv
+sample,fastq_1,fastq_2
+SAMPLE_01,/work/nxf/viralrecon-realsample-fastq/SAMPLE_01_R1.fastq.gz,/work/nxf/viralrecon-realsample-fastq/SAMPLE_01_R2.fastq.gz
+```
+
+This is the exact sheet from `runs/20260818-viralrecon-sample01-realsample/samplesheet.csv`. The
+pipeline's own CI fixture also legitimately uses `http(s)://` URLs in `fastq_1`/`fastq_2`
+directly (`samplesheet_test_amplicon_illumina.csv`, `nf-core/test-datasets` `viralrecon` branch)
+— nf-schema's `exists:true` check recognises a remote scheme and does not require local
+readability, same shape as bacass's `R1`/`R2`/`LongFastQ` columns.
+
+**`sample` uniqueness — no `uniqueEntries` in the schema, and the pipeline's own CI fixture
+exercises the repeat as a real, working shape.** The CI illumina-amplicon fixture's own
+`SAMPLE3_SE` appears twice, across two different `fastq_1` values, both single-end (`fastq_2`
+empty) — the illumina branch's `.groupTuple()` (keyed on `meta.id`) merges them as a supported
+multi-run/multi-lane shape, same pattern as mag/rnasplice. `validateInputSamplesheet()` rejects
+only ONE thing about a repeated `sample`: rows that disagree on single-end vs paired-end
+(mixing a `fastq_2`-populated row with a `fastq_2`-empty row under one sample name) —
+`error("Please check input samplesheet -> Multiple runs of a sample must be of the same
+datatype...")`. That failure is a bare Groovy `error()`, not a schema-validation message, so
+`-preview` will not surface it as a per-row problem; `check-samplesheet.sh --pipeline
+viralrecon` checks for it directly, per sample name, ahead of launch.
+
+**No read source at all is a schema-legal row for `fastq_1` — the schema alone will not catch
+it.** `fastq_1` is not in `required[]`; a row with it empty/absent validates cleanly and reaches
+the illumina branch's `.map{}` with a `null` read source (confirmed by reading
+`utils_nfcore_viralrecon_pipeline/main.nf:98-117`). Same class of gap as taxprofiler/mag/
+raredisease/bacass's "no read source" rows. This repo's stocked scope is illumina-only
+(`config/pipelines.tsv`), so `check-samplesheet.sh --pipeline viralrecon` enforces `fastq_1`
+specifically, the same "repo-scope rule layered on the looser upstream schema" pattern as
+bacass's `R1` enforcement — a `barcode`-only (nanopore-shaped) sheet is schema-legal upstream
+but has no usable read source under this repo's illumina-only stocked configuration.
+
 ---
 
 ## Common breakages, with the text you will actually see
