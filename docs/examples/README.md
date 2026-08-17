@@ -1,10 +1,10 @@
 # Worked examples
 
-Eleven real runs, kept as documentation of what a run record looks like. A full record in
+Twelve real runs, kept as documentation of what a run record looks like. A full record in
 `runs/<runid>/` is five files — `plan.md`, `samplesheet.csv`, `params.yaml`, `cmd.sh`, `handoff.md`
 — but not every example carries all five: `20260804-rnaseq-scer-verify` passes its references on the
 command line and so has no `params.yaml`, the two `-e` runs kept only `cmd.sh` and `handoff.md`, and
-the two `-testprofile-procurement` runs (scratch procurement smokes, not run-record launches) kept
+the three `-testprofile-procurement` runs (scratch procurement smokes, not run-record launches) kept
 only `plan.md`/`handoff.md`. `20260812-taxprofiler-drr027580-realsample` additionally carries a
 `databases.csv` — taxprofiler is the one stocked pipeline whose input is two CSVs, not one.
 
