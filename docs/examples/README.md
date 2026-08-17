@@ -1,6 +1,6 @@
 # Worked examples
 
-Twelve real runs, kept as documentation of what a run record looks like. A full record in
+Eleven real runs, kept as documentation of what a run record looks like. A full record in
 `runs/<runid>/` is five files — `plan.md`, `samplesheet.csv`, `params.yaml`, `cmd.sh`, `handoff.md`
 — but not every example carries all five: `20260804-rnaseq-scer-verify` passes its references on the
 command line and so has no `params.yaml`, the two `-e` runs kept only `cmd.sh` and `handoff.md`, and

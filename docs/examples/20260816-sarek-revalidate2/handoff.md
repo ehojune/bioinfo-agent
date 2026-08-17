@@ -45,7 +45,10 @@ continues to work correctly for sarek.
 
 ## Real-sample confirmatory run
 Reused `runs/20260729-sarek-srr26793256/results/preprocessing/markduplicates/SRR26793256/SRR26793256.md.cram`
-(+`.crai`, confirmed present, byte-identical: 14,454,217,009 bytes) via `--step variant_calling`, a
+(+`.crai`, confirmed present, same size as both prior handoffs' records: 14,454,217,009 bytes,
+plus unchanged mtime/ctime and a freshly recorded sha256sum — see plan.md; no earlier digest
+exists to diff against, so this establishes continuity, not a proven byte-level comparison) via
+`--step variant_calling`, a
 **fresh work dir** (not `-resume` of the 2026-08-10 run's completed one — a full cache-hit resume
 would have proven little about current infra). `--tools haplotypecaller`,
 `--skip_tools baserecalibrator,haplotypecaller_filter` — same scope as 2026-08-10, for the same
