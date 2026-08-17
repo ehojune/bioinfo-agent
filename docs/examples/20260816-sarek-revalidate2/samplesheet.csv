@@ -1,0 +1,2 @@
+patient,sex,status,sample,cram,crai
+SRR26793256,NA,0,SRR26793256,/mnt/d/bioinfo-agent/runs/20260729-sarek-srr26793256/results/preprocessing/markduplicates/SRR26793256/SRR26793256.md.cram,/mnt/d/bioinfo-agent/runs/20260729-sarek-srr26793256/results/preprocessing/markduplicates/SRR26793256/SRR26793256.md.cram.crai
