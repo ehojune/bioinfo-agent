@@ -956,12 +956,18 @@ elif [[ -n "$REQ" ]]; then
           continue
         fi
         MISSING=$(bundle_required_files | while IFS= read -r F; do
-          # -f (regular file) + -s (non-empty), not -e: a zero-byte file or a same-named
-          # directory both satisfy -e but give every one of these 15 downstream parquet/zarr/
-          # h5/csv.gz/json/xenium readers nothing real to parse.
-          [[ -f "$P/$F" && -s "$P/$F" ]] || printf '%s ' "$F"
+          # -f (regular file) + -s (non-empty) + -r (readable), not just -e: a zero-byte file
+          # or a same-named directory both satisfy -e but give every one of these 15
+          # downstream parquet/zarr/h5/csv.gz/json/xenium readers nothing real to parse. -r
+          # added (Codex review, PR #47, round 5, P2): a mode-000 file satisfies -f and -s
+          # just as well as a readable one, and this checker may run as a different/less
+          # privileged account than the one that will actually launch the pipeline.
+          [[ -f "$P/$F" && -r "$P/$F" && -s "$P/$F" ]] || printf '%s ' "$F"
         done)
-        BADDIRS=$(bundle_required_dirs | while IFS= read -r D; do [[ -d "$P/$D" ]] || printf '%s ' "$D"; done)
+        # -r added alongside -d for the same reason (Codex review, PR #47, round 5, P2): an
+        # inaccessible (mode 000, or missing +x on a directory) morphology_focus/ satisfies -d
+        # but nothing underneath it can actually be listed/opened.
+        BADDIRS=$(bundle_required_dirs | while IFS= read -r D; do [[ -d "$P/$D" && -r "$P/$D" ]] || printf '%s ' "$D"; done)
         DETAIL=''
         [[ -n "$MISSING" ]] && DETAIL="not a non-empty regular file: $MISSING"
         [[ -n "$BADDIRS" ]] && DETAIL="${DETAIL:+$DETAIL; }not a directory: $BADDIRS"
