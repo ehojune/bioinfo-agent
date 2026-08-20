@@ -14,13 +14,21 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------------------
-# 1. chr20-only reference, extracted from this host's standard GRCh38 fasta (chr-prefixed,
-#    UCSC-style -- $BIOINFO_REFS/genomes/GRCh38/fasta/genome.fa on this host, which links to
-#    /mnt/d/Research/references/hg38.fa per config/refs.manifest.tsv).
+# 1. chr20-only reference, extracted from the standard GRCh38 reference resolved through
+#    $BIOINFO_REFS (reference-store.md: never pass a raw source path to a pipeline or to
+#    tooling that stands in for one -- resolve through the manifest-backed standard path,
+#    which on this host happens to be a symlink to /mnt/d/Research/references/hg38.fa, but
+#    that target is exactly what $BIOINFO_REFS exists to make swappable per-host).
+BIOINFO_REFS=${BIOINFO_REFS:-/refs}
 mkdir -p /work/staging/pbwgs-e2e
-docker run --rm -v /mnt/d/Research/references:/refsrc:ro -v /work/staging/pbwgs-e2e:/out \
+# Resolve the manifest-backed standard path to its real file so it can be bind-mounted --
+# a symlink whose target lies outside the mounted directory does not resolve inside the
+# container's own mount namespace, so the entry point stays $BIOINFO_REFS but the mount
+# itself needs the realpath.
+REF_FA="$(readlink -f "$BIOINFO_REFS/genomes/GRCh38/fasta/genome.fa")"
+docker run --rm -v "$(dirname "$REF_FA")":/refsrc:ro -v /work/staging/pbwgs-e2e:/out \
   quay.io/biocontainers/samtools:1.21--h50ea8bc_0 \
-  bash -c "samtools faidx /refsrc/hg38.fa chr20 > /out/chr20.fa && samtools faidx /out/chr20.fa"
+  bash -c "samtools faidx /refsrc/$(basename "$REF_FA") chr20 > /out/chr20.fa && samtools faidx /out/chr20.fa"
 
 # ---------------------------------------------------------------------------------------
 # 2. HG002 chr20:1-3,000,000 HiFi reads, htslib S3/https range-fetch (no full-file download)
