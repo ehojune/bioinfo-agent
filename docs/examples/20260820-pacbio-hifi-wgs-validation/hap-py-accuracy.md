@@ -46,10 +46,15 @@ used here. **Bounded choice**, stated: re-run against v5.0q is possible later if
 promoted to a stable release.
 
 Truth VCF and confident-regions BED were both restricted to `chr20:1-3,000,000`
-(`bcftools view -r chr20:1-3000000`, `awk` region-clip on the BED). The confident BED contains
-**2,766,533 bp** (461 intervals) inside the 3 Mb slice — the actual comparison denominator; the
-rest of the slice has no truth-confidence claim either way. Truth VCF in that window: 5,023
-records.
+(`bcftools view -r chr20:1-3000000`, `awk` region-clip on the BED). A crude `awk` sum over the
+clipped BED gave 2,766,533 bp (461 intervals) inside the 3 Mb slice; hap.py's own
+`Subset.IS_CONF.Size` (from `happy.extended.csv`, both callers) reports **2,772,332 bp** for the
+same region — the small difference is vcfeval's own region/overlap handling, not a second
+restriction, and 2,772,332 is the number hap.py actually evaluated against, so it is the
+authoritative comparison denominator here. Truth VCF in the raw `chr20:1-3,000,000` window
+(before confident-region intersection): 5,023 records; of those, the confident-region evaluation
+below used **4,793** (4,187 SNP + 606 indel, per `happy.summary.csv` — the rest of the 5,023 fall
+outside the confident BED or are SV/complex records hap.py's SNP/INDEL split does not score).
 
 ## Method
 
@@ -100,13 +105,13 @@ Both callers land at or above 99.9% F1 for SNPs and above 99.6% F1 for indels in
 Published DeepVariant/Clair3 HiFi benchmarks typically report SNP F1 above 99% and indel F1 in
 the high 90s on HiFi WGS data — these numbers are in that plausible range, not outliers in either
 direction. Clair3's slightly higher recall/precision here than DeepVariant's is a single small
-region's measurement (5,023 truth records total across both variant types), not a general
+region's measurement (4,793 evaluated truth records across both variant types), not a general
 performance claim between the two callers — do not extrapolate it past this slice.
 
 **No FN or FP was individually reviewed for cause.** DeepVariant has 1 SNP `TRUTH.FN` and 1 indel
 `TRUTH.FN`; Clair3 has 0 SNP `TRUTH.FN` and 0 indel `TRUTH.FN` (see per-caller tables above —
 these are not the same for both callers). `QUERY.FP` counts (DeepVariant 0 SNP/4 indel, Clair3
-0 SNP/2 indel) are all single digits on a 5,023-record truth set. Nothing here crossed a
+0 SNP/2 indel) are all single digits on a 4,793-record evaluated truth set. Nothing here crossed a
 threshold worth flagging.
 
 This is a **chr20:1-3 Mb slice** — a few thousand truth variants, not a genome-scale cohort. It

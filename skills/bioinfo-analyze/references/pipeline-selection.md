@@ -2232,7 +2232,7 @@ restores old behaviour).
 chr20:1–3 Mb (11,004 reads, S3 range-fetch) through the full caller chain against a chr20-only
 GRCh38 ref. Wall-clock/disk: `references/estimates.md`. **Accuracy** (2026-08-20/21,
 `hap-py-accuracy.md` in the same folder): hap.py vs GIAB HG002 NISTv4.2.1 truth, same
-chr20:1–3 Mb region, confident-BED-restricted (2.77 Mb, 5,023 truth records) — DeepVariant SNP
+chr20:1–3 Mb region, confident-BED-restricted (2.77 Mb, 4,793 evaluated truth records) — DeepVariant SNP
 F1 0.9999 / INDEL F1 0.9960, Clair3 (`hifi_sequel2`) SNP F1 1.0000 / INDEL F1 0.9984. **Scope
 note:** this is a chr20:1–3 Mb slice, not a whole-genome accuracy claim — no segdup/HLA/centromere
 coverage.
