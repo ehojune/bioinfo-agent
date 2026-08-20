@@ -80,16 +80,34 @@ if [ -f "$RUNDIR/cmd.sh" ]; then
   # file would otherwise decide both the branch and the assignment cutoff (Codex, PR #48
   # round 4). Isolate the invocation line plus its backslash continuations, and record which
   # source line it starts on so assignment resolution below cuts at the right place.
+  # `nextflow` must be the COMMAND the line invokes, not merely a word on it: an
+  # `echo nextflow run ...` line would otherwise set the block and the cutoff (Codex round 5).
+  # Leading VAR=value assignments and the usual wrappers are skipped, as bash would.
   _stripped="$(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "$RUNDIR/cmd.sh")"
-  _nfstart="$(printf '%s\n' "$_stripped" | grep -nE '(^|[[:space:]])nextflow([[:space:]]|$)' | head -1 | cut -d: -f1)"
-  _nfblk="$(printf '%s\n' "$_stripped" | awk -v S="${_nfstart:-0}" '
-              S>0 && NR>=S { print; if ($0 !~ /\\[[:space:]]*$/) exit }')"
+  _nfall="$(printf '%s\n' "$_stripped" | awk '
+      function firstcmd(s,   a) {
+        sub(/^[[:space:]]+/, "", s)
+        while (s ~ /^[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+/)
+          sub(/^[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+/, "", s)
+        while (s ~ /^(exec|time|env|nohup|stdbuf)[[:space:]]+/)
+          sub(/^(exec|time|env|nohup|stdbuf)[[:space:]]+/, "", s)
+        split(s, a, /[[:space:]]+/)
+        return a[1]
+      }
+      !started { c = firstcmd($0)
+                 if (c == "nextflow" || c ~ /\/nextflow$/) { started = 1; print "NFSTART " NR } }
+      started  { print "NFLINE " $0; if ($0 !~ /\\[[:space:]]*$/) exit }')"
+  _nfstart="$(printf '%s\n' "$_nfall" | awk '/^NFSTART /{print $2; exit}')"
+  _nfblk="$(printf '%s\n' "$_nfall" | sed -n 's/^NFLINE //p')"
   LOCALPIPE="$(printf '%s\n' "$_nfblk" | grep -oE 'pipelines/[A-Za-z0-9_-]+' | head -1 | cut -d/ -f2 || true)"
   if [ -n "$LOCALPIPE" ]; then
     # Basename matching alone would let a COPY of the tree (e.g. /tmp/pipelines/<name>)
     # pass while reporting THIS checkout's revision (Codex, PR #48). Resolve the token
     # cmd.sh actually runs and require it to be this checkout's pipelines/<name>.
-    _tok="$(printf '%s\n' "$_nfblk" | grep -oE '[^[:space:]]*pipelines/'"$LOCALPIPE" | head -1 | tr -d "\"'")"
+    # The WHOLE whitespace-delimited operand, not just up to the stocked name: a sibling
+    # `.../pipelines/<name>.backup` truncated to `pipelines/<name>` used to resolve onto the
+    # real directory and pass (Codex round 5). Trailing shell punctuation is dropped.
+    _tok="$(printf '%s\n' "$_nfblk" | grep -oE '[^[:space:]]*pipelines/'"$LOCALPIPE"'[^[:space:]]*' | head -1 | tr -d "\"'" | sed 's/[\\;&|]*$//')"
     # BIOINFO_HOME may be assigned BY cmd.sh, and that value — not preflight's environment —
     # is what bash uses when the script runs (Codex, PR #48 round 3). Same "last assignment
     # before the invocation" rule the REV resolver below uses, and the same `export` tolerance.
