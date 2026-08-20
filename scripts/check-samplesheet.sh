@@ -56,6 +56,12 @@ TMP=$(mktemp); trap 'rm -f "$TMP"' EXIT
 # the remaining checks and the PASS/FAILED summary never ran on exactly the degenerate input
 # line 50 detects and means to report.
 sed -e '1s/^\xEF\xBB\xBF//' -e 's/\r$//' "$SHEET" | { grep -v '^[[:space:]]*$' || true; } > "$TMP"
+# pacbio-hifi-wgs's own parser permits full-line # comments (the shipped
+# assets/samplesheet.example.csv opens with six of them); drop them here so the generic
+# header/ragged-row checks below see the real header, matching main.nf's semantics.
+if [[ "$PIPELINE" == pacbio-hifi-wgs ]]; then
+  sed -i '/^[[:space:]]*#/d' "$TMP"
+fi
 
 if [[ "$PIPELINE" == fetchngs ]]; then
   # fetchngs takes a HEADERLESS accession list (references/samplesheets.md) -- line 1 is a real
@@ -1081,9 +1087,12 @@ elif [[ -n "$REQ" ]]; then
         case "$P" in
           http://*|https://*) : ;;
           /*)
+            if [[ -e "$P" && ! -f "$P" ]]; then
+              fail "pacbio-hifi-wgs: row $N: file is not a regular file (directory?): $P"
+            fi
             [[ -r "$P" ]] || fail "pacbio-hifi-wgs: row $N: file not readable: $P"
             [[ -s "$P" ]] || fail "pacbio-hifi-wgs: row $N: file zero bytes: $P"
-            if [[ -r "$P" && -s "$P" && "$P" == *.gz ]]; then
+            if [[ -f "$P" && -r "$P" && -s "$P" && "$P" == *.gz ]]; then
               if [[ "$(head -c2 "$P" | od -An -tx1 | tr -d ' ')" != "1f8b" ]]; then
                 fail "pacbio-hifi-wgs: row $N: not a gzip stream: $P"
               elif (( DEEP )); then
@@ -1102,7 +1111,7 @@ elif [[ -n "$REQ" ]]; then
         esac
         case "$X" in
           http://*|https://*) : ;;
-          /*) [[ -r "$X" && -s "$X" ]] || fail "pacbio-hifi-wgs: row $N: index not readable or zero bytes: $X" ;;
+          /*) [[ -f "$X" && -r "$X" && -s "$X" ]] || fail "pacbio-hifi-wgs: row $N: index not a regular readable non-empty file: $X" ;;
           *)  fail "pacbio-hifi-wgs: row $N: index is not an absolute path or http(s):// URL: $X" ;;
         esac
       fi
@@ -1486,7 +1495,11 @@ BACOL=''; [[ "$PIPELINE" == bacass ]] && BACOL='R1 R2 LongFastQ Fast5'
 # instead points INSIDE a `bundle` directory (already walked by that bundle's own recursive
 # `du`) is handled below, per-path, not by leaving the column out altogether.
 SPXCOL=''; [[ "$PIPELINE" == spatialaxe ]] && SPXCOL='bundle image'
-PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads $IFCOL $ISOCOL $BACOL $SPXCOL; do colvals "$C"; done; } | grep '^/' | sort -u || true )
+# file/index are pacbio-hifi-wgs column NAMES, path-typed only there (same per-pipeline
+# gating as input_file/pbi/R1/bundle above) -- and PacBio WGS inputs are exactly the ones
+# large enough for the footprint warning to matter (Codex review, PR #49, round 2).
+PBCOL=''; [[ "$PIPELINE" == pacbio-hifi-wgs ]] && PBCOL='file index'
+PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads $IFCOL $ISOCOL $BACOL $SPXCOL $PBCOL; do colvals "$C"; done; } | grep '^/' | sort -u || true )
 # Bundle directories specifically, for the inside-bundle dedup check below -- collected
 # separately from PATHS since PATHS is deduplicated/sorted and no longer distinguishes which
 # original column a path came from. CANONICALIZED (`readlink -f`, falls back to the raw value
