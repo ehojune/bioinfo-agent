@@ -920,8 +920,12 @@ elif [[ -n "$REQ" ]]; then
           morphology_focus nucleus_boundaries.csv.gz nucleus_boundaries.parquet \
           transcripts.parquet transcripts.zarr.zip
       }
+      # Emit bundle\timage per data row, TAB-joined, straight from the row's own NR -- pairs
+      # each bundle with the SAME row's image cell directly, rather than reconstructing that
+      # pairing from a separately-counted index (which broke on any row bundle happened to
+      # skip -- fragile, and unnecessary when awk can just print both fields from one NR pass).
       N=0
-      while IFS= read -r P; do
+      while IFS=$'\t' read -r P IMGCELL; do
         [[ -n "$P" ]] || continue
         N=$((N+1))
         if [[ "$P" =~ ^https?:// ]]; then
@@ -942,7 +946,28 @@ elif [[ -n "$REQ" ]]; then
         MISSING=$(bundle_required_files | while IFS= read -r F; do [[ -e "$P/$F" ]] || printf '%s ' "$F"; done)
         [[ -z "$MISSING" ]] && ok "spatialaxe: bundle row $N has all 16 required Xenium bundle entries" \
                             || fail "spatialaxe: bundle row $N ($P) is missing required bundle file(s) (workflows/spatialaxe.nf's own bundle_required_files check will abort with this before any process runs): $MISSING"
-      done < <(colvals bundle)
+
+        # Bundle's own morphology.ome.tif as the FALLBACK image (Codex review, PR #47, round
+        # 3, P2): the required-file check above only tests `-e`, same as every other entry in
+        # the list -- fine for the other 15 (nothing downstream needs THEM to be a specific
+        # file type), but morphology.ome.tif specifically becomes `ch_morphology_image` when
+        # this row's `image` cell is empty (workflows/spatialaxe.nf's documented fallback,
+        # confirmed by reading it: focus_v3/v4/v1 tried first, `morphology.ome.tif` last). A
+        # directory named `morphology.ome.tif`, or a zero-byte one, both satisfy `-e` and were
+        # reported PASS despite giving the image reader nothing usable. Only checked when
+        # `image` is empty for THIS row -- an explicit `image` value means this file is never
+        # read as the morphology image regardless of its own condition.
+        if [[ -z "$IMGCELL" ]]; then
+          MORPH="$P/morphology.ome.tif"
+          if [[ ! -f "$MORPH" ]]; then
+            fail "spatialaxe: bundle row $N: image column is empty and bundle/morphology.ome.tif is not a regular file (directory or missing) -- this is the fallback image the pipeline would actually read: $MORPH"
+          elif [[ ! -r "$MORPH" ]]; then
+            fail "spatialaxe: bundle row $N: image column is empty and bundle/morphology.ome.tif is not readable (fallback image): $MORPH"
+          elif [[ ! -s "$MORPH" ]]; then
+            fail "spatialaxe: bundle row $N: image column is empty and bundle/morphology.ome.tif is zero bytes (fallback image): $MORPH"
+          fi
+        fi
+      done < <(awk -F, -v bi="$BUI" -v ii="${IMI:-0}" 'NR>1 {img=(ii==0?"":$ii); print $bi"\t"img}' "$TMP")
     fi
 
     # image: optional per schema (not in required[]); when given must be a readable path
@@ -1362,9 +1387,15 @@ SPXCOL=''; [[ "$PIPELINE" == spatialaxe ]] && SPXCOL='bundle image'
 PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads $IFCOL $ISOCOL $BACOL $SPXCOL; do colvals "$C"; done; } | grep '^/' | sort -u || true )
 # Bundle directories specifically, for the inside-bundle dedup check below -- collected
 # separately from PATHS since PATHS is deduplicated/sorted and no longer distinguishes which
-# original column a path came from.
+# original column a path came from. CANONICALIZED (`readlink -f`, falls back to the raw value
+# if canonicalization fails -- e.g. a bundle path that does not actually exist, already FAILed
+# above and reaching here only for a best-effort footprint estimate) so a trailing slash
+# (`/data/xenium/`, whose un-normalized containment pattern `/data/xenium//*` would NOT match
+# `/data/xenium/morphology.ome.tif`) or a symlinked bundle directory (compared against an
+# `image` path already written in its RESOLVED form) do not defeat the dedup check below and
+# silently double-count (Codex review, PR #47, round 3, P2).
 SPXBUNDLES=''
-[[ "$PIPELINE" == spatialaxe ]] && SPXBUNDLES=$(colvals bundle | grep '^/' | sort -u || true)
+[[ "$PIPELINE" == spatialaxe ]] && SPXBUNDLES=$(colvals bundle | grep '^/' | while IFS= read -r B; do readlink -f "$B" 2>/dev/null || printf '%s\n' "$B"; done | sort -u || true)
 if [[ -z "$PATHS" ]]; then
   printf 'size  nothing to size (no absolute fastq/bam/cram/spring paths)\n'
 else
@@ -1379,11 +1410,15 @@ else
     # spatialaxe only: skip a path already inside one of this sheet's `bundle` directories --
     # its bytes are already walked by that bundle's own recursive `du -Dsb` below, and adding
     # it again would double-count (e.g. `image` legitimately reusing a path under `bundle`).
+    # Compare CANONICALIZED forms on both sides (SPXBUNDLES already is; $P canonicalized here,
+    # original $P kept for the actual stat/du below) -- see SPXBUNDLES's own comment for why a
+    # raw string comparison missed a trailing-slash bundle path or a symlinked one.
     if [[ -n "$SPXBUNDLES" ]]; then
+      CMPP=$(readlink -f "$P" 2>/dev/null || printf '%s' "$P")
       SKIP=0
       while IFS= read -r BD; do
         [[ -n "$BD" ]] || continue
-        case "$P" in
+        case "$CMPP" in
           "$BD"/*) SKIP=1; break ;;
         esac
       done <<< "$SPXBUNDLES"
