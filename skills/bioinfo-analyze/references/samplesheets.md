@@ -1010,6 +1010,33 @@ confirmed supported-merge behaviour here (unlike those pipelines' documented mul
 Left to the generic identifier-check WARN in `check-samplesheet.sh`, not asserted as either safe
 or unsafe — untested at this pin, since this procurement's real-sample sheet is single-row.
 
+### pipelines/pacbio-hifi-wgs — in-repo
+
+Header `sample,dataset,input_type,file[,index]`. Validated by the pipeline's own Groovy parser
+(`parseSamplesheet()` in `main.nf`), not nf-schema: comma-separated, **no quoted fields** (a
+comma inside a value is a hard error by design), `#` comment lines allowed, `sample`/`dataset`
+restricted to `A-Za-z0-9._-` with `.` and `..` rejected outright (both become output path
+components; `..` would publish outside `--outdir`).
+
+**`.` inside a name is legal but the composed id must stay unique.** Output filenames and the
+flat MultiQC input directory all derive from `<sample>.<dataset>`, so `(A.B, C)` and `(A, B.C)`
+would collide on `A.B.C`; the parser errors on that pair rather than letting one group's
+reports overwrite the other's.
+
+- `input_type` per row: `subreads` | `hifi_bam` | `hifi_fastq` | `aligned_bam` — this column IS
+  the mid-pipeline entry mechanism. `subreads` runs pbccs first; `hifi_*` enter at pbmm2;
+  `aligned_bam` enters at variant calling.
+- `index` is optional and type-checked: `.pbi` only for `subreads` (built via pbindex when
+  empty), `.bai` only for `aligned_bam` (built when empty), and must be EMPTY for
+  `hifi_bam`/`hifi_fastq`.
+- Rows sharing `(sample,dataset)` are one merge group: aligned per-row, then samtools-merged.
+  One row per movie is the normal multi-movie shape. All rows of a group must be against the
+  same reference — nothing checks this for `aligned_bam` rows; it is on you.
+- A group that is a SINGLE `aligned_bam` row passes through in place: not re-merged, not
+  re-published under `02_alignedBAM` (deliberate — GIAB aligned BAMs are 60–120 GB).
+- Repeated identical rows are not deduplicated; the same movie under two datasets is processed
+  twice (the GIAB HudsonAlpha-vs-chemistry2 duplicate warning in §4.20's survey applies).
+
 ---
 
 ## Common breakages, with the text you will actually see

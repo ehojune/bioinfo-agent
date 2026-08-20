@@ -68,9 +68,106 @@ if command -v nextflow >/dev/null 2>&1; then
 else
   bad "nextflow not on PATH"
 fi
-REV=""; PIPE=""
+REV=""; PIPE=""; LOCALPIPE=""
+REPOROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [ -f "$RUNDIR/cmd.sh" ]; then
-  if grep -qE '(^| )-r +"?\$?\{?[0-9A-Za-z._-]+\}?"?' "$RUNDIR/cmd.sh" && ! grep -qE '(^| )-r +"?\$?\{?(dev|master|main)\}?"?( |$)' "$RUNDIR/cmd.sh"; then
+  # In-repo pipelines (pipelines/<name> in this repo) have no -r: their revision IS the
+  # repo checkout. They still must have a pipelines.tsv row to count as stocked.
+  # Comments are stripped first so a comment merely MENTIONING pipelines/<x> cannot
+  # silently disable the -r floating-branch gate below.
+  # The pipeline target must come from the `nextflow ... run` INVOCATION, not from the first
+  # place the string happens to appear: an `echo "$BIOINFO_HOME/pipelines/x"` earlier in the
+  # file would otherwise decide both the branch and the assignment cutoff (Codex, PR #48
+  # round 4). Isolate the invocation line plus its backslash continuations, and record which
+  # source line it starts on so assignment resolution below cuts at the right place.
+  # `nextflow` must be the COMMAND the line invokes, not merely a word on it: an
+  # `echo nextflow run ...` line would otherwise set the block and the cutoff (Codex round 5).
+  # Leading VAR=value assignments and the usual wrappers are skipped, as bash would.
+  _stripped="$(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "$RUNDIR/cmd.sh")"
+  _nfall="$(printf '%s\n' "$_stripped" | awk '
+      function firstcmd(s,   a) {
+        sub(/^[[:space:]]+/, "", s)
+        while (s ~ /^[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+/)
+          sub(/^[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+/, "", s)
+        while (s ~ /^(exec|time|env|nohup|stdbuf)[[:space:]]+/)
+          sub(/^(exec|time|env|nohup|stdbuf)[[:space:]]+/, "", s)
+        split(s, a, /[[:space:]]+/)
+        return a[1]
+      }
+      !started { c = firstcmd($0)
+                 if (c == "nextflow" || c ~ /\/nextflow$/) { started = 1; print "NFSTART " NR } }
+      started  { print "NFLINE " $0; if ($0 !~ /\\[[:space:]]*$/) exit }')"
+  _nfstart="$(printf '%s\n' "$_nfall" | awk '/^NFSTART /{print $2; exit}')"
+  _nfblk="$(printf '%s\n' "$_nfall" | sed -n 's/^NFLINE //p')"
+  LOCALPIPE="$(printf '%s\n' "$_nfblk" | grep -oE 'pipelines/[A-Za-z0-9_-]+' | head -1 | cut -d/ -f2 || true)"
+  if [ -n "$LOCALPIPE" ]; then
+    # Basename matching alone would let a COPY of the tree (e.g. /tmp/pipelines/<name>)
+    # pass while reporting THIS checkout's revision (Codex, PR #48). Resolve the token
+    # cmd.sh actually runs and require it to be this checkout's pipelines/<name>.
+    # The WHOLE whitespace-delimited operand, not just up to the stocked name: a sibling
+    # `.../pipelines/<name>.backup` truncated to `pipelines/<name>` used to resolve onto the
+    # real directory and pass (Codex round 5). Trailing shell punctuation is dropped.
+    _tok="$(printf '%s\n' "$_nfblk" | grep -oE '[^[:space:]]*pipelines/'"$LOCALPIPE"'[^[:space:]]*' | head -1 | tr -d "\"'" | sed 's/[\\;&|]*$//')"
+    # BIOINFO_HOME may be assigned BY cmd.sh, and that value — not preflight's environment —
+    # is what bash uses when the script runs (Codex, PR #48 round 3). Same "last assignment
+    # before the invocation" rule the REV resolver below uses, and the same `export` tolerance.
+    _bh="${BIOINFO_HOME:-$REPOROOT}"; _bh_known=1
+    # Marker-prefixed so an assignment whose value is literally empty is distinguishable from
+    # "no assignment executes before the invocation" (which leaves the environment in force).
+    _bh_raw="$(awk -v L="${_nfstart:-0}" '
+                L>0 && NR>=L { exit }
+                { s=$0
+                  sub(/^[[:space:]]+/, "", s)
+                  sub(/^export[[:space:]]+/, "", s)
+                  sub(/^[[:space:]]+/, "", s)
+                  if (index(s, "BIOINFO_HOME=")==1) line=s }
+                END { if (line != "") print "F" line }' "$RUNDIR/cmd.sh")"
+    if [ -n "$_bh_raw" ]; then
+      _bh_cmd="$(printf '%s' "${_bh_raw#F}" | cut -d= -f2- | sed 's/#.*$//' | tr -d "\047\" ")"
+      case "$_bh_cmd" in
+        '')
+          # `BIOINFO_HOME=` is a real, empty value in bash — the target becomes
+          # /pipelines/<name>. Evaluate it exactly rather than substituting something else.
+          _bh='' ;;
+        '${BIOINFO_HOME:-'*'}'|'${BIOINFO_HOME-'*'}')
+          # The repo's own cmd.sh template writes BIOINFO_HOME=${BIOINFO_HOME:-/default}.
+          # That is plain default-expansion and preflight's own environment gives it exactly
+          # bash's semantics, so evaluate it rather than guessing or refusing.
+          _def="${_bh_cmd#*-}"; _def="${_def%\}}"
+          _bh="${BIOINFO_HOME:-$_def}" ;;
+        *'$'*)
+          # Any other expression (command substitution, other variables) cannot be resolved
+          # statically. Refuse rather than certify a path that may point elsewhere.
+          bad "cmd.sh computes BIOINFO_HOME as '$_bh_cmd', which preflight cannot resolve statically; the run target therefore cannot be verified. Use a literal path or the \${BIOINFO_HOME:-/default} form."
+          _bh_known=0 ;;
+        *)
+          _bh="$_bh_cmd" ;;
+      esac
+    fi
+    if [ "$_bh_known" -eq 0 ]; then
+      _exp=''      # unresolvable BIOINFO_HOME already reported above
+    else
+      _exp="${_tok//\$\{BIOINFO_HOME\}/$_bh}"
+      _exp="${_exp//\$BIOINFO_HOME/$_bh}"
+    fi
+    _want="$(readlink -f -- "$REPOROOT/pipelines/$LOCALPIPE" 2>/dev/null || printf '%s' "$REPOROOT/pipelines/$LOCALPIPE")"
+    _resolved=""
+    case "$_exp" in
+      '') : ;;   # unresolvable BIOINFO_HOME — already reported, do not report twice
+      /*) _resolved="$(readlink -f -- "$_exp" 2>/dev/null || printf '%s' "$_exp")" ;;
+      *)  # A relative target is resolved by the SHELL's cwd when cmd.sh runs, which preflight
+          # cannot know — rebasing it onto the repo root would certify a path that may point
+          # somewhere else entirely (Codex, PR #48 round 2). Refuse instead of guessing.
+          bad "cmd.sh runs the relative target '$_tok'; Nextflow resolves that against whatever directory cmd.sh is launched from, which preflight cannot verify. Use an absolute path or \"\$BIOINFO_HOME\"/pipelines/$LOCALPIPE." ;;
+    esac
+    if [ -z "$_resolved" ]; then
+      : # already reported above
+    elif [ "$_resolved" = "$_want" ] && [ -d "$_want" ]; then
+      ok "in-repo pipeline pipelines/$LOCALPIPE: cmd.sh target resolves into this checkout; revision is the repo checkout ($(git -c safe.directory="$REPOROOT" -C "$REPOROOT" rev-parse --short HEAD 2>/dev/null || echo 'unknown'))"
+    else
+      bad "cmd.sh runs '$_tok' -> '$_resolved', not this checkout's '$_want'. Preflight can only vouch for the tree it lives in — run the repo copy, or move your changes into it."
+    fi
+  elif grep -qE '(^| )-r +"?\$?\{?[0-9A-Za-z._-]+\}?"?' "$RUNDIR/cmd.sh" && ! grep -qE '(^| )-r +"?\$?\{?(dev|master|main)\}?"?( |$)' "$RUNDIR/cmd.sh"; then
     REV="$(grep -oE '(^| )-r +"?\$?\{?[0-9A-Za-z._-]+\}?"?' "$RUNDIR/cmd.sh" | head -1 | tr -d ' "${}' | sed 's/^-r//')"
     # The guard needs the same `export` tolerance as the resolver below. Teaching only the
     # resolver left a cmd.sh whose ONLY assignment is `export REV=2.1.0` skipping this block
@@ -126,7 +223,15 @@ else
 fi
 
 echo "== stocked set =="
-if [ -z "$PIPE" ]; then
+# LOCALPIPE takes precedence (mirrors the revision section above): an in-repo cmd.sh may
+# legitimately contain an nf-core/<x> substring in a URL or comment.
+if [ -n "$LOCALPIPE" ]; then
+  if [ -f "$TSV" ] && awk -F'\t' -v p="$LOCALPIPE" '/^#/{next} $1==p{found=1} END{exit !found}' "$TSV"; then
+    ok "pipelines/$LOCALPIPE has a row in $TSV (in-repo, no upstream pin to compare)"
+  else
+    bad "pipelines/$LOCALPIPE has no row in $TSV — it is not stocked"
+  fi
+elif [ -z "$PIPE" ]; then
   bad "cmd.sh names no nf-core/<pipeline> to look up"
 elif [ ! -f "$TSV" ]; then
   note "$TSV absent — pipeline and revision unchecked against the stocked set"

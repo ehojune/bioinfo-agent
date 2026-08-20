@@ -1,0 +1,2 @@
+sample,dataset,input_type,file,index
+HG002,chem2_chr20slice,hifi_fastq,/work/staging/pbwgs-e2e/hg002.chr20_1_3M.hifi.fastq.gz,

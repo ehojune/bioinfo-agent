@@ -1,0 +1,5 @@
+# -profile test smoke: real PacBio subreads (nf-core isoseq CI subset, 48 MB) through
+# pbindex -> ccs -> pbmerge -> pbmm2 against a chr19-only reference. Variant callers are
+# skipped by the test profile (these are Iso-Seq RNA subreads; mechanics-only smoke).
+sample,dataset,input_type,file,index
+testsample,smoke,subreads,https://raw.githubusercontent.com/nf-core/test-datasets/isoseq/testdata/alz.1perc.subreads.10000.bam,https://raw.githubusercontent.com/nf-core/test-datasets/isoseq/testdata/alz.1perc.subreads.10000.bam.pbi
