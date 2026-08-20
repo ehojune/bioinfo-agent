@@ -905,6 +905,27 @@ A bare decimal cell like `2.8` (no `m` suffix) gets parsed by the CSV reader as 
 and the schema expects a string — confirmed via `-preview`: `Value is [number] but should be
 [string, null]` alongside the pattern-mismatch error. Always quote/spell the trailing `m`.
 
+### pipelines/pacbio-hifi-wgs — in-repo
+
+Header `sample,dataset,input_type,file[,index]`. Validated by the pipeline's own Groovy parser
+(`parseSamplesheet()` in `main.nf`), not nf-schema: comma-separated, **no quoted fields** (a
+comma inside a value is a hard error by design), `#` comment lines allowed, `sample`/`dataset`
+restricted to `A-Za-z0-9._-`.
+
+- `input_type` per row: `subreads` | `hifi_bam` | `hifi_fastq` | `aligned_bam` — this column IS
+  the mid-pipeline entry mechanism. `subreads` runs pbccs first; `hifi_*` enter at pbmm2;
+  `aligned_bam` enters at variant calling.
+- `index` is optional and type-checked: `.pbi` only for `subreads` (built via pbindex when
+  empty), `.bai` only for `aligned_bam` (built when empty), and must be EMPTY for
+  `hifi_bam`/`hifi_fastq`.
+- Rows sharing `(sample,dataset)` are one merge group: aligned per-row, then samtools-merged.
+  One row per movie is the normal multi-movie shape. All rows of a group must be against the
+  same reference — nothing checks this for `aligned_bam` rows; it is on you.
+- A group that is a SINGLE `aligned_bam` row passes through in place: not re-merged, not
+  re-published under `02_alignedBAM` (deliberate — GIAB aligned BAMs are 60–120 GB).
+- Repeated identical rows are not deduplicated; the same movie under two datasets is processed
+  twice (the GIAB HudsonAlpha-vs-chemistry2 duplicate warning in §4.18's survey applies).
+
 ---
 
 ## Common breakages, with the text you will actually see

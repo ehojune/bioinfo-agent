@@ -1,0 +1,12 @@
+# pacbio-hifi-wgs samplesheet. Columns: sample,dataset,input_type,file[,index]
+# input_type: subreads | hifi_bam | hifi_fastq | aligned_bam
+# Rows sharing (sample,dataset) are merged after alignment (multi-movie datasets).
+# index: optional .pbi (subreads) or .bai (aligned_bam); leave empty to have it built.
+# NOTE --clair3_model is one value per RUN: keep one platform generation per samplesheet
+# (this example mixes them only to show every input_type; run each dataset separately).
+sample,dataset,input_type,file,index
+HG002,PacBio_CCS_15kb_20kb_chemistry2,hifi_bam,/data/HG002/uBAMs/m64011_190830_220126.hifi_reads.bam,
+HG002,PacBio_CCS_15kb_20kb_chemistry2,hifi_bam,/data/HG002/uBAMs/m64011_190901_095311.hifi_reads.bam,
+HG002,PacBio_CCS_10kb,hifi_fastq,/data/HG002/PacBio_CCS_10kb/m54238_180628_014238.Q20.fastq,
+HG001,PacBio_SequelII_CCS_11kb,aligned_bam,/data/HG001/HG001_GRCh38/HG001_GRCh38.haplotag.RTG.trio.bam,/data/HG001/HG001_GRCh38/HG001_GRCh38.haplotag.RTG.trio.bam.bai
+SAMPLE1,SequelII_15kb_subreads,subreads,/data/SAMPLE1/m64012_190920_173625.subreads.bam,/data/SAMPLE1/m64012_190920_173625.subreads.bam.pbi

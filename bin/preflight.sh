@@ -68,9 +68,16 @@ if command -v nextflow >/dev/null 2>&1; then
 else
   bad "nextflow not on PATH"
 fi
-REV=""; PIPE=""
+REV=""; PIPE=""; LOCALPIPE=""
 if [ -f "$RUNDIR/cmd.sh" ]; then
-  if grep -qE '(^| )-r +"?\$?\{?[0-9A-Za-z._-]+\}?"?' "$RUNDIR/cmd.sh" && ! grep -qE '(^| )-r +"?\$?\{?(dev|master|main)\}?"?( |$)' "$RUNDIR/cmd.sh"; then
+  # In-repo pipelines (pipelines/<name> in this repo) have no -r: their revision IS the
+  # repo checkout. They still must have a pipelines.tsv row to count as stocked.
+  # Comments are stripped first so a comment merely MENTIONING pipelines/<x> cannot
+  # silently disable the -r floating-branch gate below.
+  LOCALPIPE="$(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "$RUNDIR/cmd.sh" | grep -oE 'pipelines/[A-Za-z0-9_-]+' | head -1 | cut -d/ -f2 || true)"
+  if [ -n "$LOCALPIPE" ]; then
+    ok "in-repo pipeline pipelines/$LOCALPIPE: revision is the repo checkout ($(git -C "$(dirname "$0")/.." rev-parse --short HEAD 2>/dev/null || echo 'unknown'))"
+  elif grep -qE '(^| )-r +"?\$?\{?[0-9A-Za-z._-]+\}?"?' "$RUNDIR/cmd.sh" && ! grep -qE '(^| )-r +"?\$?\{?(dev|master|main)\}?"?( |$)' "$RUNDIR/cmd.sh"; then
     REV="$(grep -oE '(^| )-r +"?\$?\{?[0-9A-Za-z._-]+\}?"?' "$RUNDIR/cmd.sh" | head -1 | tr -d ' "${}' | sed 's/^-r//')"
     # The guard needs the same `export` tolerance as the resolver below. Teaching only the
     # resolver left a cmd.sh whose ONLY assignment is `export REV=2.1.0` skipping this block
@@ -126,7 +133,15 @@ else
 fi
 
 echo "== stocked set =="
-if [ -z "$PIPE" ]; then
+# LOCALPIPE takes precedence (mirrors the revision section above): an in-repo cmd.sh may
+# legitimately contain an nf-core/<x> substring in a URL or comment.
+if [ -n "$LOCALPIPE" ]; then
+  if [ -f "$TSV" ] && awk -F'\t' -v p="$LOCALPIPE" '/^#/{next} $1==p{found=1} END{exit !found}' "$TSV"; then
+    ok "pipelines/$LOCALPIPE has a row in $TSV (in-repo, no upstream pin to compare)"
+  else
+    bad "pipelines/$LOCALPIPE has no row in $TSV — it is not stocked"
+  fi
+elif [ -z "$PIPE" ]; then
   bad "cmd.sh names no nf-core/<pipeline> to look up"
 elif [ ! -f "$TSV" ]; then
   note "$TSV absent — pipeline and revision unchecked against the stocked set"

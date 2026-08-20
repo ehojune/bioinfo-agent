@@ -77,7 +77,8 @@ If step 1 or 2 cannot be answered from what the user said, stop and ask. §8 lis
 | Droplet single-cell RNA (10x, Drop-seq) | cell × gene matrix, h5ad | `nf-core/scrnaseq` | → scanpy/Seurat (user's work) |
 | Single-**nucleus** RNA | cell × gene matrix | `nf-core/scrnaseq` **with intron counting** | see §4.9 |
 | Short-read STR / repeat expansion | repeat genotypes | **no stocked pipeline** | see §6 |
-| PacBio HiFi tandem repeats | TRGT genotypes | **no stocked pipeline** | see §6 |
+| PacBio HiFi human WGS (subreads / HiFi reads / aligned BAM) | SNV+indel (DeepVariant, Clair3), SV (pbsv), phased VCF + haplotagged BAM (WhatsHap) | `pipelines/pacbio-hifi-wgs` **(in-repo)** | terminal — see §4.18 |
+| PacBio HiFi tandem repeats | TRGT genotypes | **no stocked pipeline**, but §4.18 produces the HiFi alignment TRGT needs | see §6 |
 | 16S / ITS amplicon (mock community, environmental, gut microbiome) | ASV table, taxonomy, alpha/beta diversity | `nf-core/ampliseq` | terminal — see §4.10 |
 | Shotgun metagenome FASTQ (short and/or long read) | assembly, binning, MAGs, bin QC/taxonomy | `nf-core/mag` | terminal — see §4.11 |
 | Shotgun metagenome FASTQ, taxonomy/abundance ONLY (no assembly, no binning, no MAGs) | per-sample taxon table(s), standardised across profilers | `nf-core/taxprofiler` | terminal — see §4.12 |
@@ -1491,8 +1492,9 @@ trgt genotype \
 ```
 
 The HiFi BAM must be aligned with pbmm2 or minimap2 with HiFi presets, and TRGT expects the
-per-read tags HiFi alignments carry. No stocked pipeline produces that alignment; sarek's bwa path
-will not do.
+per-read tags HiFi alignments carry. sarek's bwa path will not do — but `pipelines/pacbio-hifi-wgs`
+(§4.18, added 2026-08-20) produces exactly this: a pbmm2 CCS-preset aligned (and optionally
+WhatsHap-haplotagged) BAM. Chain: pacbio-hifi-wgs → TRGT on `02_alignedBAM/haplotagged/*.bam`.
 
 ### 6.3 If a pipeline is wanted anyway
 
@@ -1913,3 +1915,59 @@ length 4,545,618 bp / GC 50.72% / largest contig 328,315 bp; BUSCO 100.0% comple
 ≥500bp filter drops some of these); fastp 1,890,006 / 2,214,180 reads passed filter (~85.4%).
 See `estimates.md` for the full wall-clock/disk measurement and `handoff.md` for the complete
 QC table.
+
+### 4.18 `pipelines/pacbio-hifi-wgs` (in-repo)
+
+**For:** PacBio HiFi human WGS germline variant calling — raw subreads and/or HiFi reads and/or
+already-aligned BAMs in, per-dataset deliverables out: HiFi uBAM (`pbccs`), aligned BAM (`pbmm2`),
+SNV/indel VCFs (DeepVariant **and** Clair3, plus SNV/INDEL convenience splits), phased VCF +
+haplotagged BAM (WhatsHap), SV VCF (`pbsv`), mosdepth/samtools/bcftools QC + MultiQC. The first
+**in-repo** pipeline: it lives at `pipelines/pacbio-hifi-wgs/` in this repository, is not an
+nf-core pipeline, has no `-r` (revision = repo checkout), and uses zero Nextflow plugins so the
+directory can be copied to an offline SGE+Singularity cluster and run as-is. Order follows
+PacBio's HiFi-human-WGS-WDL v1.x: DeepVariant (≥1.4, internal read phasing) and pbsv both consume
+the plain aligned BAM; WhatsHap phases afterwards.
+
+**Not for:** somatic tumour–normal calling (no paired mode — DeepSomatic/ClairS are different
+tools). Not for ONT (nanoseq, §4.14). Not for Iso-Seq (isoseq, §4.16). Not for short reads
+(sarek, §4.4). Not for assembly. Repeat genotyping is downstream: its haplotagged pbmm2 BAM is
+exactly what TRGT consumes (§6.2, which this pipeline un-blocks).
+
+**Minimum input:** `--input samplesheet.csv --fasta ref.fa`. Samplesheet columns
+`sample,dataset,input_type,file[,index]` — the `input_type` column (`subreads` | `hifi_bam` |
+`hifi_fastq` | `aligned_bam`) is the per-row mid-pipeline entry mechanism; rows sharing
+(sample,dataset) merge after alignment. Full spec: `references/samplesheets.md` and the
+pipeline's own `README.md`.
+
+**Parameters that matter here:**
+
+| param | value | why |
+|---|---|---|
+| `--clair3_model` | `hifi_revio` (default) \| `hifi_sequel2` \| `hifi` | **must match platform** — movie prefix m84=Revio, m64=Sequel II (→`hifi_sequel2`), m54=Sequel. Wrong model runs silently with degraded accuracy |
+| `--phase_vcf` | `deepvariant` (default) \| `clair3` | which small-variant VCF WhatsHap phases/haplotags from |
+| `--pbsv_tandem_repeats` | TRF bed | officially recommended for pbsv discover; absent = still runs |
+| `--ccs_chunks` | 8 | size to the movie's ZMW count — the isoseq §4.16 lesson (empty chunks crash downstream) applies to any chunked CCS |
+| `--clair3_args` | `--include_all_ctgs` | only to call decoy/unplaced/ALT contigs — Clair3's default set covers 1–22/X/Y with AND without `chr` prefix, so plain hs37d5 needs nothing |
+| `--container_*` | image URIs | every tool image is a param; defaults verified 2026-08-20 |
+
+**Version pins that are choices, not defaults:** clair3 `v1.2.0` deliberately (hkubal/clair3
+v2.x images drop **all** bundled HiFi models — verified empirically on v2.0.2); pbmm2 26.2.0
+(calendar versioning since 2026); DeepVariant 1.10.0; WhatsHap 2.8 (phases indels by default,
+unlike the 0.17 used for the historical GIAB haplotagged BAMs — `--whatshap_args --only-snvs`
+restores old behaviour).
+
+**Reference-store paths:** any FASTA works via `--fasta`; on this host
+`$BIOINFO_REFS/genomes/GRCh38gatk/fasta/genome.fa` (chr-prefixed, no-ALT) is the natural choice.
+`.fai` and `.mmi` are built in-run; no pre-built index rows needed.
+
+**Validation record (2026-08-20, `docs/examples/20260820-pacbio-hifi-wgs-validation/`):**
+`-stub-run` passes end to end on a mixed 5-row samplesheet covering all four entry types
+(60+ tasks, all callers + phasing + QC). Real E2E: (a) `-profile test,docker` runs real subreads
+(nf-core isoseq CI subset) through pbindex→ccs→pbmerge→pbmm2; (b) HG002 GIAB Sequel II HiFi
+chr20:1–3 Mb (11,004 reads, S3 range-fetch) through the full caller chain against a chr20-only
+GRCh38 ref. Wall-clock/disk: `references/estimates.md`.
+
+**GIAB fit (the phase-2 use case):** the GIAB pacbio_hifi manifests contain **zero raw
+subreads** — every dataset enters at `hifi_fastq`/`hifi_bam` or `aligned_bam`; the survey table
+per sample×dataset (what exists where, which movies are duplicated across dirs) is in the
+validation record's `giab-pacbio-states.md`.
