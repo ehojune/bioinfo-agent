@@ -75,30 +75,42 @@ if [ -f "$RUNDIR/cmd.sh" ]; then
   # repo checkout. They still must have a pipelines.tsv row to count as stocked.
   # Comments are stripped first so a comment merely MENTIONING pipelines/<x> cannot
   # silently disable the -r floating-branch gate below.
-  LOCALPIPE="$(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "$RUNDIR/cmd.sh" | grep -oE 'pipelines/[A-Za-z0-9_-]+' | head -1 | cut -d/ -f2 || true)"
+  # The pipeline target must come from the `nextflow ... run` INVOCATION, not from the first
+  # place the string happens to appear: an `echo "$BIOINFO_HOME/pipelines/x"` earlier in the
+  # file would otherwise decide both the branch and the assignment cutoff (Codex, PR #48
+  # round 4). Isolate the invocation line plus its backslash continuations, and record which
+  # source line it starts on so assignment resolution below cuts at the right place.
+  _stripped="$(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "$RUNDIR/cmd.sh")"
+  _nfstart="$(printf '%s\n' "$_stripped" | grep -nE '(^|[[:space:]])nextflow([[:space:]]|$)' | head -1 | cut -d: -f1)"
+  _nfblk="$(printf '%s\n' "$_stripped" | awk -v S="${_nfstart:-0}" '
+              S>0 && NR>=S { print; if ($0 !~ /\\[[:space:]]*$/) exit }')"
+  LOCALPIPE="$(printf '%s\n' "$_nfblk" | grep -oE 'pipelines/[A-Za-z0-9_-]+' | head -1 | cut -d/ -f2 || true)"
   if [ -n "$LOCALPIPE" ]; then
     # Basename matching alone would let a COPY of the tree (e.g. /tmp/pipelines/<name>)
     # pass while reporting THIS checkout's revision (Codex, PR #48). Resolve the token
     # cmd.sh actually runs and require it to be this checkout's pipelines/<name>.
-    _tok="$(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "$RUNDIR/cmd.sh" | grep -oE '[^[:space:]]*pipelines/'"$LOCALPIPE" | head -1 | tr -d "\"'")"
+    _tok="$(printf '%s\n' "$_nfblk" | grep -oE '[^[:space:]]*pipelines/'"$LOCALPIPE" | head -1 | tr -d "\"'")"
     # BIOINFO_HOME may be assigned BY cmd.sh, and that value — not preflight's environment —
     # is what bash uses when the script runs (Codex, PR #48 round 3). Same "last assignment
     # before the invocation" rule the REV resolver below uses, and the same `export` tolerance.
-    _bh="${BIOINFO_HOME:-$REPOROOT}"
-    if grep -qE '^[[:space:]]*(export[[:space:]]+)?BIOINFO_HOME=' "$RUNDIR/cmd.sh"; then
-      _pl="$(grep -nE 'pipelines/'"$LOCALPIPE" "$RUNDIR/cmd.sh" | head -1 | cut -d: -f1)"
-      _bh_cmd="$(awk -v L="${_pl:-0}" '
-                  L>0 && NR>=L { exit }
-                  { s=$0
-                    sub(/^[[:space:]]+/, "", s)
-                    sub(/^export[[:space:]]+/, "", s)
-                    sub(/^[[:space:]]+/, "", s)
-                    if (index(s, "BIOINFO_HOME=")==1) line=s }
-                  END { print line }' "$RUNDIR/cmd.sh" \
-                | cut -d= -f2- | sed 's/#.*$//' | tr -d "\047\" ")"
+    _bh="${BIOINFO_HOME:-$REPOROOT}"; _bh_known=1
+    # Marker-prefixed so an assignment whose value is literally empty is distinguishable from
+    # "no assignment executes before the invocation" (which leaves the environment in force).
+    _bh_raw="$(awk -v L="${_nfstart:-0}" '
+                L>0 && NR>=L { exit }
+                { s=$0
+                  sub(/^[[:space:]]+/, "", s)
+                  sub(/^export[[:space:]]+/, "", s)
+                  sub(/^[[:space:]]+/, "", s)
+                  if (index(s, "BIOINFO_HOME=")==1) line=s }
+                END { if (line != "") print "F" line }' "$RUNDIR/cmd.sh")"
+    if [ -n "$_bh_raw" ]; then
+      _bh_cmd="$(printf '%s' "${_bh_raw#F}" | cut -d= -f2- | sed 's/#.*$//' | tr -d "\047\" ")"
       case "$_bh_cmd" in
         '')
-          note "cmd.sh assigns BIOINFO_HOME an empty value; using ${_bh} for the target check" ;;
+          # `BIOINFO_HOME=` is a real, empty value in bash — the target becomes
+          # /pipelines/<name>. Evaluate it exactly rather than substituting something else.
+          _bh='' ;;
         '${BIOINFO_HOME:-'*'}'|'${BIOINFO_HOME-'*'}')
           # The repo's own cmd.sh template writes BIOINFO_HOME=${BIOINFO_HOME:-/default}.
           # That is plain default-expansion and preflight's own environment gives it exactly
@@ -109,12 +121,12 @@ if [ -f "$RUNDIR/cmd.sh" ]; then
           # Any other expression (command substitution, other variables) cannot be resolved
           # statically. Refuse rather than certify a path that may point elsewhere.
           bad "cmd.sh computes BIOINFO_HOME as '$_bh_cmd', which preflight cannot resolve statically; the run target therefore cannot be verified. Use a literal path or the \${BIOINFO_HOME:-/default} form."
-          _bh='' ;;
+          _bh_known=0 ;;
         *)
           _bh="$_bh_cmd" ;;
       esac
     fi
-    if [ -z "$_bh" ]; then
+    if [ "$_bh_known" -eq 0 ]; then
       _exp=''      # unresolvable BIOINFO_HOME already reported above
     else
       _exp="${_tok//\$\{BIOINFO_HOME\}/$_bh}"
