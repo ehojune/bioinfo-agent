@@ -145,11 +145,18 @@ workflow {
     ).bam
 
     // ---- entry points 2+3: HiFi reads -> pbmm2 --------------------------
-    PBMM2_INDEX(ch_fasta)
-    ch_align_in = ch_hifi_ccs
-        .mix(ch_in.hifi_bam.map   { m, f, i -> tuple(m, f) })
-        .mix(ch_in.hifi_fastq.map { m, f, i -> tuple(m, f) })
-    PBMM2_ALIGN(ch_align_in, PBMM2_INDEX.out.mmi)
+    // The whole-genome .mmi build costs ~10-15 GB RAM and PBMM2_INDEX is fed by a value
+    // channel, so it would fire even on an alignment-free run — gate it on the
+    // samplesheet actually containing something to align.
+    ch_aligned_new = Channel.empty()
+    if (rows.any { it.input_type != 'aligned_bam' }) {
+        PBMM2_INDEX(ch_fasta)
+        ch_align_in = ch_hifi_ccs
+            .mix(ch_in.hifi_bam.map   { m, f, i -> tuple(m, f) })
+            .mix(ch_in.hifi_fastq.map { m, f, i -> tuple(m, f) })
+        PBMM2_ALIGN(ch_align_in, PBMM2_INDEX.out.mmi)
+        ch_aligned_new = PBMM2_ALIGN.out.bam
+    }
 
     // ---- entry point 4: pre-aligned BAM ----------------------------------
     ch_pre = ch_in.aligned.branch {
@@ -162,7 +169,7 @@ workflow {
         .mix(SAMTOOLS_INDEX_INPUT.out.indexed.map { m, f, i -> tuple(m, f, i, 'preexisting') })
 
     // ---- group per (sample,dataset), merge if multiple units -------------
-    ch_grouped = PBMM2_ALIGN.out.bam
+    ch_grouped = ch_aligned_new
         .map { m, bam, bai -> tuple(m, bam, bai, 'new') }
         .mix(ch_prealigned)
         .map { m, bam, bai, origin ->

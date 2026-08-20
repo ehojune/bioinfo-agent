@@ -69,6 +69,7 @@ else
   bad "nextflow not on PATH"
 fi
 REV=""; PIPE=""; LOCALPIPE=""
+REPOROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [ -f "$RUNDIR/cmd.sh" ]; then
   # In-repo pipelines (pipelines/<name> in this repo) have no -r: their revision IS the
   # repo checkout. They still must have a pipelines.tsv row to count as stocked.
@@ -76,7 +77,20 @@ if [ -f "$RUNDIR/cmd.sh" ]; then
   # silently disable the -r floating-branch gate below.
   LOCALPIPE="$(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "$RUNDIR/cmd.sh" | grep -oE 'pipelines/[A-Za-z0-9_-]+' | head -1 | cut -d/ -f2 || true)"
   if [ -n "$LOCALPIPE" ]; then
-    ok "in-repo pipeline pipelines/$LOCALPIPE: revision is the repo checkout ($(git -C "$(dirname "$0")/.." rev-parse --short HEAD 2>/dev/null || echo 'unknown'))"
+    # Basename matching alone would let a COPY of the tree (e.g. /tmp/pipelines/<name>)
+    # pass while reporting THIS checkout's revision (Codex, PR #48). Resolve the token
+    # cmd.sh actually runs and require it to be this checkout's pipelines/<name>.
+    _tok="$(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "$RUNDIR/cmd.sh" | grep -oE '[^[:space:]]*pipelines/'"$LOCALPIPE" | head -1 | tr -d "\"'")"
+    _exp="${_tok//\$\{BIOINFO_HOME\}/${BIOINFO_HOME:-$REPOROOT}}"
+    _exp="${_exp//\$BIOINFO_HOME/${BIOINFO_HOME:-$REPOROOT}}"
+    case "$_exp" in /*) : ;; *) _exp="$REPOROOT/$_exp" ;; esac
+    _resolved="$(readlink -f -- "$_exp" 2>/dev/null || printf '%s' "$_exp")"
+    _want="$(readlink -f -- "$REPOROOT/pipelines/$LOCALPIPE" 2>/dev/null || printf '%s' "$REPOROOT/pipelines/$LOCALPIPE")"
+    if [ "$_resolved" = "$_want" ] && [ -d "$_want" ]; then
+      ok "in-repo pipeline pipelines/$LOCALPIPE: cmd.sh target resolves into this checkout; revision is the repo checkout ($(git -c safe.directory="$REPOROOT" -C "$REPOROOT" rev-parse --short HEAD 2>/dev/null || echo 'unknown'))"
+    else
+      bad "cmd.sh runs '$_tok' -> '$_resolved', not this checkout's '$_want'. Preflight can only vouch for the tree it lives in — run the repo copy, or move your changes into it."
+    fi
   elif grep -qE '(^| )-r +"?\$?\{?[0-9A-Za-z._-]+\}?"?' "$RUNDIR/cmd.sh" && ! grep -qE '(^| )-r +"?\$?\{?(dev|master|main)\}?"?( |$)' "$RUNDIR/cmd.sh"; then
     REV="$(grep -oE '(^| )-r +"?\$?\{?[0-9A-Za-z._-]+\}?"?' "$RUNDIR/cmd.sh" | head -1 | tr -d ' "${}' | sed 's/^-r//')"
     # The guard needs the same `export` tolerance as the resolver below. Teaching only the
