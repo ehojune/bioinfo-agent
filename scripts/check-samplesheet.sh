@@ -1052,6 +1052,64 @@ elif [[ -n "$REQ" ]]; then
       done < <(colvals image)
     fi
   fi
+  if [[ "$PIPELINE" == pacbio-hifi-wgs ]]; then
+  # In-repo pipeline (pipelines/pacbio-hifi-wgs). Its own Groovy parser re-validates all of
+  # this at launch, but this gate's contract is that exit 0 means the sheet is clean -- a
+  # nonexistent file column previously PASSed here because file/index are not in section 3's
+  # fixed column-name list (Codex review, PR #49, round 1, P2). Rules mirror main.nf's
+  # parseSamplesheet(): input_type enum; file suffix per input_type; index typing per
+  # input_type (.pbi only for subreads, .bai only for aligned_bam, EMPTY otherwise); remote
+  # http(s) URLs legal for file (the pipeline's own test profile stages https inputs).
+  ITI=$(colidx input_type); FII=$(colidx file); IXI=$(colidx index)
+  if [[ -n "$ITI" && -n "$FII" ]]; then
+    BADT=$(awk -F, -v i="$ITI" 'NR>1 && $i!~/^(subreads|hifi_bam|hifi_fastq|aligned_bam)$/{printf "%d:%s ", NR, $i}' "$TMP")
+    [[ -z "$BADT" ]] && ok "pacbio-hifi-wgs: input_type values in the enum"                      || fail "pacbio-hifi-wgs: input_type not subreads|hifi_bam|hifi_fastq|aligned_bam on row(s): $BADT"
+    while IFS=$'	' read -r N T P X; do
+      # file: presence, per-type suffix, and (local absolute) existence + gzip magic
+      if [[ -z "$P" ]]; then
+        fail "pacbio-hifi-wgs: row $N: empty file column"
+      else
+        case "$T" in
+          subreads|hifi_bam|aligned_bam)
+            [[ "$P" == *.bam ]] || fail "pacbio-hifi-wgs: row $N ($T): file must be a .bam: $P" ;;
+          hifi_fastq)
+            case "$P" in
+              *.fastq|*.fq|*.fastq.gz|*.fq.gz) : ;;
+              *) fail "pacbio-hifi-wgs: row $N (hifi_fastq): file must be .fastq/.fq(.gz): $P" ;;
+            esac ;;
+        esac
+        case "$P" in
+          http://*|https://*) : ;;
+          /*)
+            [[ -r "$P" ]] || fail "pacbio-hifi-wgs: row $N: file not readable: $P"
+            [[ -s "$P" ]] || fail "pacbio-hifi-wgs: row $N: file zero bytes: $P"
+            if [[ -r "$P" && -s "$P" && "$P" == *.gz ]]; then
+              if [[ "$(head -c2 "$P" | od -An -tx1 | tr -d ' ')" != "1f8b" ]]; then
+                fail "pacbio-hifi-wgs: row $N: not a gzip stream: $P"
+              elif (( DEEP )); then
+                gzip -t "$P" 2>/dev/null || fail "pacbio-hifi-wgs: row $N: gzip integrity / truncated: $P"
+              fi
+            fi ;;
+          *) fail "pacbio-hifi-wgs: row $N: file is not an absolute path or http(s):// URL: $P" ;;
+        esac
+      fi
+      # index: typed per input_type, EMPTY for hifi_* (main.nf hard-errors otherwise)
+      if [[ -n "$X" ]]; then
+        case "$T" in
+          subreads)    [[ "$X" == *.pbi ]] || fail "pacbio-hifi-wgs: row $N (subreads): index must be a .pbi: $X" ;;
+          aligned_bam) [[ "$X" == *.bai ]] || fail "pacbio-hifi-wgs: row $N (aligned_bam): index must be a .bai: $X" ;;
+          hifi_bam|hifi_fastq) fail "pacbio-hifi-wgs: row $N ($T): index column must be empty (main.nf rejects it): $X" ;;
+        esac
+        case "$X" in
+          http://*|https://*) : ;;
+          /*) [[ -r "$X" && -s "$X" ]] || fail "pacbio-hifi-wgs: row $N: index not readable or zero bytes: $X" ;;
+          *)  fail "pacbio-hifi-wgs: row $N: index is not an absolute path or http(s):// URL: $X" ;;
+        esac
+      fi
+    done < <(awk -F, -v t="$ITI" -v f="$FII" -v x="$IXI" 'NR>1{print NR "	" $t "	" $f "	" (x?$x:"")}' "$TMP")
+    ok "pacbio-hifi-wgs: file/index columns checked per input_type"
+    fi
+  fi
 elif [[ -z "$PIPELINE" ]]; then
   ID=''
   for C in sample patient group id; do [[ -z "$(colidx "$C")" ]] || { ID="$C"; break; }; done
