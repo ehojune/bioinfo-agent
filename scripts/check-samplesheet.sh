@@ -126,6 +126,7 @@ case "$PIPELINE" in
   bacass)                REQ='ID' ;;                                       # R1/R2/LongFastQ/Fast5/GenomeSize all optional at schema level -- see below
   viralrecon)            REQ='sample' ;;                                   # fastq_1/fastq_2/barcode all optional at schema level -- see below
   spatialaxe)            REQ='sample bundle' ;;                            # image optional; bundle content checked below, not just column presence
+  pacbio-hifi-wgs)       REQ='sample dataset input_type file' ;;           # in-repo (pipelines/); index optional. main.nf's own Groovy parser enforces the rest (input_type enum, .pbi/.bai typing, dup/ID-collision, dot-path rejection) -- header presence is the useful pre-flight here
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
