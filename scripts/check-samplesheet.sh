@@ -912,12 +912,24 @@ elif [[ -n "$REQ" ]]; then
     done
 
     if [[ -n "$BUI" ]]; then
+      # File-shaped entries and the one directory-shaped entry are listed SEPARATELY (Codex
+      # review, PR #47, round 4, P2): the original combined list only tested `-e`, which a
+      # zero-byte file or a wrongly-typed directory/file both satisfy. `workflows/spatialaxe.nf`
+      # reads every one of the 15 file entries for real content (parquet/zarr/h5/csv.gz
+      # readers, or morphology.ome.tif as noted above) and treats `morphology_focus` as a
+      # directory to search for the v3/v4 focus TIFFs -- an `-e`-only check reports PASS on a
+      # bundle that will fail deep inside a downstream process instead. Reproduced with the
+      # exact repro Codex described: all 15 file entries `touch`ed (zero-byte), morphology_focus
+      # a real directory, valid external image -- previously PASS, now correctly FAILs below.
+      bundle_required_dirs() {
+        printf '%s\n' morphology_focus
+      }
       bundle_required_files() {
         printf '%s\n' \
           cell_boundaries.csv.gz cell_boundaries.parquet cell_feature_matrix.h5 \
           cell_feature_matrix.zarr.zip cells.csv.gz cells.parquet cells.zarr.zip \
           experiment.xenium gene_panel.json metrics_summary.csv morphology.ome.tif \
-          morphology_focus nucleus_boundaries.csv.gz nucleus_boundaries.parquet \
+          nucleus_boundaries.csv.gz nucleus_boundaries.parquet \
           transcripts.parquet transcripts.zarr.zip
       }
       # Emit bundle\timage per data row, TAB-joined, straight from the row's own NR -- pairs
@@ -943,9 +955,18 @@ elif [[ -n "$REQ" ]]; then
           fail "spatialaxe: bundle row $N: not an existing directory: $P"
           continue
         fi
-        MISSING=$(bundle_required_files | while IFS= read -r F; do [[ -e "$P/$F" ]] || printf '%s ' "$F"; done)
-        [[ -z "$MISSING" ]] && ok "spatialaxe: bundle row $N has all 16 required Xenium bundle entries" \
-                            || fail "spatialaxe: bundle row $N ($P) is missing required bundle file(s) (workflows/spatialaxe.nf's own bundle_required_files check will abort with this before any process runs): $MISSING"
+        MISSING=$(bundle_required_files | while IFS= read -r F; do
+          # -f (regular file) + -s (non-empty), not -e: a zero-byte file or a same-named
+          # directory both satisfy -e but give every one of these 15 downstream parquet/zarr/
+          # h5/csv.gz/json/xenium readers nothing real to parse.
+          [[ -f "$P/$F" && -s "$P/$F" ]] || printf '%s ' "$F"
+        done)
+        BADDIRS=$(bundle_required_dirs | while IFS= read -r D; do [[ -d "$P/$D" ]] || printf '%s ' "$D"; done)
+        DETAIL=''
+        [[ -n "$MISSING" ]] && DETAIL="not a non-empty regular file: $MISSING"
+        [[ -n "$BADDIRS" ]] && DETAIL="${DETAIL:+$DETAIL; }not a directory: $BADDIRS"
+        [[ -z "$DETAIL" ]] && ok "spatialaxe: bundle row $N has all 16 required Xenium bundle entries" \
+                            || fail "spatialaxe: bundle row $N ($P) has missing or malformed required bundle entries (workflows/spatialaxe.nf's own bundle_required_files check will abort with this before any process runs) -- $DETAIL"
 
         # Bundle's own morphology.ome.tif as the FALLBACK image (Codex review, PR #47, round
         # 3, P2): the required-file check above only tests `-e`, same as every other entry in
