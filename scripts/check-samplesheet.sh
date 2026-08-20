@@ -950,6 +950,18 @@ for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 for
           fail "$C: contains whitespace (schema pattern ^\\S+\\.f(ast)?q\\.gz\$ forbids it): $P"
           continue
         fi
+        # viralrecon's schema_input.json pattern is
+        # ^([\S\s]*\/)?[^\s\/]+\.f(ast)?q\.gz$ -- a DIFFERENT shape from raredisease's
+        # whitespace-anywhere-forbidden ^\S+...$ above: only the BASENAME (the part after the
+        # last '/') is whitespace-forbidden; directory components before it may legitimately
+        # contain spaces. `/data/my dir/sample 1.fastq.gz` previously passed here with only a
+        # suffix check on the whole string, which a basename-with-a-space still satisfies
+        # (Codex review, PR #46, round 2, P2) -- check the basename specifically, both for a
+        # local path and a URL (URLREMOTE skips readability but reaches this suffix block).
+        if [[ "$PIPELINE" == viralrecon && ( "$C" == fastq_1 || "$C" == fastq_2 ) && "${P##*/}" =~ [[:space:]] ]]; then
+          fail "$C: basename contains whitespace (schema pattern ^([\\S\\s]*\\/)?[^\\s\\/]+\\.f(ast)?q\\.gz\$ forbids it in the filename): $P"
+          continue
+        fi
         if [[ ! "$P" =~ \.f(ast)?q\.gz$ ]]; then
           fail "$C: does not match the required .f(ast)?q.gz suffix: $P"
           continue
@@ -1159,6 +1171,15 @@ elif [[ "$PIPELINE" == ampliseq || "$PIPELINE" == mag || "$PIPELINE" == taxprofi
     # generic branch's WARN ("merged as technical replicates") is the wrong severity here and
     # would be a redundant, softer second message for the same row (rnasplice's real key is the
     # (sample, fastq_1) pair, not sample alone -- checked above)
+elif [[ "$PIPELINE" == viralrecon ]]; then
+  : # DIFFERENT reason from the ampliseq/mag/taxprofiler/rnasplice branch above -- there is no
+    # hard-FAIL check for this above to make the generic WARN redundant. A repeated `sample`
+    # is a fully supported multi-lane/multi-run merge with no composite-key failure mode at
+    # all (no uniqueEntries in the schema; illumina branch's .groupTuple() keyed on meta.id;
+    # the pipeline's own CI fixture repeats SAMPLE3_SE across two single-end rows as its
+    # normal working shape) -- the generic WARN's "intentional?" framing is simply the wrong
+    # question to ask here, not a softer duplicate of an already-correct hard FAIL (Codex
+    # review, PR #46, round 2, P3).
 elif [[ -n "$(colidx sample)" ]]; then
   D=$(colvals sample | sort | uniq -d | paste -sd' ' -)
   [[ -z "$D" ]] && ok "sample ids unique" \
