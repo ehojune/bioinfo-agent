@@ -83,8 +83,11 @@ between query and reference identically to the run itself.
 
 (`ALL` and `PASS` filter rows are identical or near-identical for both callers on this input —
 neither VCF carries a meaningfully filtering FILTER column here. `QUERY.UNK` — query records with
-no truth-region overlap, i.e. outside the confident BED — is 480–521 records per type; excluded
-from the recall/precision denominators by hap.py, as intended.)
+no truth-region overlap, i.e. outside the confident BED — ranges **480–521 for INDELs and
+1,209–1,452 for SNPs** (DeepVariant SNP 1,209; Clair3 SNP 1,452; DeepVariant INDEL 480; Clair3
+INDEL 521). All `QUERY.UNK` records are excluded from the recall/precision denominators by
+hap.py, as intended — the reported SNP precision of 1.0 for both callers is over the ~4,200
+in-confident-region calls only, not the full 5,400–5,650 query total.)
 
 Full hap.py output (`happy.summary.csv`, `happy.extended.csv`, ROC csvs, per-variant `happy.vcf.gz`)
 retained at `/work/scratch/pbwgs-happy-rerun/happy/{deepvariant,clair3}/` (ext4 scratch, not
@@ -100,9 +103,11 @@ direction. Clair3's slightly higher recall/precision here than DeepVariant's is 
 region's measurement (5,023 truth records total across both variant types), not a general
 performance claim between the two callers — do not extrapolate it past this slice.
 
-**No FN or FP was individually reviewed for cause.** `TRUTH.FN` = 1 for both callers on SNPs is a
-single record each (not necessarily the same record); `QUERY.FP` counts (0, 4, 0, 2) are all
-single digits on a 5,023-record truth set. Nothing here crossed a threshold worth flagging.
+**No FN or FP was individually reviewed for cause.** DeepVariant has 1 SNP `TRUTH.FN` and 1 indel
+`TRUTH.FN`; Clair3 has 0 SNP `TRUTH.FN` and 0 indel `TRUTH.FN` (see per-caller tables above —
+these are not the same for both callers). `QUERY.FP` counts (DeepVariant 0 SNP/4 indel, Clair3
+0 SNP/2 indel) are all single digits on a 5,023-record truth set. Nothing here crossed a
+threshold worth flagging.
 
 This is a **chr20:1-3 Mb slice** — a few thousand truth variants, not a genome-scale cohort. It
 validates that the pipeline's calling chain produces accurate calls on the region it was already
