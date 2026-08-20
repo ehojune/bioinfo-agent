@@ -1,0 +1,7 @@
+# nf-core/spatialaxe 1.0.1 -- real-sample validation.
+# Real (non-test-profile) run: --mode must be supplied explicitly (no conf/test.config to
+# default it for us). coordinate mode (Proseg-based) chosen deliberately -- see plan.md's
+# resource note: image-mode segmentation (Cellpose/StarDist) needs up to ~1 TB RSS on a real
+# slide per the pipeline's own README table, far beyond this box's 18 GB pool; Proseg is the
+# lightest tool in that table and the only realistic choice here.
+mode: coordinate

@@ -83,10 +83,18 @@ if [ -f "$RUNDIR/cmd.sh" ]; then
     _tok="$(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "$RUNDIR/cmd.sh" | grep -oE '[^[:space:]]*pipelines/'"$LOCALPIPE" | head -1 | tr -d "\"'")"
     _exp="${_tok//\$\{BIOINFO_HOME\}/${BIOINFO_HOME:-$REPOROOT}}"
     _exp="${_exp//\$BIOINFO_HOME/${BIOINFO_HOME:-$REPOROOT}}"
-    case "$_exp" in /*) : ;; *) _exp="$REPOROOT/$_exp" ;; esac
-    _resolved="$(readlink -f -- "$_exp" 2>/dev/null || printf '%s' "$_exp")"
     _want="$(readlink -f -- "$REPOROOT/pipelines/$LOCALPIPE" 2>/dev/null || printf '%s' "$REPOROOT/pipelines/$LOCALPIPE")"
-    if [ "$_resolved" = "$_want" ] && [ -d "$_want" ]; then
+    _resolved=""
+    case "$_exp" in
+      /*) _resolved="$(readlink -f -- "$_exp" 2>/dev/null || printf '%s' "$_exp")" ;;
+      *)  # A relative target is resolved by the SHELL's cwd when cmd.sh runs, which preflight
+          # cannot know — rebasing it onto the repo root would certify a path that may point
+          # somewhere else entirely (Codex, PR #48 round 2). Refuse instead of guessing.
+          bad "cmd.sh runs the relative target '$_tok'; Nextflow resolves that against whatever directory cmd.sh is launched from, which preflight cannot verify. Use an absolute path or \"\$BIOINFO_HOME\"/pipelines/$LOCALPIPE." ;;
+    esac
+    if [ -z "$_resolved" ]; then
+      : # already reported above
+    elif [ "$_resolved" = "$_want" ] && [ -d "$_want" ]; then
       ok "in-repo pipeline pipelines/$LOCALPIPE: cmd.sh target resolves into this checkout; revision is the repo checkout ($(git -c safe.directory="$REPOROOT" -C "$REPOROOT" rev-parse --short HEAD 2>/dev/null || echo 'unknown'))"
     else
       bad "cmd.sh runs '$_tok' -> '$_resolved', not this checkout's '$_want'. Preflight can only vouch for the tree it lives in — run the repo copy, or move your changes into it."

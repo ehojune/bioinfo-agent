@@ -77,8 +77,8 @@ If step 1 or 2 cannot be answered from what the user said, stop and ask. §8 lis
 | Droplet single-cell RNA (10x, Drop-seq) | cell × gene matrix, h5ad | `nf-core/scrnaseq` | → scanpy/Seurat (user's work) |
 | Single-**nucleus** RNA | cell × gene matrix | `nf-core/scrnaseq` **with intron counting** | see §4.9 |
 | Short-read STR / repeat expansion | repeat genotypes | **no stocked pipeline** | see §6 |
-| PacBio HiFi human WGS (subreads / HiFi reads / aligned BAM) | SNV+indel (DeepVariant, Clair3), SV (pbsv), phased VCF + haplotagged BAM (WhatsHap) | `pipelines/pacbio-hifi-wgs` **(in-repo)** | terminal — see §4.18 |
-| PacBio HiFi tandem repeats | TRGT genotypes | **no stocked pipeline**, but §4.18 produces the HiFi alignment TRGT needs | see §6 |
+| PacBio HiFi human WGS (subreads / HiFi reads / aligned BAM) | SNV+indel (DeepVariant, Clair3), SV (pbsv), phased VCF + haplotagged BAM (WhatsHap) | `pipelines/pacbio-hifi-wgs` **(in-repo)** | terminal — see §4.20 |
+| PacBio HiFi tandem repeats | TRGT genotypes | **no stocked pipeline**, but §4.20 produces the HiFi alignment TRGT needs | see §6 |
 | 16S / ITS amplicon (mock community, environmental, gut microbiome) | ASV table, taxonomy, alpha/beta diversity | `nf-core/ampliseq` | terminal — see §4.10 |
 | Shotgun metagenome FASTQ (short and/or long read) | assembly, binning, MAGs, bin QC/taxonomy | `nf-core/mag` | terminal — see §4.11 |
 | Shotgun metagenome FASTQ, taxonomy/abundance ONLY (no assembly, no binning, no MAGs) | per-sample taxon table(s), standardised across profilers | `nf-core/taxprofiler` | terminal — see §4.12 |
@@ -1493,7 +1493,7 @@ trgt genotype \
 
 The HiFi BAM must be aligned with pbmm2 or minimap2 with HiFi presets, and TRGT expects the
 per-read tags HiFi alignments carry. sarek's bwa path will not do — but `pipelines/pacbio-hifi-wgs`
-(§4.18, added 2026-08-20) produces exactly this: a pbmm2 CCS-preset aligned (and optionally
+(§4.20, added 2026-08-20) produces exactly this: a pbmm2 CCS-preset aligned (and optionally
 WhatsHap-haplotagged) BAM. Chain: pacbio-hifi-wgs → TRGT on `02_alignedBAM/haplotagged/*.bam`.
 
 ### 6.3 If a pipeline is wanted anyway
@@ -1916,7 +1916,272 @@ length 4,545,618 bp / GC 50.72% / largest contig 328,315 bp; BUSCO 100.0% comple
 See `estimates.md` for the full wall-clock/disk measurement and `handoff.md` for the complete
 QC table.
 
-### 4.18 `pipelines/pacbio-hifi-wgs` (in-repo)
+### 4.18 `nf-core/viralrecon`
+
+**For:** viral genome analysis from amplicon or metagenomic Illumina/Nanopore reads — reference-
+based mapping + variant calling (including intrahost/low-frequency variants via Freyja) or de
+novo assembly, consensus genome generation, and Pangolin/Nextclade lineage & clade assignment.
+Originally built for SARS-CoV-2 but genome-agnostic (any `--fasta`/`--gff`/`--primer_bed`).
+This procurement stocks the illumina/amplicon/reference-based path only — no Nanopore entry
+point, no de novo assembly branch (`--skip_assembly true`).
+
+**Not for, vs `nf-core/taxprofiler` (already stocked) — the contrast a "detect virus in this
+sample" request could plausibly confuse.** taxprofiler answers "what taxa are present, and
+roughly how much" — shotgun/amplicon reads through up to 14 taxonomic profilers (this repo
+stocks kraken2 only), producing per-sample/per-database relative-abundance tables. It performs
+**no assembly, no per-sample consensus sequence, and no lineage/clade call at all** — it never
+even establishes a reference coordinate system for any one organism. viralrecon answers a
+structurally different question: "I already know (or strongly suspect) this sample is one
+particular virus, targeted with an amplicon panel or shotgun-sequenced — give me that virus's
+consensus genome, its variants (including intrahost/low-frequency ones), and a lineage/clade
+call." viralrecon produces a per-sample FASTA consensus and VCF against a named reference;
+taxprofiler produces neither. A request phrased "what's in this sample" or "screen this sample
+for pathogens" is taxprofiler's question (or, if metagenomic assembly of unknown organisms is
+wanted, `mag`); a request phrased "assemble/call variants/lineage-type this known-virus
+amplicon run" is viralrecon's. Neither substitutes for the other — taxprofiler cannot produce a
+consensus genome or a lineage call, and viralrecon requires a specific named reference genome
+and will not survey an unknown community sample.
+
+**Not for, vs the other stocked pipelines:** sarek is human/vertebrate variant calling; bacass
+is single bacterial genome assembly; mag is metagenome assembly+binning across potentially many
+organisms. None of the three touch viral-genome-specific tooling (ARTIC amplicon primer
+trimming, Pangolin/Nextclade lineage calling, Freyja intrahost deconvolution) at all.
+
+**Schema drift note — schema IS the live validator, same class as isoseq/bacass.**
+`subworkflows/local/utils_nfcore_viralrecon_pipeline/main.nf:100/122` calls
+`samplesheetToList(params.input, "${projectDir}/assets/schema_input.json")` directly; `bin/`
+in the clone holds only `fastq_dir_to_samplesheet.py`, a samplesheet *generator*, not a
+validator. `sample` is the only `required[]` field — `fastq_1`/`fastq_2`/`barcode` are all
+individually optional at schema level, so a row with no read source validates cleanly (checked
+in `scripts/check-samplesheet.sh --pipeline viralrecon`, not left to the schema, same pattern as
+taxprofiler/mag/raredisease/bacass). Repeated `sample` is a **supported** multi-lane/multi-run
+merge (`.groupTuple()` keyed on `meta.id`), not a uniqueEntries gap — `validateInputSamplesheet()`
+only rejects a repeated sample whose rows disagree on single-end vs paired-end. See
+`samplesheets.md` for the full column table.
+
+**A genuine `--help` usability quirk, worth knowing before you type it:** bare
+`nextflow run nf-core/viralrecon -r 3.0.0 --help` does **not** print help — it fails with
+"Parameter --platform is required (illumina / nanopore). Please specify." `main.nf`'s top-level
+script (`main.nf:21-24`) hard-requires `--platform`, and `workflows/viralrecon.nf`'s top-level
+script (`workflows/viralrecon.nf:49`) hard-requires `--input`, and **both execute before**
+`PIPELINE_INITIALISATION`'s nf-schema help handler ever runs (top-level Groovy script code in an
+`include`d file runs at parse/include time, not at workflow-invocation time). `--platform
+illumina --input <any-existing-path> --help` prints the full help text and exits 0 cleanly.
+
+**Parameters that matter:** `--platform` (`illumina`/`nanopore`, no default, hard-required —
+this procurement stocks `illumina` only), `--protocol` (`amplicon`/`metagenomic` — this
+procurement stocks `amplicon`), `--fasta`/`--gff`/`--primer_bed` (explicit paths — see below,
+NOT the `--genome` shorthand), `--skip_assembly` (this procurement sets `true`; unset, the
+default assembly branch runs SPAdes+Unicycler+minia together, then BLAST/ABACAS/QUAST/Bandage/
+PlasmidID on each), `--variant_caller`/`--consensus_caller` (left at pipeline default:
+`ivar`/`bcftools`), `--kraken2_db` (host-read filtering; the schema's own DEFAULT — not
+something this procurement added — is a small S3-hosted human-only DB), `--pango_database`/
+`--nextclade_dataset`/`--nextclade_dataset_name`/`--freyja_barcodes`/`--freyja_lineages` (all
+four exist specifically so the pipeline's own runtime auto-fetch/auto-update processes
+(`PANGOLIN_UPDATEDATA`/`NEXTCLADE_DATASETGET`/`FREYJA_UPDATE`) can be skipped in favour of a
+static, pre-fetched local path — this procurement uses all four, after real environment findings
+below).
+
+**Do NOT use `--genome MN908947.3` (or any `--genome` value) on this box without also setting
+`--custom_config_base` to a local mirror.** `--genome` resolves `--fasta`/`--gff`/`--primer_bed`/
+`--nextclade_dataset*` through nf-core/configs' own remote `conf/pipeline/viralrecon/
+genomes.config`, which `nextflow.config` fetches via `raw.githubusercontent.com` — the exact
+host this procurement found to be intermittently rate-limited (`HTTP 429`) on this box (see
+"Environment findings" below). Explicit `--fasta`/`--gff`/`--primer_bed` CLI/params-file values
+survive even when `--genome` is unset (confirmed via `-preview`: `main.nf`'s own
+`params.fasta = getGenomeAttribute('fasta')` reassignment at parse time does NOT clobber a
+CLI-supplied value — Nextflow applies CLI/params-file params with final precedence over any
+in-script `params.x = ...` assignment). This repo's stocked configuration therefore never passes
+`--genome` at all for a real run.
+
+**Reference-store paths:** `genomes/SARS-CoV-2-MN908947.3/fasta/genome.fa` + `gff/genome.gff`
+(NCBI `eutils`, MN908947.3 — SARS-CoV-2 isolate Wuhan-Hu-1), `.../primer/artic-v3/primer.bed`
+and `.../artic-v4.1/primer.bed` (ARTIC nCoV-2019 primer schemes — pick the version matching the
+sample's actual wet-lab protocol, this is a per-run choice, not a pipeline default), `db/pangolin/`
+(pangolin-data v1.32, extracted from the pinned module container), `db/nextclade/sars-cov-2/`
+(Nextclade SARS-CoV-2 dataset), `db/freyja/usher_barcodes.feather` + `curated_lineages.json`
+(Freyja UShER barcodes), `db/kraken2_viralrecon_human/kraken2_human/` (viralrecon's own default
+host-filter DB). Full fetch/build provenance for every row in `config/refs.manifest.tsv`.
+
+**Environment findings — three separate runtime-fetch/rate-limit/TLS issues, all routed around
+by pre-fetching a static local copy instead of letting the pipeline fetch at runtime:**
+1. `raw.githubusercontent.com` (GitHub's CDN) repeatedly returned `HTTP 429 Too Many Requests`
+   on this box during this procurement — blocking `nextflow.config`'s own remote `includeConfig`
+   (fixed with a local `git clone`-sourced `--custom_config_base` mirror), the CI test profile's
+   own fixture fetch (fixed the same way), and `FREYJA_UPDATE`'s barcode-DB fetch (fixed by
+   pre-fetching `usher_barcodes.feather`/`curated_lineages.json` via `git clone` and setting
+   `--freyja_barcodes`/`--freyja_lineages`). Confirmed transient/rate-limit, not a hard network
+   block — `github.com`, `api.github.com`, `quay.io`, EBI, NCBI, and S3 were all reachable
+   throughout; a `git clone --filter=blob:none --sparse` against `github.com` directly (not
+   `raw.githubusercontent.com`) sidesteps it entirely for any file that lives in a git repo.
+2. `PANGOLIN_UPDATEDATA`'s `pangolin --update-data` hits GitHub's
+   `/repos/cov-lineages/pangolin-data/releases` **list** endpoint (not `/releases/latest`),
+   which returned a genuinely empty `[]` (HTTP 200) from this box's egress on every retry —
+   confirmed via host `curl` AND `python3 urllib` run *inside* the pinned pangolin container
+   itself, ruling out a client-side quirk. Routed around by extracting the pangolin-data version
+   already baked into that same pinned container image instead (`--pango_database`).
+3. `NEXTCLADE_DATASETGET` needs `data.clades.nextstrain.org`, which this box's corp
+   TLS-inspecting proxy ("ePrism SSL"/SOOSAN INT — the same proxy `bootstrap/06-tls-trust.sh`'s
+   own docstring names for `get.nextflow.io`) intercepts **inside a fresh Docker container's own
+   trust store**, even though the HOST already trusts that proxy's CA from an earlier
+   `bootstrap/06-tls-trust.sh --accept` run. A genuinely new class of TLS-trust gap for this
+   repo (container-local, not host-level, unlike every prior `06-tls-trust.sh` finding). Routed
+   around for the one-off manual dataset fetch by mounting the host's `ca-certificates.crt` into
+   the container with `SSL_CERT_FILE` set, then never invoking `NEXTCLADE_DATASETGET` in the
+   real pipeline run at all (`--nextclade_dataset` static path skips it structurally).
+
+**Known gaps / stub-run behaviour.** `-stub-run` on `-profile test,docker` fails at the
+primer/reference contig-match check (`CUSTOM_GETCHROMSIZES`'s stub writes an empty `.fai`,
+which `checkContigsInBED()` then reads for real) — **11th documented departure**, waived,
+confined to stub mode, data/config-independent. `-preview` is the pre-launch gate; the full
+non-stub `-profile test,docker` gate passes cleanly (`completed=187 failed=0 cached=8`,
+~23m wall clock). See `runbook.md` §4 for the full writeup.
+
+**Key outputs:** `variants/ivar/consensus/bcftools/<sample>.consensus.fa` (masked consensus
+genome), `variants/ivar/<sample>.vcf.gz` (called variants), `variants/bowtie2/mosdepth/genome/
+<sample>.mosdepth.summary.txt` + `.../amplicon/<sample>.mosdepth.coverage.tsv` (genome-wide and
+per-amplicon depth — the per-amplicon table is what actually reveals amplicon dropout, not the
+summary mean alone), `<sample>.pangolin.csv` (raw Pangolin lineage call), Nextclade
+`<sample>.csv`/`.tsv` (raw clade call + QC flags), `freyja/demix/<sample>.demix.tsv` (intrahost
+lineage-abundance deconvolution), `multiqc/multiqc_report.html`.
+
+**QC verdict checklist (measured, no biological interpretation):** consensus completeness
+(% non-N bases, `<sample>.consensus.fa`), mean AND per-amplicon/per-window coverage depth
+(mosdepth — a high mean with low breadth is amplicon dropout, visible only in the per-amplicon
+table, not the summary), iVar/bcftools variant count, fastp/Kraken2 read-passed fractions,
+Pangolin `qc_status` (raw string, e.g. `pass`/`fail`, plus its `note` field), Nextclade
+`qc.overallStatus`. None of these are claims about outbreak significance, transmission, or
+clinical relevance of any lineage/variant — report the raw tool output string, nothing more.
+
+**Real-sample run** (`runs/20260818-viralrecon-sample01-realsample/`): `SAMPLE_01` from
+viralrecon's own `conf/test_full.config` real-world validation cohort (S3-hosted,
+protocol-confirmed ARTIC V3), Illumina PE, ~132 MiB gzip total, 2,028,184 raw read pairs —
+chosen specifically because the primer scheme is protocol-documented (unlike an arbitrary
+SRA/ENA pick, where it frequently is not). `completed=52 failed=0`, 3m46s wall clock, 356 MB
+peak work dir. Measured QC: only 23,644 primary reads (~1.2% of input) mapped to MN908947.3
+after Kraken2 human-host depletion — expected for a low-viral-titer surveillance sample; mean
+genome depth 74.1x but severely uneven (per-amplicon `coverage.tsv` shows most 200bp
+windows/amplicons at 0x, a handful up to 9,894x — amplicon dropout, confirmed by reading the
+per-amplicon mosdepth table directly, not a masking bug); consensus 29,903 bp with 29,535 N
+(98.77% N, 1.23% ACGT completeness); 2 iVar variants called; Pangolin lineage "Unassigned"
+(`qc_status=fail`, `note=Ambiguous_content:0.99` — reported as the tool's raw output string);
+Nextclade clade `21L (BA.2)` called despite the QC-failing consensus (Nextclade aligns and calls
+on whatever sequence is present; its own `coverage` field reports 0.0123). This is a genuine,
+unfavourable-but-real measurement — the pipeline executed and reported correctly on a real
+low-viral-load sample; it is not a run failure and no re-pick was done to get a "nicer" number.
+See `estimates.md` for the full wall-clock/disk measurement and `handoff.md` for the complete
+QC table.
+### 4.19 `nf-core/spatialaxe`
+
+**For:** spatial transcriptomics QC and processing for 10x Genomics **Xenium** in-situ imaging
+data — cell/nucleus segmentation (image-based via Cellpose/StarDist/XeniumRanger, or
+coordinate/transcript-based via Proseg/Segger/Baysor), segmentation-free neighbourhood analysis
+(Ficture/Baysor), transcript-to-cell assignment, and QC reporting (MultiQC's xenium-extra
+plugin + off-target-probe-tracking). **FIRST spatial transcriptomics / imaging-based pipeline
+stocked here** — a genuinely new domain. Input is an already-generated **Xenium Onboard
+Analysis (XOA) output bundle** (a directory of parquet/zarr/h5/csv.gz/OME-TIFF files the
+instrument's own onboard software produced), not raw sequencing reads in any FASTQ sense —
+confirmed by reading `workflows/spatialaxe.nf` directly, not assumed from the pipeline's name.
+`nf-core/spatialvi` (a different, Visium-based spatial pipeline) was considered and rejected:
+only a `dev`-branch tag (0.1.0), no formal GitHub Release — fails this repo's trust gate
+(`new-pipeline.md` §2.4).
+
+**Not for, vs `nf-core/scrnaseq`:** scrnaseq (already stocked) quantifies per-cell gene
+expression from droplet/well-based **dissociated** single cells — the tissue is disaggregated
+before sequencing, so no spatial location survives; a cell's only "position" is which
+droplet/well it landed in. spatialaxe quantifies per-cell gene expression **with real spatial
+coordinates preserved on the original tissue**, derived from in-situ imaging (Xenium probes
+hybridize and are imaged directly in an intact tissue section — every transcript and every
+segmented cell carries an (x, y) micron position). scrnaseq has zero spatial/imaging component
+at all; spatialaxe's entire pipeline (cell segmentation from a morphology image,
+transcript-to-cell assignment on a coordinate plane, micron-region tiling/patching) has no
+scrnaseq analogue whatsoever. Different question: "what genes does this dissociated cell
+express" (scrnaseq) vs "what genes does this cell express **and where does it sit in the
+tissue**" (spatialaxe). If the input is a 10x-format `.h5`/`.mtx` cell-by-gene matrix from a
+droplet run (Chromium), that's scrnaseq. If the input is a Xenium bundle with cell/transcript
+spatial coordinates, that's spatialaxe.
+
+**Schema drift note — a genuinely new shape at this repo, not matching either prior pattern.**
+`assets/schema_input.json` **is** wired in and **is** the live column-shape validator
+(`subworkflows/local/utils_nfcore_spatialaxe_pipeline/main.nf:137` calls `samplesheetToList()`
+directly against it) — same class as isoseq/bacass/viralrecon, unlike nanoseq/rnasplice where
+the shipped schema is vestigial. **But the schema alone is not sufficient**, unlike every one of
+those four prior cases: `workflows/spatialaxe.nf` (~lines 177-220) layers its own POST-STAGING
+bundle-CONTENT check on top, via plain Groovy `error()` calls that enforce a fixed 16-entry
+required-file list inside the `bundle` directory — something no JSON Schema keyword can express.
+Confirmed by reading that block directly, not inferred from its existence.
+
+**Minimum input:** `sample` + `bundle` (schema's only two `required[]` fields), `image` optional
+(falls back to `morphology.ome.tif` inside `bundle` when omitted). **But `bundle` passing the
+schema's `^\S+$` pattern check is nowhere near "usable input"** — it must resolve to a local,
+already-extracted directory (a tarball URL only auto-stages under `-profile test`, gated by
+`workflow.profile.contains('test')`) containing all 16 of `workflows/spatialaxe.nf`'s own
+`bundle_required_files` (see `samplesheets.md` for the full itemized list) — a missing one
+aborts before any process runs, with a message the schema layer never produces. See
+`samplesheets.md` for the full column table and the exact required-file list.
+
+**Parameters that matter:** `--mode` (`image`/`coordinate`/`segfree`/`preview`/`qc`, no
+default — selects the whole processing path: `image` runs
+`CELLPOSE→BAYSOR→XR-IMPORT_SEGMENTATION→SPATIALDATA→QC`, `coordinate` runs
+`PROSEG→PROSEG2BAYSOR→XR-IMPORT_SEGMENTATION→SPATIALDATA→QC`, `segfree` runs
+`BAYSOR_SEGFREE`, `preview` runs `BAYSOR_PREVIEW`, `qc` runs QC alone). `--method` further picks
+a specific tool within a mode (`cellpose`/`xeniumranger`/`baysor`/`stardist` for image;
+`proseg`/`baysor`/`segger` for coordinate; `baysor`/`ficture` for segfree). `--run_qc` (default
+`true`) couples the QC layer onto any other mode. `--gene_panel` (defaults to the bundle's own
+`gene_panel.json` when unset). No genome/reference parameters exist anywhere in
+`nextflow_schema.json` — this pipeline does no alignment.
+
+**Resource note that drove this procurement's scope, straight from the pipeline's own README
+runtime table (measured by the pipeline authors, not by this procurement):** Cellpose on CPU
+peaks at up to **1115 GB RSS** on a real full-size Xenium slide (554 GB even on GPU); Baysor
+whole-image up to 650 GB; XeniumRanger resegment up to 60 GB; Segger needs a GPU for all three
+of its steps. This box's Nextflow pool is 16 cores / 18 GB (`config/host.env`) — orders of
+magnitude under what real, full-size image-mode segmentation needs. **Proseg (coordinate mode)
+is by far the lightest tool in that table** (279 MB / 3.8 GB / 136 GB min/med/max RSS) and is
+the only realistic choice for anything beyond a genuinely tiny bundle on this hardware.
+
+**Reference-store paths:** none. spatialaxe consumes only the Xenium bundle's own pre-computed
+transcript/cell/probe-panel data; there is no alignment step and no genome FASTA/GTF parameter.
+No rows needed in `config/refs.manifest.tsv`.
+
+**Known gaps / stub-run behaviour.** `-stub-run` on the CI `test` profile (`--mode coordinate`,
+the profile's own default) **PASSES CLEANLY** at this pin:
+`succeededCount=10 failedCount=0` (Nextflow's own `WorkflowStats`) — **no waiver needed, no 12th
+documented departure**, same class as taxprofiler/raredisease/isoseq's minimap2 branch/bacass's
+full-gate. First run took ~11.5 minutes wall clock, almost entirely first-pull time for two
+container images (`quay.io/nf-core/xeniumranger:4.0`, 3.78 GB; a Wave-built MultiQC
+xenium-extra-plugin variant, ~3 GB) — the 10 stub tasks themselves completed in 21.2 seconds
+combined once the images were cached.
+
+**The mandatory full `-profile test,docker` gate** (`new-pipeline.md` §2.4(c)) — see
+`estimates.md` and the procurement `plan.md`/`handoff.md` for the complete measured writeup.
+
+**Key outputs (coordinate mode, this procurement's stocked scope):**
+`coordinate/proseg/preset/cell-polygons.geojson.gz` (2D cell polygons), `expected-counts.csv.gz`
+(cell-by-gene count matrix), `cell-metadata.csv.gz` (centroids/volume), `coordinate/
+proseg2baysor/xr-cell-polygons.geojson` + `xr-transcript-metadata.csv` (stitched, XeniumRanger-
+importable format), `multiqc/multiqc_report.html` (aggregated, xenium-extra-plugin sections),
+`opt/stat/*.tsv` (off-target-probe-tracking summary stats).
+
+**QC verdict checklist (measured, no biological interpretation):** cell/nucleus count from the
+bundle's own `metrics_summary.csv`/`experiment.xenium` (`num_cells`), transcripts-per-cell and
+genes-per-cell from the same, fraction of transcripts assigned to a cell
+(`fraction_transcripts_assigned`), Proseg's own per-cell transcript-assignment probability
+summary, and MultiQC's xenium-extra QC sections (segmentation/assignment metrics aggregated
+across whatever tool ran). None of these are tissue-architecture or cell-type-identity claims.
+
+**Scope of this procurement — lightest real configuration.** Test-profile run left entirely at
+`conf/test.config`'s own defaults (`--mode coordinate`, no other overrides) — no hand-picked
+tool combination. Real-sample run used the same coordinate-mode default. Image-mode segmentation
+(Cellpose/StarDist/XeniumRanger resegment) and Segger (GPU-only) are explicitly **out of scope**
+this procurement, per the resource note above.
+
+**Real-sample run:** see `estimates.md`/`handoff.md` for the complete measured numbers
+(`Xenium_Prime_Mouse_Ileum_tiny_outs`, a real 10x-published "tiny_outs" Xenium bundle, 23 MB
+extracted, 23 cells — found on `nf-core/test-datasets@spatialaxe`, well under the ~10 GB silent-
+download ceiling).
+
+### 4.20 `pipelines/pacbio-hifi-wgs` (in-repo)
 
 **For:** PacBio HiFi human WGS germline variant calling — raw subreads and/or HiFi reads and/or
 already-aligned BAMs in, per-dataset deliverables out: HiFi uBAM (`pbccs`), aligned BAM (`pbmm2`),

@@ -1,0 +1,2 @@
+sample,fastq_1,fastq_2
+SAMPLE_01,/work/nxf/viralrecon-realsample-fastq/SAMPLE_01_R1.fastq.gz,/work/nxf/viralrecon-realsample-fastq/SAMPLE_01_R2.fastq.gz

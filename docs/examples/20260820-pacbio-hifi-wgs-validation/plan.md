@@ -52,5 +52,5 @@ across dirs (HudsonAlpha FASTQ = chemistry2 uBAM) are flagged there to avoid dou
 - `config/pipelines.tsv` row `pacbio-hifi-wgs` (revision `in-repo`).
 - `bin/preflight.sh` now recognises `pipelines/<name>` cmd.sh invocations (no -r needed;
   requires the tsv row).
-- `pipeline-selection.md` §4.18 + decision-table row; §6.2 TRGT unblock note.
+- `pipeline-selection.md` §4.20 + decision-table row; §6.2 TRGT unblock note.
 - `samplesheets.md` in-repo section.

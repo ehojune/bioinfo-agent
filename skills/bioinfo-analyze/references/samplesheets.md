@@ -905,6 +905,111 @@ A bare decimal cell like `2.8` (no `m` suffix) gets parsed by the CSV reader as 
 and the schema expects a string — confirmed via `-preview`: `Value is [number] but should be
 [string, null]` alongside the pattern-mismatch error. Always quote/spell the trailing `m`.
 
+### nf-core/viralrecon — 3.0.0
+
+**`assets/schema_input.json` IS what this pipeline validates against** — same class of finding
+as isoseq/bacass. `subworkflows/local/utils_nfcore_viralrecon_pipeline/main.nf:100/122` calls
+`samplesheetToList(params.input, "${projectDir}/assets/schema_input.json")` directly; `bin/` in
+the clone holds only `fastq_dir_to_samplesheet.py`, a samplesheet *generator*, not a validator.
+
+| column | required | notes |
+|---|---|---|
+| `sample` | yes | schema's only `required[]` entry; pattern `^\S+$`, type `["string","integer"]`, `meta:["id"]` |
+| `fastq_1` | no (schema) / yes (this repo's illumina-only stocked scope) | `.fq.gz`/`.fastq.gz`, `format:file-path,exists:true` — see below |
+| `fastq_2` | no | same pattern as `fastq_1`; empty/absent means single-end |
+| `barcode` | no | **nanopore branch only** — bare integer, zero-padded into `barcode01` etc; not used at all on the illumina branch this repo stocks |
+
+```csv
+sample,fastq_1,fastq_2
+SAMPLE_01,/work/nxf/viralrecon-realsample-fastq/SAMPLE_01_R1.fastq.gz,/work/nxf/viralrecon-realsample-fastq/SAMPLE_01_R2.fastq.gz
+```
+
+This is the exact sheet from `runs/20260818-viralrecon-sample01-realsample/samplesheet.csv`. The
+pipeline's own CI fixture also legitimately uses `http(s)://` URLs in `fastq_1`/`fastq_2`
+directly (`samplesheet_test_amplicon_illumina.csv`, `nf-core/test-datasets` `viralrecon` branch)
+— nf-schema's `exists:true` check recognises a remote scheme and does not require local
+readability, same shape as bacass's `R1`/`R2`/`LongFastQ` columns.
+
+**`sample` uniqueness — no `uniqueEntries` in the schema, and the pipeline's own CI fixture
+exercises the repeat as a real, working shape.** The CI illumina-amplicon fixture's own
+`SAMPLE3_SE` appears twice, across two different `fastq_1` values, both single-end (`fastq_2`
+empty) — the illumina branch's `.groupTuple()` (keyed on `meta.id`) merges them as a supported
+multi-run/multi-lane shape, same pattern as mag/rnasplice. `validateInputSamplesheet()` rejects
+only ONE thing about a repeated `sample`: rows that disagree on single-end vs paired-end
+(mixing a `fastq_2`-populated row with a `fastq_2`-empty row under one sample name) —
+`error("Please check input samplesheet -> Multiple runs of a sample must be of the same
+datatype...")`. That failure is a bare Groovy `error()`, not a schema-validation message, so
+`-preview` will not surface it as a per-row problem; `check-samplesheet.sh --pipeline
+viralrecon` checks for it directly, per sample name, ahead of launch.
+
+**No read source at all is a schema-legal row for `fastq_1` — the schema alone will not catch
+it.** `fastq_1` is not in `required[]`; a row with it empty/absent validates cleanly and reaches
+the illumina branch's `.map{}` with a `null` read source (confirmed by reading
+`utils_nfcore_viralrecon_pipeline/main.nf:98-117`). Same class of gap as taxprofiler/mag/
+raredisease/bacass's "no read source" rows. This repo's stocked scope is illumina-only
+(`config/pipelines.tsv`), so `check-samplesheet.sh --pipeline viralrecon` enforces `fastq_1`
+specifically, the same "repo-scope rule layered on the looser upstream schema" pattern as
+bacass's `R1` enforcement — a `barcode`-only (nanopore-shaped) sheet is schema-legal upstream
+but has no usable read source under this repo's illumina-only stocked configuration.
+
+### nf-core/spatialaxe — 1.0.1
+
+**`assets/schema_input.json` IS wired in and IS the live column-shape validator** —
+`subworkflows/local/utils_nfcore_spatialaxe_pipeline/main.nf:137` calls
+`channel.fromList(samplesheetToList(input, "${projectDir}/assets/schema_input.json"))` directly.
+**But unlike isoseq/bacass/viralrecon, the schema is not the WHOLE story here** — a genuinely new
+shape for this repo: `workflows/spatialaxe.nf` (~lines 177-220) layers its own POST-STAGING
+bundle-CONTENT check on top, via plain Groovy `error()` calls the JSON schema cannot express at
+all (JSON Schema has no "does this directory contain these 16 files" keyword). Confirmed by
+reading that block directly.
+
+| column | required | notes |
+|---|---|---|
+| `sample` | yes | schema's only other `required[]` entry alongside `bundle`; pattern `^\S+$`, `meta:["id"]` |
+| `bundle` | yes | full path to the Xenium bundle (Xenium Onboard Analysis output directory) — see below, the schema's `^\S+$` pattern is necessary but nowhere near sufficient |
+| `image` | no | full path to `morphology.ome.tif`; if omitted, the pipeline falls back to the morphology image already inside `bundle` |
+
+```csv
+sample,bundle,image
+xenium_prime_mouse_ileum,/work/scratch/spatialaxe-realdata/Xenium_Prime_Mouse_Ileum_tiny_outs,
+```
+
+This is the shape of `runs/20260820-spatialaxe-realsample/samplesheet.csv` — a real, small (23
+cell) 10x Genomics "tiny_outs" Xenium bundle, downloaded from `nf-core/test-datasets@spatialaxe`
+(`Xenium_Prime_Mouse_Ileum_tiny_outs.tar.gz`, 5.6 MB compressed / 23 MB extracted). `image` is
+left empty here — the bundle's own `morphology.ome.tif` is used, matching the schema's own
+documented fallback behaviour.
+
+**`bundle` must be a local, already-extracted DIRECTORY on any real run — a tarball URL only
+works under `-profile test`.** The pipeline's own `assets/samplesheet.csv` (what `-profile test`
+resolves `--input` to) sets `bundle` to a `.tar.gz` URL, auto-fetched and extracted via the
+bundled `UNTAR` module — but `workflows/spatialaxe.nf` gates that entire staging path behind
+`if (workflow.profile.contains('test'))` (confirmed by reading it directly, ~line 136). Outside
+`-profile test`, `bundle` is used exactly as written in the sheet: it must already be a
+filesystem directory, or the pipeline's own bundle-exists check (`file(bundle).exists()`) fails
+immediately with `❌ Xenium bundle does not exist`.
+
+**The bundle directory must carry all 16 of these files, checked by filename, not just "the
+directory exists" — the schema alone will not catch a missing one.** `workflows/spatialaxe.nf`'s
+own `bundle_required_files` list, quoted verbatim so a stale copy here is easy to catch later:
+`cell_boundaries.csv.gz`, `cell_boundaries.parquet`, `cell_feature_matrix.h5`,
+`cell_feature_matrix.zarr.zip`, `cells.csv.gz`, `cells.parquet`, `cells.zarr.zip`,
+`experiment.xenium`, `gene_panel.json`, `metrics_summary.csv`, `morphology.ome.tif`,
+`morphology_focus/`, `nucleus_boundaries.csv.gz`, `nucleus_boundaries.parquet`,
+`transcripts.parquet`, `transcripts.zarr.zip`. Any one absent aborts with `❌ Missing required
+file(s) in xenium bundle`, a Groovy-layer error at the very start of the run, before any process
+launches — not a schema-validation message, so `-preview` alone (which only exercises the JSON
+schema) will not surface it; only reading the real bundle directory (what `check-samplesheet.sh
+--pipeline spatialaxe` does) catches it ahead of launch. Three additional "optional but expect a
+WARN if missing" files (`analysis.tar.gz`, `analysis.zarr.zip`, `analysis_summary.html`) are
+checked the same way but do not abort the run.
+
+**`sample` uniqueness — no `uniqueEntries` anywhere in the schema, and nothing in the workflow
+groups rows by `meta.id` the way rnaseq/mag/viralrecon do**, so a repeated `sample` value has no
+confirmed supported-merge behaviour here (unlike those pipelines' documented multi-lane merges).
+Left to the generic identifier-check WARN in `check-samplesheet.sh`, not asserted as either safe
+or unsafe — untested at this pin, since this procurement's real-sample sheet is single-row.
+
 ### pipelines/pacbio-hifi-wgs — in-repo
 
 Header `sample,dataset,input_type,file[,index]`. Validated by the pipeline's own Groovy parser
@@ -924,7 +1029,7 @@ restricted to `A-Za-z0-9._-`.
 - A group that is a SINGLE `aligned_bam` row passes through in place: not re-merged, not
   re-published under `02_alignedBAM` (deliberate — GIAB aligned BAMs are 60–120 GB).
 - Repeated identical rows are not deduplicated; the same movie under two datasets is processed
-  twice (the GIAB HudsonAlpha-vs-chemistry2 duplicate warning in §4.18's survey applies).
+  twice (the GIAB HudsonAlpha-vs-chemistry2 duplicate warning in §4.20's survey applies).
 
 ---
 

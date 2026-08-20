@@ -440,12 +440,20 @@ process CHECK_BAM {
     output: tuple val(meta), path(bam), path(bai), emit: bam
     script:
     """
-    samtools view -H ${bam} | awk -F'\\t' '\$1=="@SQ"{for(i=2;i<=NF;i++) if(\$i ~ /^SN:/) print substr(\$i,4)}' | sort > bam_contigs.txt
-    cut -f1 ${fai} | sort > ref_contigs.txt
+    # Compare NAME+LENGTH, not name alone: same contig names with different lengths means a
+    # different assembly build (e.g. a GRCh37 chr20 BAM against a GRCh38 chr20 FASTA), which
+    # would otherwise sail through and produce coordinate-shifted calls.
+    samtools view -H ${bam} \\
+      | awk -F'\\t' '\$1=="@SQ"{n="";l=""; for(i=2;i<=NF;i++){ if(\$i ~ /^SN:/) n=substr(\$i,4); if(\$i ~ /^LN:/) l=substr(\$i,4)} if(n!="") print n"\\t"l}' \\
+      | sort > bam_contigs.txt
+    cut -f1,2 ${fai} | sort > ref_contigs.txt
     missing=\$(comm -23 bam_contigs.txt ref_contigs.txt)
     if [ -n "\$missing" ]; then
-        echo "ERROR: ${bam} contains contigs absent from --fasta (aligned to a different reference?):" >&2
+        echo "ERROR: ${bam} has @SQ entries (name<TAB>length) that --fasta does not match —" >&2
+        echo "       aligned to a different reference or a different build of it:" >&2
         echo "\$missing" | head >&2
+        echo "       reference has:" >&2
+        cut -f1 ${fai} | sort | head >&2
         exit 1
     fi
     mapped=\$(samtools idxstats ${bam} | awk '{s+=\$3} END{print s+0}')
