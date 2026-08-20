@@ -54,9 +54,11 @@ Caught by the 5-lens adversarial review (all re-validated by re-running every ga
 7. README's offline pre-pull loop used `nextflow inspect` with no params, which errors before
    printing anything (silent no-op pulling zero images) — replaced with a config-grep loop; the
    launch block now also exports `NXF_SINGULARITY_CACHEDIR` (was only in the one-time block).
-8. New `CHECK_BAM` guard: BAM contigs must be ⊆ `--fasta`'s `.fai` and mapped reads > 0 —
-   otherwise wrong-reference/mixed-reference groups and unmapped inputs sail through to green
-   runs with empty or chimeric call sets.
+8. New `CHECK_BAM` guard: every BAM `@SQ` name **and length** must match `--fasta`'s `.fai`, and
+   mapped reads must be > 0 — otherwise wrong-reference/mixed-reference groups and unmapped
+   inputs sail through to green runs with empty or chimeric call sets. (Name-only comparison was
+   the first cut; Codex round 2 pointed out a same-name/different-length build passes it —
+   verified both directions against the real chr20 BAM: GRCh38 length accepted, GRCh37 rejected.)
 9. Parse-time duplicate detection: same file twice, or two rows in one (sample,dataset) whose
    filenames collapse to one unit name (late, cryptic staging collision otherwise).
 10. `pbsv discover` is single-threaded — was reserving 8 CPUs; `pbsv call` first attempt raised

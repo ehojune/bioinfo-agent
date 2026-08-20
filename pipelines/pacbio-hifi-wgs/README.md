@@ -16,10 +16,16 @@ VCF afterwards and haplotags the BAM.
 
 ## Quick start
 
+From the repo root:
+
 ```bash
 nextflow run pipelines/pacbio-hifi-wgs -profile docker \
   --input samplesheet.csv --fasta GRCh38.fa --outdir results
 ```
+
+In a `cmd.sh` (or anywhere the working directory isn't the repo root) write the target as an
+absolute path — `"$BIOINFO_HOME"/pipelines/pacbio-hifi-wgs`. `bin/preflight.sh` refuses a
+relative target because it cannot know which directory the script will be launched from.
 
 Smoke test (downloads a 48 MB real subreads subset + a chr19 reference; CCS→align→BAM QC,
 variant callers skipped):
@@ -119,8 +125,12 @@ nextflow run /path/to/pacbio-hifi-wgs -profile sge,singularity \
   DeepVariant is pinned to the same sample name (`--sample_name`), so both callers' VCFs agree.
 - mosdepth uses 500 bp windows, no fast mode (fast mode overcounts depth across intra-read
   deletions in long reads).
-- Every per-dataset BAM is guarded before calling: its contigs must be a subset of `--fasta`'s
-  and it must have >0 mapped reads (CHECK_BAM) — both otherwise fail silently downstream.
+- Every per-dataset BAM is guarded before calling (CHECK_BAM): each `@SQ` name **and length**
+  must match `--fasta`'s `.fai`, and the BAM must have >0 mapped reads. Names alone are not
+  enough — a GRCh37 `chr20` BAM against a GRCh38 `chr20` FASTA shares the name but not the
+  length, and would otherwise produce coordinate-shifted calls with no error.
+- `pbmm2 index`/`align` only run when the samplesheet has at least one non-`aligned_bam` row,
+  so an aligned-BAM-only run never pays the ~10–15 GB whole-genome `.mmi` build.
 - WhatsHap runs with `--ignore-read-groups` (single-sample VCFs; tolerates GIAB BAMs whose SM
   differs from the samplesheet sample name).
 - pbsv runs on the plain aligned BAM (haplotags are not used by pbsv).
