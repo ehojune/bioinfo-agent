@@ -3,7 +3,9 @@
 Closes the gap `handoff.md` named explicitly: E2E-B validated mechanics only. This run compares
 that same pipeline's DeepVariant and Clair3 calls against the official GIAB HG002 truth set,
 restricted to the same chr20:1-3,000,000 slice. **Region-scoped only** — this is not a
-whole-genome accuracy claim.
+whole-genome accuracy claim, and (see "Reading these numbers" below) it measures caller accuracy
+on reads a prior alignment already placed in this region, not the full FASTQ-to-calls chain on
+unselected reads.
 
 ## Reuse status
 
@@ -12,8 +14,14 @@ The prior E2E-B outputs (`/work/scratch/pbwgs-e2eb/`) and the chr20-only referen
 reclaimed). The pipeline was **re-run from scratch** — not resumed — reproducing `cmd.sh`
 exactly (same samplesheet row, same htslib S3 range-fetch of the same source BAM, same
 `--clair3_model hifi_sequel2`, same chr20-only GRCh38 reference). New run directory:
-`/work/scratch/pbwgs-happy-rerun/` (ext4, not committed — `cmd.sh`/`ss.csv`/`e2e.config` there
-mirror this folder's `cmd.sh`).
+`/work/scratch/pbwgs-happy-rerun/` (ext4, not committed).
+
+**Reproducibility, concretely:** this folder's `prepare-happy-inputs.sh` holds the exact
+commands used to rebuild all three scratch-only inputs (chr20 reference, HG002 chr20:1-3Mb HiFi
+FASTQ, region-restricted GIAB truth set) — this is what actually needs to be re-run if
+`/work/staging`/`/work/scratch` get reclaimed again, since `cmd.sh` alone assumes those inputs
+already exist. `run-happy.sh` holds the exact hap.py invocations that produced the numbers
+below.
 
 Reproduction check against the original E2E-B numbers in `handoff.md`:
 
@@ -120,9 +128,27 @@ mechanically validated on; it says nothing about coverage-dependent or region-sp
 elsewhere in the genome (segdups, HLA, centromeres, etc. were not touched by this slice or by
 E2E-B).
 
+**This measures caller accuracy on an alignment-pre-selected read subset, not the full
+unaligned-FASTQ-through-alignment-through-calling chain.** The input FASTQ was built by
+range-fetching `chr20:1-3,000,000` from GIAB's own already-aligned GRCh38 BAM (see
+`prepare-happy-inputs.sh`), so every read in it was already placed in this interval by that
+prior alignment. Reads truly originating in this interval but that GIAB's aligner placed
+elsewhere, left unmapped, or that a full-genome run of this pipeline's own `pbmm2` step would
+handle differently, never entered this input at all — this setup cannot surface alignment-stage
+false negatives from those reads, and the near-perfect recall reported above should be read as
+"the caller chain is accurate on reads this region's alignment already agrees belong here," not
+as end-to-end FASTQ-in/VCF-out accuracy on unselected reads.
+
 ## Files
 
-- Truth set + region-restricted derivatives: `/work/staging/pbwgs-happy/` (ext4 scratch)
-- Rerun pipeline outputs: `/work/scratch/pbwgs-happy-rerun/results/`
-- hap.py outputs: `/work/scratch/pbwgs-happy-rerun/happy/{deepvariant,clair3}/`
+- **`prepare-happy-inputs.sh`** — reproduces the chr20 reference, the HG002 chr20:1-3Mb FASTQ,
+  and the region-restricted GIAB truth set from public sources (committed, this repo).
+- **`run-happy.sh`** — the exact hap.py invocations for both callers (committed, this repo).
+- `cmd.sh` — pipeline launch command (committed, this repo; same command E2E-B used).
+- Truth set + region-restricted derivatives: `/work/staging/pbwgs-happy/` (ext4 scratch, not
+  committed — rebuild with `prepare-happy-inputs.sh`)
+- Rerun pipeline outputs: `/work/scratch/pbwgs-happy-rerun/results/` (ext4 scratch, not
+  committed)
+- hap.py outputs: `/work/scratch/pbwgs-happy-rerun/happy/{deepvariant,clair3}/` (ext4 scratch,
+  not committed)
 - Summary/extended CSVs copied into this repo: `happy-outputs/{deepvariant,clair3}/`
