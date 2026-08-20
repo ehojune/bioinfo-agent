@@ -84,8 +84,12 @@ between query and reference identically to the run itself.
 records (or vice versa) when representations don't align 1:1 — e.g. a multiallelic split.
 Recall is computed from `TRUTH.TP`/`TRUTH.TOTAL`; precision is computed from
 `QUERY.TP`/(`QUERY.TP`+`QUERY.FP`), i.e. from the *query-side* TP count, not the truth-side one.
-Both are reported below (from `happy.extended.csv`, `Subset=*`, `Filter=PASS` rows) so the
-precision figures are independently reproducible from the numbers in this table.
+Both are reported below (from `happy.extended.csv`, `Subset=*`, **`Filter=ALL`** rows). DeepVariant's
+`ALL` and `PASS` rows are identical for both variant types. Clair3's `PASS` row differs from `ALL`
+for INDEL specifically — Clair3's VCF marks at least one indel record with a non-`PASS` FILTER;
+excluding it gives 1,144 query total / 630 TP / **1** FP / precision 0.998415 / F1 0.999207
+(vs. the `ALL`-filter numbers reported below, which include that record). Reported here as `ALL`
+throughout, for both callers, so the same filter convention applies to every row.
 
 ### DeepVariant 1.10.0
 
@@ -103,8 +107,8 @@ precision figures are independently reproducible from the numbers in this table.
 
 (INDEL precision check: DeepVariant 628/(628+4) = 0.993671 ✓; Clair3 630/(630+2) = 0.996835 ✓.)
 
-(`ALL` and `PASS` filter rows are identical or near-identical for both callers on this input —
-neither VCF carries a meaningfully filtering FILTER column here. `QUERY.UNK` — query records with
+(All results above are the `Filter=ALL` rows, for both callers — see the note above the tables
+for where Clair3's `PASS` row differs. `QUERY.UNK` — query records with
 no truth-region overlap, i.e. outside the confident BED — ranges **480–521 for INDELs and
 1,209–1,452 for SNPs** (DeepVariant SNP 1,209; Clair3 SNP 1,452; DeepVariant INDEL 480; Clair3
 INDEL 521). All `QUERY.UNK` records are excluded from the recall/precision denominators by
