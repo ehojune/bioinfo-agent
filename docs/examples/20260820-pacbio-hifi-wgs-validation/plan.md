@@ -54,5 +54,8 @@ across dirs (HudsonAlpha FASTQ = chemistry2 uBAM) are flagged there to avoid dou
   requires the tsv row). It resolves the actual run target: a tree outside this checkout FAILs,
   and a relative target is refused outright (Nextflow resolves it against the launch shell's
   cwd, which preflight cannot know — use an absolute path or `"$BIOINFO_HOME"/pipelines/<name>`).
+  `BIOINFO_HOME` assigned *inside* cmd.sh wins over preflight's own environment, matching bash:
+  a literal value and the `${BIOINFO_HOME:-/default}` template form are both evaluated exactly;
+  anything else (command substitution, other variables) FAILs rather than being guessed at.
 - `pipeline-selection.md` §4.20 + decision-table row; §6.2 TRGT unblock note.
 - `samplesheets.md` in-repo section.

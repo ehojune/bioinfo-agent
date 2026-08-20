@@ -81,11 +81,49 @@ if [ -f "$RUNDIR/cmd.sh" ]; then
     # pass while reporting THIS checkout's revision (Codex, PR #48). Resolve the token
     # cmd.sh actually runs and require it to be this checkout's pipelines/<name>.
     _tok="$(sed 's/^[[:space:]]*#.*$//; s/[[:space:]]#.*$//' "$RUNDIR/cmd.sh" | grep -oE '[^[:space:]]*pipelines/'"$LOCALPIPE" | head -1 | tr -d "\"'")"
-    _exp="${_tok//\$\{BIOINFO_HOME\}/${BIOINFO_HOME:-$REPOROOT}}"
-    _exp="${_exp//\$BIOINFO_HOME/${BIOINFO_HOME:-$REPOROOT}}"
+    # BIOINFO_HOME may be assigned BY cmd.sh, and that value — not preflight's environment —
+    # is what bash uses when the script runs (Codex, PR #48 round 3). Same "last assignment
+    # before the invocation" rule the REV resolver below uses, and the same `export` tolerance.
+    _bh="${BIOINFO_HOME:-$REPOROOT}"
+    if grep -qE '^[[:space:]]*(export[[:space:]]+)?BIOINFO_HOME=' "$RUNDIR/cmd.sh"; then
+      _pl="$(grep -nE 'pipelines/'"$LOCALPIPE" "$RUNDIR/cmd.sh" | head -1 | cut -d: -f1)"
+      _bh_cmd="$(awk -v L="${_pl:-0}" '
+                  L>0 && NR>=L { exit }
+                  { s=$0
+                    sub(/^[[:space:]]+/, "", s)
+                    sub(/^export[[:space:]]+/, "", s)
+                    sub(/^[[:space:]]+/, "", s)
+                    if (index(s, "BIOINFO_HOME=")==1) line=s }
+                  END { print line }' "$RUNDIR/cmd.sh" \
+                | cut -d= -f2- | sed 's/#.*$//' | tr -d "\047\" ")"
+      case "$_bh_cmd" in
+        '')
+          note "cmd.sh assigns BIOINFO_HOME an empty value; using ${_bh} for the target check" ;;
+        '${BIOINFO_HOME:-'*'}'|'${BIOINFO_HOME-'*'}')
+          # The repo's own cmd.sh template writes BIOINFO_HOME=${BIOINFO_HOME:-/default}.
+          # That is plain default-expansion and preflight's own environment gives it exactly
+          # bash's semantics, so evaluate it rather than guessing or refusing.
+          _def="${_bh_cmd#*-}"; _def="${_def%\}}"
+          _bh="${BIOINFO_HOME:-$_def}" ;;
+        *'$'*)
+          # Any other expression (command substitution, other variables) cannot be resolved
+          # statically. Refuse rather than certify a path that may point elsewhere.
+          bad "cmd.sh computes BIOINFO_HOME as '$_bh_cmd', which preflight cannot resolve statically; the run target therefore cannot be verified. Use a literal path or the \${BIOINFO_HOME:-/default} form."
+          _bh='' ;;
+        *)
+          _bh="$_bh_cmd" ;;
+      esac
+    fi
+    if [ -z "$_bh" ]; then
+      _exp=''      # unresolvable BIOINFO_HOME already reported above
+    else
+      _exp="${_tok//\$\{BIOINFO_HOME\}/$_bh}"
+      _exp="${_exp//\$BIOINFO_HOME/$_bh}"
+    fi
     _want="$(readlink -f -- "$REPOROOT/pipelines/$LOCALPIPE" 2>/dev/null || printf '%s' "$REPOROOT/pipelines/$LOCALPIPE")"
     _resolved=""
     case "$_exp" in
+      '') : ;;   # unresolvable BIOINFO_HOME — already reported, do not report twice
       /*) _resolved="$(readlink -f -- "$_exp" 2>/dev/null || printf '%s' "$_exp")" ;;
       *)  # A relative target is resolved by the SHELL's cwd when cmd.sh runs, which preflight
           # cannot know — rebasing it onto the repo root would certify a path that may point

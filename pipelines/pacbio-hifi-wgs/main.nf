@@ -6,7 +6,9 @@
 nextflow.enable.dsl = 2
 
 VALID_TYPES = ['subreads', 'hifi_bam', 'hifi_fastq', 'aligned_bam']
-NAME_RE     = ~/^[A-Za-z0-9._-]+$/
+// sample/dataset become path components of <outdir>/<sample>/<platform>/<dataset>, so '.' and
+// '..' must be excluded outright — '..' would publish outside --outdir
+NAME_RE     = ~/^(?!\.{1,2}$)[A-Za-z0-9._-]+$/
 
 def helpMessage() {
     log.info """
@@ -52,8 +54,10 @@ def parseSamplesheet(sheet) {
         if (vals.size() != header.size())
             error "Samplesheet line ${i + 2}: expected ${header.size()} fields, got ${vals.size()}: '${line}'"
         def row = [header, vals].transpose().collectEntries { k, v -> [k, v] }
-        if (!(row.sample ==~ NAME_RE))  error "Line ${i + 2}: bad sample '${row.sample}' (allowed: A-Za-z0-9._-)"
-        if (!(row.dataset ==~ NAME_RE)) error "Line ${i + 2}: bad dataset '${row.dataset}' (allowed: A-Za-z0-9._-)"
+        def nameHelp = "allowed: A-Za-z0-9._- ; '.' and '..' are rejected because the value " +
+                       "becomes an output path component"
+        if (!(row.sample ==~ NAME_RE))  error "Line ${i + 2}: bad sample '${row.sample}' (${nameHelp})"
+        if (!(row.dataset ==~ NAME_RE)) error "Line ${i + 2}: bad dataset '${row.dataset}' (${nameHelp})"
         if (!(row.input_type in VALID_TYPES))
             error "Line ${i + 2}: input_type '${row.input_type}' not one of ${VALID_TYPES.join('|')}"
         if (!row.file) error "Line ${i + 2}: 'file' is empty"
@@ -102,6 +106,15 @@ workflow {
     if (dup_unit)
         error "Rows within one (sample,dataset) resolve to the same unit name after " +
               "extension stripping: ${dup_unit.keySet().join(' ; ')}. Rename the inputs."
+    // '.' is legal inside both names, so distinct groups can compose the same meta.id
+    // ("A.B"+"C" and "A"+"B.C" both give A.B.C) — every published filename and the flat
+    // MultiQC input directory derive from that id, so collisions would silently drop reports.
+    def dup_id = n_units.keySet().groupBy { s, d -> "${s}.${d}".toString() }
+                        .findAll { it.value.size() > 1 }
+    if (dup_id)
+        error "Distinct (sample,dataset) groups compose the same output id: " +
+              dup_id.collect { id, pairs -> "${id} <- ${pairs}" }.join(' ; ') +
+              ". Rename one of them (the '.' placement differs but the composed id does not)."
 
     log.info "pacbio-hifi-wgs v${workflow.manifest.version} | ${rows.size()} row(s), " +
              "${n_units.size()} sample-dataset group(s) | ref: ${ref_name}"
