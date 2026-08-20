@@ -895,10 +895,16 @@ elif [[ -n "$REQ" ]]; then
     # (local directory with the required-file list), not the test-profile-only URL shape.
     BUI=$(colidx bundle); IMI=$(colidx image); SAI=$(colidx sample)
 
-    # sample/bundle: schema pattern ^\S+$ on both -- whitespace anywhere fails validation
-    # even though REQ's emptiness check above already passed (same shape as raredisease/
-    # isoseq/bacass's ^\S+$ columns).
-    for FLD in "$SAI:sample" "$BUI:bundle"; do
+    # sample/bundle/image: schema pattern ^\S+$ on ALL THREE columns (confirmed by reading
+    # assets/schema_input.json directly) -- whitespace anywhere fails validation even though
+    # REQ's emptiness check above only covers sample/bundle (image is optional, so an EMPTY
+    # cell is fine and does not match this regex; only a populated cell containing whitespace
+    # is a problem). image was originally omitted here (Codex review, PR #47, round 1, P2):
+    # the later image-specific check accepts any existing absolute path, including one with a
+    # literal space in it (e.g. "/data/custom image.ome.tif"), which nf-schema's ^\S+$ pattern
+    # rejects before the pipeline ever runs -- this checker previously reported PASS on exactly
+    # that samplesheet.
+    for FLD in "$SAI:sample" "$BUI:bundle" "$IMI:image"; do
       IDX="${FLD%%:*}"; NAME="${FLD##*:}"
       [[ -n "$IDX" ]] || continue
       WS=$(awk -F, -v i="$IDX" 'NR>1 && $i ~ /[[:space:]]/ {print NR-1}' "$TMP" | paste -sd' ' -)
