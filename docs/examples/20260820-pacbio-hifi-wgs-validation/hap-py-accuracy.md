@@ -80,19 +80,28 @@ between query and reference identically to the run itself.
 
 ## Measured results
 
+`TRUTH.TP`/`QUERY.TP` differ because hap.py can match one query record to multiple truth
+records (or vice versa) when representations don't align 1:1 — e.g. a multiallelic split.
+Recall is computed from `TRUTH.TP`/`TRUTH.TOTAL`; precision is computed from
+`QUERY.TP`/(`QUERY.TP`+`QUERY.FP`), i.e. from the *query-side* TP count, not the truth-side one.
+Both are reported below (from `happy.extended.csv`, `Subset=*`, `Filter=PASS` rows) so the
+precision figures are independently reproducible from the numbers in this table.
+
 ### DeepVariant 1.10.0
 
-| Type | Truth total | TP | FN | Query total | FP | Recall | Precision | F1 |
-|---|---|---|---|---|---|---|---|---|
-| SNP | 4,187 | 4,186 | 1 | 5,401 | 0 | 0.999761 | 1.000000 | 0.999881 |
-| INDEL | 606 | 605 | 1 | 1,112 | 4 | 0.998350 | 0.993671 | 0.996005 |
+| Type | Truth total | TRUTH.TP | FN | Query total | QUERY.TP | FP | Recall | Precision | F1 |
+|---|---|---|---|---|---|---|---|---|---|
+| SNP | 4,187 | 4,186 | 1 | 5,401 | 4,192 | 0 | 0.999761 | 1.000000 | 0.999881 |
+| INDEL | 606 | 605 | 1 | 1,112 | 628 | 4 | 0.998350 | 0.993671 | 0.996005 |
 
 ### Clair3 v1.2.0 (`hifi_sequel2` model)
 
-| Type | Truth total | TP | FN | Query total | FP | Recall | Precision | F1 |
-|---|---|---|---|---|---|---|---|---|
-| SNP | 4,187 | 4,187 | 0 | 5,645 | 0 | 1.000000 | 1.000000 | 1.000000 |
-| INDEL | 606 | 606 | 0 | 1,153 | 2 | 1.000000 | 0.996835 | 0.998415 |
+| Type | Truth total | TRUTH.TP | FN | Query total | QUERY.TP | FP | Recall | Precision | F1 |
+|---|---|---|---|---|---|---|---|---|---|
+| SNP | 4,187 | 4,187 | 0 | 5,645 | 4,193 | 0 | 1.000000 | 1.000000 | 1.000000 |
+| INDEL | 606 | 606 | 0 | 1,153 | 630 | 2 | 1.000000 | 0.996835 | 0.998415 |
+
+(INDEL precision check: DeepVariant 628/(628+4) = 0.993671 ✓; Clair3 630/(630+2) = 0.996835 ✓.)
 
 (`ALL` and `PASS` filter rows are identical or near-identical for both callers on this input —
 neither VCF carries a meaningfully filtering FILTER column here. `QUERY.UNK` — query records with
