@@ -964,10 +964,15 @@ elif [[ -n "$REQ" ]]; then
           # privileged account than the one that will actually launch the pipeline.
           [[ -f "$P/$F" && -r "$P/$F" && -s "$P/$F" ]] || printf '%s ' "$F"
         done)
-        # -r added alongside -d for the same reason (Codex review, PR #47, round 5, P2): an
-        # inaccessible (mode 000, or missing +x on a directory) morphology_focus/ satisfies -d
-        # but nothing underneath it can actually be listed/opened.
-        BADDIRS=$(bundle_required_dirs | while IFS= read -r D; do [[ -d "$P/$D" && -r "$P/$D" ]] || printf '%s ' "$D"; done)
+        # -r AND -x, not -r alone (Codex review, PR #47, round 6, P2, following straight from
+        # round 5): a directory needs its EXECUTE (search) bit, not its read bit, to let
+        # anything below it be opened by path -- mode 0400 (r--------) satisfies -d and -r
+        # while `open("morphology_focus/morphology_focus_0000.ome.tif")` still fails with
+        # EACCES, since resolving that path has to traverse (search) morphology_focus/ first.
+        # -r is still checked too: it is what lets the directory's own ENTRIES be listed
+        # (`readdir`), which the same downstream code also needs to find the focus TIFF by
+        # name in the first place.
+        BADDIRS=$(bundle_required_dirs | while IFS= read -r D; do [[ -d "$P/$D" && -r "$P/$D" && -x "$P/$D" ]] || printf '%s ' "$D"; done)
         DETAIL=''
         [[ -n "$MISSING" ]] && DETAIL="not a non-empty regular file: $MISSING"
         [[ -n "$BADDIRS" ]] && DETAIL="${DETAIL:+$DETAIL; }not a directory: $BADDIRS"
