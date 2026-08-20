@@ -913,18 +913,26 @@ for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 for
     # above. Scoped to viralrecon only -- not verified for any other pipeline's fastq_1/
     # fastq_2 columns, so left FAILing (relative-path-shaped) there rather than silently
     # widened repo-wide on an unconfirmed assumption.
+    #
+    # URLREMOTE only skips the checks that need local file access (readability, size, gzip
+    # magic bytes below) -- it must NOT skip the suffix-pattern `case` block further down.
+    # An earlier version of this exemption used a bare `continue` here, which skipped suffix
+    # validation entirely: `https://example.org/not-a-fastq.txt` reported PASS even though
+    # viralrecon's schema pattern `^([\S\s]*\/)?[^\s\/]+\.f(ast)?q\.gz$` rejects it (Codex
+    # review, PR #46, round 1).
+    URLREMOTE=0
     if [[ "$PIPELINE" == viralrecon && ( "$C" == fastq_1 || "$C" == fastq_2 ) && "$P" =~ ^https?:// ]]; then
-      ok "$C: remote URL, not checked for existence here: $P"
-      continue
-    fi
-    if [[ "$P" != /* ]]; then
+      URLREMOTE=1
+    elif [[ "$P" != /* ]]; then
       fail "$C: relative path '$P' (resolves against the launch dir, not the sheet)"; continue
     fi
     # nanoseq's input_file may legitimately be a run DIRECTORY (fast5+fastq for nanopolish),
     # not a file -- `-r`/`-s` both accept a readable, non-empty directory, so this falls
     # through to the per-column case below cleanly rather than needing a separate branch here.
-    if [[ ! -r "$P" ]]; then fail "$C: not readable: $P"; continue; fi
-    if [[ ! -s "$P" ]]; then fail "$C: zero bytes: $P"; continue; fi
+    if (( ! URLREMOTE )); then
+      if [[ ! -r "$P" ]]; then fail "$C: not readable: $P"; continue; fi
+      if [[ ! -s "$P" ]]; then fail "$C: zero bytes: $P"; continue; fi
+    fi
     # FASTQ-only columns: the schemas for these columns (rnaseq/ampliseq/mag, confirmed
     # against schema_input.json at each pin) require an exact `.f(ast)?q.gz` suffix, not
     # merely "ends in .gz" -- a `.gz`-suffixed non-FASTQ file (e.g. a mistakenly-pointed
@@ -1034,16 +1042,24 @@ for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 for
           fi
         fi ;;
     esac
-    case "$P" in
-      *.fastq|*.fq)
-        fail "$C: uncompressed FASTQ: $P (schema pattern requires .gz)" ;;
-      *.gz)
-        if [[ "$(head -c2 "$P" | od -An -tx1 | tr -d ' ')" != "1f8b" ]]; then
-          fail "$C: not a gzip stream: $P"
-        elif (( DEEP )); then
-          gzip -t "$P" 2>/dev/null || fail "$C: gzip integrity / truncated: $P"
-        fi ;;
-    esac
+    if (( URLREMOTE )); then
+      # Suffix pattern above already validated; gzip-magic-byte/integrity checks below need
+      # local file access and cannot run against a URL (Codex review, PR #46, round 1 fixed
+      # the suffix-skip half of this gap -- this half was already correct, kept explicit here
+      # so the two halves of the exemption sit next to each other, not split across the loop).
+      ok "$C: remote URL, not checked for existence/gzip-integrity here: $P"
+    else
+      case "$P" in
+        *.fastq|*.fq)
+          fail "$C: uncompressed FASTQ: $P (schema pattern requires .gz)" ;;
+        *.gz)
+          if [[ "$(head -c2 "$P" | od -An -tx1 | tr -d ' ')" != "1f8b" ]]; then
+            fail "$C: not a gzip stream: $P"
+          elif (( DEEP )); then
+            gzip -t "$P" 2>/dev/null || fail "$C: gzip integrity / truncated: $P"
+          fi ;;
+      esac
+    fi
   done < <(awk -F, -v i="$I" 'NR>1{print $i}' "$TMP")
   ok "$C: $N paths checked$( (( DEEP )) && echo ' (deep)' || true )"
 done
