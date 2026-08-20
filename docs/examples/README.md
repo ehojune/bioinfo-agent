@@ -25,6 +25,8 @@ only `plan.md`/`handoff.md`. `20260812-taxprofiler-drr027580-realsample` additio
 | `20260816-bacass-srr2589044-realsample` | nf-core/bacass against a real bacterial isolate WGS sample — comma-delimited `.csv` samplesheet despite the pipeline's own tab-delimited docs/CI fixture, and a measured QUAST/BUSCO/Prokka QC table for a single-organism de novo assembly |
 | `20260816-sarek-revalidate2` | second re-verification of the (unchanged) nf-core/sarek 3.5.1 pin, this time against 8 further pipelines' worth of shared-infrastructure drift since the 2026-08-10 revalidation — all three §2.4 escalating tests clean, `check-samplesheet.sh`'s sarek branch untouched by any of the 8, and a real-sample `--step variant_calling` confirmatory run from the reused MarkDuplicates CRAM producing variant counts identical to both prior sarek runs on this sample |
 
+| `20260818-viralrecon-sample01-realsample` | nf-core/viralrecon against one real sample from the pipeline's own protocol-confirmed `test_full.config` cohort — `--skip_assembly true`, explicit `--fasta`/`--gff`/`--primer_bed` instead of `--genome` shorthand, and three separate runtime-fetch/rate-limit/TLS environment findings (pangolin/nextclade/freyja) routed around via pre-fetched local DBs; a genuine low-viral-titer FAIL result on consensus completeness, reported as measured, not re-picked for a nicer number |
+
 `20260807-rnaseq-testprofile-e` and `20260807-rnaseq-salmononly-e` are the evidence behind the ext4
 rule in `skills/bioinfo-analyze/references/runbook.md` section 1.
 

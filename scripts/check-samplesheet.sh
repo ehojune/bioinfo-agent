@@ -124,6 +124,7 @@ case "$PIPELINE" in
   rnasplice)              REQ='sample fastq_1 strandedness condition' ;;    # fastq_2 header required but value may be empty (SE) -- see below
   isoseq)                REQ='sample' ;;                                   # bam+pbi (isoseq entrypoint) or reads (map entrypoint) -- see below
   bacass)                REQ='ID' ;;                                       # R1/R2/LongFastQ/Fast5/GenomeSize all optional at schema level -- see below
+  viralrecon)            REQ='sample' ;;                                   # fastq_1/fastq_2/barcode all optional at schema level -- see below
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
@@ -825,6 +826,49 @@ elif [[ -n "$REQ" ]]; then
                           || fail "bacass: row(s) with R2 set but R1 empty/NA or the R1 column absent entirely (short-read mate pairing needs both): $BADPAIR"
     fi
   fi
+  if [[ "$PIPELINE" == viralrecon ]]; then
+    # nf-core/viralrecon 3.0.0: assets/schema_input.json IS the live validator here --
+    # subworkflows/local/utils_nfcore_viralrecon_pipeline/main.nf:100/122 calls
+    # samplesheetToList() straight against it, no bundled bin/check_samplesheet*.py in the
+    # clone (bin/ holds only fastq_dir_to_samplesheet.py, a samplesheet GENERATOR, not a
+    # validator). Only `sample` is in required[]; fastq_1/fastq_2/barcode are each
+    # individually optional at schema level -- a row with fastq_1 empty/absent validates
+    # cleanly and reaches the illumina-branch .map{} with a null read source (confirmed by
+    # reading subworkflows/local/utils_nfcore_viralrecon_pipeline/main.nf:98-117), same class
+    # of gap as taxprofiler/mag/raredisease/bacass's "no read source" rows. This repo's stocked
+    # scope is --platform illumina only (config/pipelines.tsv) -- barcode is the nanopore
+    # branch's read-source column and is not checked here at all.
+    #
+    # sample uniqueness: NOT enforced by the schema (no uniqueEntries on `sample`), and the
+    # illumina branch's own .groupTuple() keyed on meta.id is a SUPPORTED multi-lane/multi-run
+    # merge shape (same pattern as mag/rnasplice) -- do not FAIL or WARN on a repeated sample
+    # name here. validateInputSamplesheet() only rejects a repeated sample whose rows disagree
+    # on single_end vs paired_end (mixing a fastq_2-bearing row with a fastq_2-empty row under
+    # one sample name) -- checked below since that failure only surfaces deep in the pipeline
+    # otherwise (a Groovy error(), not a schema validation failure).
+    SI=$(colidx sample); F1I=$(colidx fastq_1); F2I=$(colidx fastq_2)
+    if [[ -n "$F1I" ]]; then
+      NOSRC=$(awk -F, -v f1="$F1I" 'NR>1 && ($f1==""||$f1=="NA") {print NR-1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$NOSRC" ]] && ok "viralrecon: every row has fastq_1 populated (illumina platform needs it; schema itself does not require it)" \
+                        || fail "viralrecon: row(s) with fastq_1 empty/NA -- schema validates this cleanly but the illumina branch has no read source for that row: $NOSRC"
+    else
+      fail "viralrecon: sheet has no fastq_1 column at all -- illumina platform (this repo's stocked scope) has no usable read source without it"
+    fi
+    if [[ -n "$SI" && -n "$F2I" ]]; then
+      # A sample name whose rows disagree on fastq_2-presence (single-end vs paired-end) passes
+      # schema validation but fails deep inside validateInputSamplesheet()'s endedness check
+      # with a bare Groovy error() -- not a schema message, not something -preview surfaces as
+      # a per-row problem. Detect the same condition here, per-sample-name, before launch.
+      MIXED=$(awk -F, -v s="$SI" -v f2="$F2I" '
+        NR>1 {
+          se = ($f2=="" || $f2=="NA") ? "SE" : "PE"
+          if (($s) in seen && seen[$s] != se) { print $s }
+          seen[$s] = se
+        }' "$TMP" | sort -u | paste -sd' ' -)
+      [[ -z "$MIXED" ]] && ok "viralrecon: no sample name mixes single-end and paired-end rows" \
+                        || fail "viralrecon: sample(s) with both a paired-end row (fastq_2 set) and a single-end row (fastq_2 empty/NA/absent) -- validateInputSamplesheet() rejects this at runtime with 'Multiple runs of a sample must be of the same datatype': $MIXED"
+    fi
+  fi
 elif [[ -z "$PIPELINE" ]]; then
   ID=''
   for C in sample patient group id; do [[ -z "$(colidx "$C")" ]] || { ID="$C"; break; }; done
@@ -861,14 +905,34 @@ for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 for
     if [[ "$PIPELINE" == isoseq && ( "$C" == bam || "$C" == pbi || "$C" == reads ) && "$P" == "None" ]]; then
       continue
     fi
-    if [[ "$P" != /* ]]; then
+    # viralrecon's fastq_1/fastq_2 legitimately hold http(s):// URLs -- the pipeline's OWN
+    # -profile test samplesheet (nf-core/test-datasets, viralrecon branch) is built entirely
+    # of raw.githubusercontent.com URLs and validates cleanly against schema_input.json's
+    # format:file-path,exists:true (nf-schema's existence check recognises a remote scheme and
+    # does not require local readability), same shape as bacass's R1/R2/LongFastQ columns
+    # above. Scoped to viralrecon only -- not verified for any other pipeline's fastq_1/
+    # fastq_2 columns, so left FAILing (relative-path-shaped) there rather than silently
+    # widened repo-wide on an unconfirmed assumption.
+    #
+    # URLREMOTE only skips the checks that need local file access (readability, size, gzip
+    # magic bytes below) -- it must NOT skip the suffix-pattern `case` block further down.
+    # An earlier version of this exemption used a bare `continue` here, which skipped suffix
+    # validation entirely: `https://example.org/not-a-fastq.txt` reported PASS even though
+    # viralrecon's schema pattern `^([\S\s]*\/)?[^\s\/]+\.f(ast)?q\.gz$` rejects it (Codex
+    # review, PR #46, round 1).
+    URLREMOTE=0
+    if [[ "$PIPELINE" == viralrecon && ( "$C" == fastq_1 || "$C" == fastq_2 ) && "$P" =~ ^https?:// ]]; then
+      URLREMOTE=1
+    elif [[ "$P" != /* ]]; then
       fail "$C: relative path '$P' (resolves against the launch dir, not the sheet)"; continue
     fi
     # nanoseq's input_file may legitimately be a run DIRECTORY (fast5+fastq for nanopolish),
     # not a file -- `-r`/`-s` both accept a readable, non-empty directory, so this falls
     # through to the per-column case below cleanly rather than needing a separate branch here.
-    if [[ ! -r "$P" ]]; then fail "$C: not readable: $P"; continue; fi
-    if [[ ! -s "$P" ]]; then fail "$C: zero bytes: $P"; continue; fi
+    if (( ! URLREMOTE )); then
+      if [[ ! -r "$P" ]]; then fail "$C: not readable: $P"; continue; fi
+      if [[ ! -s "$P" ]]; then fail "$C: zero bytes: $P"; continue; fi
+    fi
     # FASTQ-only columns: the schemas for these columns (rnaseq/ampliseq/mag, confirmed
     # against schema_input.json at each pin) require an exact `.f(ast)?q.gz` suffix, not
     # merely "ends in .gz" -- a `.gz`-suffixed non-FASTQ file (e.g. a mistakenly-pointed
@@ -884,6 +948,18 @@ for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 for
         # raredisease-scoped, matching the bam/bai checks above.
         if [[ "$PIPELINE" == raredisease && ( "$C" == fastq_1 || "$C" == fastq_2 ) && "$P" =~ [[:space:]] ]]; then
           fail "$C: contains whitespace (schema pattern ^\\S+\\.f(ast)?q\\.gz\$ forbids it): $P"
+          continue
+        fi
+        # viralrecon's schema_input.json pattern is
+        # ^([\S\s]*\/)?[^\s\/]+\.f(ast)?q\.gz$ -- a DIFFERENT shape from raredisease's
+        # whitespace-anywhere-forbidden ^\S+...$ above: only the BASENAME (the part after the
+        # last '/') is whitespace-forbidden; directory components before it may legitimately
+        # contain spaces. `/data/my dir/sample 1.fastq.gz` previously passed here with only a
+        # suffix check on the whole string, which a basename-with-a-space still satisfies
+        # (Codex review, PR #46, round 2, P2) -- check the basename specifically, both for a
+        # local path and a URL (URLREMOTE skips readability but reaches this suffix block).
+        if [[ "$PIPELINE" == viralrecon && ( "$C" == fastq_1 || "$C" == fastq_2 ) && "${P##*/}" =~ [[:space:]] ]]; then
+          fail "$C: basename contains whitespace (schema pattern ^([\\S\\s]*\\/)?[^\\s\\/]+\\.f(ast)?q\\.gz\$ forbids it in the filename): $P"
           continue
         fi
         if [[ ! "$P" =~ \.f(ast)?q\.gz$ ]]; then
@@ -978,16 +1054,24 @@ for C in fastq_1 fastq_2 fasta bam bai cram crai vcf table spring_1 spring_2 for
           fi
         fi ;;
     esac
-    case "$P" in
-      *.fastq|*.fq)
-        fail "$C: uncompressed FASTQ: $P (schema pattern requires .gz)" ;;
-      *.gz)
-        if [[ "$(head -c2 "$P" | od -An -tx1 | tr -d ' ')" != "1f8b" ]]; then
-          fail "$C: not a gzip stream: $P"
-        elif (( DEEP )); then
-          gzip -t "$P" 2>/dev/null || fail "$C: gzip integrity / truncated: $P"
-        fi ;;
-    esac
+    if (( URLREMOTE )); then
+      # Suffix pattern above already validated; gzip-magic-byte/integrity checks below need
+      # local file access and cannot run against a URL (Codex review, PR #46, round 1 fixed
+      # the suffix-skip half of this gap -- this half was already correct, kept explicit here
+      # so the two halves of the exemption sit next to each other, not split across the loop).
+      ok "$C: remote URL, not checked for existence/gzip-integrity here: $P"
+    else
+      case "$P" in
+        *.fastq|*.fq)
+          fail "$C: uncompressed FASTQ: $P (schema pattern requires .gz)" ;;
+        *.gz)
+          if [[ "$(head -c2 "$P" | od -An -tx1 | tr -d ' ')" != "1f8b" ]]; then
+            fail "$C: not a gzip stream: $P"
+          elif (( DEEP )); then
+            gzip -t "$P" 2>/dev/null || fail "$C: gzip integrity / truncated: $P"
+          fi ;;
+      esac
+    fi
   done < <(awk -F, -v i="$I" 'NR>1{print $i}' "$TMP")
   ok "$C: $N paths checked$( (( DEEP )) && echo ' (deep)' || true )"
 done
@@ -1087,6 +1171,15 @@ elif [[ "$PIPELINE" == ampliseq || "$PIPELINE" == mag || "$PIPELINE" == taxprofi
     # generic branch's WARN ("merged as technical replicates") is the wrong severity here and
     # would be a redundant, softer second message for the same row (rnasplice's real key is the
     # (sample, fastq_1) pair, not sample alone -- checked above)
+elif [[ "$PIPELINE" == viralrecon ]]; then
+  : # DIFFERENT reason from the ampliseq/mag/taxprofiler/rnasplice branch above -- there is no
+    # hard-FAIL check for this above to make the generic WARN redundant. A repeated `sample`
+    # is a fully supported multi-lane/multi-run merge with no composite-key failure mode at
+    # all (no uniqueEntries in the schema; illumina branch's .groupTuple() keyed on meta.id;
+    # the pipeline's own CI fixture repeats SAMPLE3_SE across two single-end rows as its
+    # normal working shape) -- the generic WARN's "intentional?" framing is simply the wrong
+    # question to ask here, not a softer duplicate of an already-correct hard FAIL (Codex
+    # review, PR #46, round 2, P3).
 elif [[ -n "$(colidx sample)" ]]; then
   D=$(colvals sample | sort | uniq -d | paste -sd' ' -)
   [[ -z "$D" ]] && ok "sample ids unique" \

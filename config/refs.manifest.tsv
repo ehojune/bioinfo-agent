@@ -160,3 +160,75 @@ genomes/GRCh38_isoseq_chr19/gtf/genes.gtf	fetch	https://raw.githubusercontent.co
 # whenever BUSCO runs (which this procurement's stocked scope does, unlike Kraken2/KmerFinder/
 # Bakta) -- see the row below.
 db/busco/	fetch	bacass --busco_db_path (BUSCO's own auto-downloader, https://busco-data.ezlab.org/v5/data/lineages/, triggered via --busco_lineage bacteria_odb10 -- confirmed by reading modules/nf-core/busco/busco/main.nf: --busco_db_path maps straight to BUSCO's own --download_path flag, no separate manifest-side fetch mechanism)	NOT a direct curl target -- same pattern as ampliseq's tax-db/ row, 04-refs.sh only reports presence, the pipeline (BUSCO itself) populates a busco_downloads/lineages/<lineage>/ subtree here on first use with --busco_db_path pointed at this standard path. Materialized this run from the already-downloaded bacteria_odb10 dataset (both the test-profile and real-sample runs fetched it before this row existed) -- 27 MB (dataset.cfg: creation_date=2024-01-08, number_of_BUSCOs=124, number_of_species=4085, OrthoDB_version=10.1). Added after Codex review (PR #41, round 7) flagged BUSCO's runtime-fetched lineage dataset as missing from the manifest despite new-pipeline.md sec 2.7 requiring every fetched reference to be mapped to a row; confirmed --busco_db_path /refs/db/busco resolves cleanly via -preview before wiring it into params.yaml
+
+# ---------------------------------------------------------------- viralrecon / SARS-CoV-2
+# nf-core/viralrecon 3.0.0 procurement (2026-08-17/18). First VIRAL reference stocked in this
+# repo -- tiny (~30kb genome) compared to every prior reference here, so no size-disclosure
+# concern for the fasta/gff/primer rows. --genome MN908947.3 shorthand deliberately NOT used:
+# it resolves against nf-core/configs' remote genomes.config (another raw.githubusercontent.com
+# fetch, same host that repeatedly 429'd during this procurement -- see plan.md), so this repo
+# supplies --fasta/--gff/--primer_bed explicitly at standard paths instead, matching the
+# scrnaseq/isoseq "explicit path over --genome shorthand" convention already established here.
+genomes/SARS-CoV-2-MN908947.3/fasta/genome.fa	fetch	https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=MN908947.3&rettype=fasta&retmode=text	NCBI GenBank MN908947.3, SARS-CoV-2 isolate Wuhan-Hu-1 complete genome, 29903 bp, 30 KB; same INSDC accession viralrecon's own genomes.config resolves for --genome MN908947.3 (GCA_009858895.3_ASM985889v3_genomic)	1782698e33be9ee1ef70e001793fd4016a60f4cd08a02108e26a11dfe26b28bc
+genomes/SARS-CoV-2-MN908947.3/gff/genome.gff	fetch	https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=MN908947.3&rettype=gff3&retmode=text	NCBI GFF3 annotation for MN908947.3	7edcb9f6c6de7ba570106926e5af55f7e45ed5f8b92b9a33664fb9ca2711ae32
+genomes/SARS-CoV-2-MN908947.3/primer/artic-v3/primer.bed	fetch	https://github.com/artic-network/artic-ncov2019/raw/master/primer_schemes/nCoV-2019/V3/nCoV-2019.primer.bed	ARTIC nCoV-2019 V3 primer scheme (218 lines / 2 pools), 6-col iVar-format BED (chrom,start,end,name,pool,strand) -- matches viralrecon's own genomes.config primer_bed selection for primer_set_version 3 exactly (same upstream file); used for this procurement's real-sample validation run (SAMPLE_01 from viralrecon's own test_full.config cohort, which itself pins primer_set_version=3)	6e98d7d5d1c6edac8ef0bac70d698e0828ae42bafe8f3bda0a6257d00ce414b5
+genomes/SARS-CoV-2-MN908947.3/primer/artic-v4.1/primer.bed	fetch	https://github.com/artic-network/artic-ncov2019/raw/master/primer_schemes/nCoV-2019/V4.1/SARS-CoV-2.scheme.bed	ARTIC nCoV-2019 V4.1 primer scheme (209 lines / 2 pools) -- the current, most widely-used ARTIC scheme as of this procurement; stocked alongside V3 for a future run whose wet-lab protocol is V4.1, but NOT what this procurement's own real-sample run used (that run's library prep protocol is undocumented in ENA metadata for ad hoc SRA/ENA picks, which is exactly why the real-sample run below instead used the pipeline's own S3-hosted, protocol-confirmed ARTIC V3 sample). No uniqueEntries/versioning mechanism here -- add a new primer/artic-vX/ row per scheme version as needed, never overwrite	54d571f0237c847dcaf172ea48768367ca964710e1bf8cc63832b50c9320b7f0
+
+# Pangolin lineage-designation data (--pango_database). Runtime PANGOLIN_UPDATEDATA
+# (modules/nf-core/pangolin/updatedata) is the pipeline's DEFAULT when --pango_database is
+# unset -- deliberately NOT used here. It calls `pangolin --update-data`, which hits
+# https://api.github.com/repos/cov-lineages/pangolin-data/releases (the release LIST endpoint,
+# not /releases/latest) to find the newest pangolin-data version; that specific collection
+# endpoint returned a genuinely empty `[]` (HTTP 200) from this box's egress on every retry
+# during this procurement (2026-08-18), confirmed reproducible both via host curl and via
+# python3 urllib INSIDE the pinned pangolin container itself (ruling out a pip/requests
+# quirk) -- while /releases/latest on the same repo returned the real v1.39 release correctly.
+# A real, reproducible environmental gap, not a stub/pipeline defect. Routed around by
+# extracting the pangolin-data version ALREADY BAKED into the pinned module container image at
+# build time (community.wave.seqera.io/library/pangolin-data_pangolin_pip_snakemake:
+# 7987089a2a044e70, pangolin-data v1.32) via `docker run ... cp` from
+# /opt/conda/lib/python3.11/site-packages/pangolin_data/data/ -- reproducible from the SAME
+# pinned container this pipeline revision already uses, no separate version-pinning burden.
+db/pangolin/	build	docker run --rm -v /refs/db/pangolin:/out community.wave.seqera.io/library/pangolin-data_pangolin_pip_snakemake:7987089a2a044e70 bash -c "cp /opt/conda/lib/python3.11/site-packages/pangolin_data/data/* /out/"	pangolin-data v1.32 (bundled in the pinned module container, NOT the latest v1.39 upstream -- see note above), 3 files (alias_key.json / lineageTree.pb / lineages.hash.csv), 92 MB; wire with --pango_database /refs/db/pangolin, confirmed via -preview
+
+# Nextclade SARS-CoV-2 dataset (--nextclade_dataset). Runtime NEXTCLADE_DATASETGET (the
+# pipeline's default when only --nextclade_dataset_name is set, not a full --nextclade_dataset
+# path) needs https://data.clades.nextstrain.org -- THIS SPECIFIC HOST is intercepted by this
+# box's corp TLS-inspecting proxy ("ePrism SSL" / SOOSAN INT, see bootstrap/06-tls-trust.sh's
+# own worked example of get.nextflow.io being selectively intercepted the same way), confirmed
+# via `docker run curlimages/curl ... data.clades.nextstrain.org` returning "self-signed
+# certificate in certificate chain" while the HOST's own curl to the same URL succeeds (the
+# corp CA is already trusted in the HOST system store from a prior 06-tls-trust.sh --accept run,
+# but that trust does NOT propagate into a fresh docker container's own /etc/ssl/certs -- a
+# genuinely different gap from every prior TLS-trust finding in this repo, which were all
+# host-level). Routed around for this one-off manual fetch by mounting the host's
+# /etc/ssl/certs/ca-certificates.crt into the container and setting SSL_CERT_FILE -- the SAME
+# fix would need to be applied inside the pipeline's own NEXTCLADE_DATASETGET container if
+# --nextclade_dataset_name were used instead of a static path, which nf-core process containers
+# have no mechanism to do; using a static, pre-fetched --nextclade_dataset instead sidesteps the
+# problem entirely by never invoking NEXTCLADE_DATASETGET at all (confirmed via reading
+# subworkflows/local/prepare_genome_illumina/main.nf:181 -- providing nextclade_dataset takes
+# an if-branch that skips NEXTCLADE_DATASETGET outright).
+db/nextclade/sars-cov-2/	fetch	docker run --rm -v /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro -e SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt -v /refs/db/nextclade/sars-cov-2:/out community.wave.seqera.io/library/nextclade:3.11.0--155203da8341cfe6 nextclade dataset get --name sars-cov-2 --output-dir /out	Nextclade SARS-CoV-2 dataset, tag 2026-08-12--14-03-43Z (fetched 2026-08-18), 11 MB (reference.fasta/tree.json/pathogen.json/sequences.fasta/genome_annotation.gff3); wire with --nextclade_dataset /refs/db/nextclade/sars-cov-2, confirmed via -preview
+
+# Kraken2 human host-filter DB. This is viralrecon's own SCHEMA DEFAULT (kraken2_db defaults to
+# this exact S3 URL even outside -profile test) -- not an extra we added, just materialized
+# locally instead of letting Nextflow re-fetch/re-untar it into a fresh work dir on every run.
+# 2.8 GB compressed / 3.9 GB extracted, well under the ~10 GB silent-download ceiling, disclosed
+# here rather than fetched silently.
+db/kraken2_viralrecon_human/kraken2_human/	fetch	https://ngi-igenomes.s3.eu-west-1.amazonaws.com/test-data/viralrecon/kraken2_human.tar.gz	Kraken2 DB built from the human genome only (opts.k2d/taxo.k2d/hash.k2d), viralrecon's own default --kraken2_db target (schema default), used for both --kraken2_variants_host_filter and --kraken2_assembly_host_filter (latter moot in this procurement's --skip_assembly scope); wire with --kraken2_db /refs/db/kraken2_viralrecon_human/kraken2_human
+
+# Freyja UShER barcode/lineage-metadata DB (--freyja_barcodes / --freyja_lineages). A THIRD
+# runtime-fetch/rate-limit finding, same class as pangolin/nextclade above: the pipeline's
+# DEFAULT (both params unset) runs FREYJA_UPDATE (`freyja update`), which fetches from
+# raw.githubusercontent.com/andersen-lab/Freyja-data -- the same host that repeatedly 429'd
+# during this procurement, and did so for real on this run's first non-stub test-profile gate
+# attempt (HTTP 429, confirmed in the FREYJA_UPDATE task's own .command.log). Routed around the
+# same way: `git clone --depth 1 --filter=blob:none` against github.com directly (unaffected by
+# the rate limit) instead of the raw endpoint, then supplying BOTH files FREYJA_UPDATE would
+# have produced (usher_barcodes.feather, curated_lineages.json -- confirmed via reading
+# modules/nf-core/freyja/update/main.nf's own output block) so the pipeline's own
+# `if (!ch_barcodes || !ch_lineages_meta)` gate (subworkflows/nf-core/
+# bam_variant_demix_boot_freyja/main.nf) skips FREYJA_UPDATE entirely.
+db/freyja/usher_barcodes.feather	fetch	https://github.com/andersen-lab/Freyja-data/raw/main/usher_barcodes.feather	UShER lineage-defining mutation barcodes, fetched 2026-08-18 (git clone, not raw.githubusercontent.com directly); wire with --freyja_barcodes /refs/db/freyja/usher_barcodes.feather	5275d9684f829b97fd44f91ae758c754c4a7efcf6d61d2b0610bc9c972e5c580
+db/freyja/curated_lineages.json	fetch	https://github.com/andersen-lab/Freyja-data/raw/main/curated_lineages.json	Freyja lineage metadata matching the barcodes above; wire with --freyja_lineages /refs/db/freyja/curated_lineages.json	9227e19e3b86f43e18213b738a94b6ac3a1f53e0c7e01d2939ff4e84af2cbf36
