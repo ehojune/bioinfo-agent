@@ -3,18 +3,21 @@
 The stocked set is the row set of `config/pipelines.tsv`: rnaseq, differentialabundance, fetchngs,
 sarek, methylseq, atacseq, chipseq, cutandrun, scrnaseq, ampliseq, mag, taxprofiler, nanoseq,
 raredisease, rnasplice, isoseq, bacass, plus the in-repo pacbio-hifi-wgs (revision `in-repo` —
-lives at `pipelines/`, not on nf-core; see `pipeline-selection.md` §4.18). Anything else goes through
+lives at `pipelines/`, not on nf-core; see `pipeline-selection.md` §4.20). Anything else goes through
 this procedure before it touches real data. The
 procedure exists because the expensive failure is not "no pipeline exists" — it is committing to an
 unmaintained pipeline, discovering at hour six that it needs a reference nobody has, and having no
 record of which revision produced the results.
 
-Three outcomes are legitimate. Pick one explicitly and say which:
+Four outcomes are legitimate. Pick one explicitly and say which:
 
 1. An nf-core pipeline fits → evaluate, pin, stub, run, then **stock it** (section 4).
 2. An nf-core pipeline nearly fits → say what it does not cover, and get the user's decision
    before starting. Do not quietly answer an adjacent question.
-3. Nothing fits → hand back a plan, not a run (section 6).
+3. Nothing fits and it is a one-off → hand back a plan, not a run (section 6).
+4. Nothing fits and it will be reused → propose an **in-repo pipeline** (section 7) and ask.
+   Build-new versus reuse-what-exists is the user's call every time, never yours — standing
+   instruction, 2026-08-21.
 
 ---
 
@@ -420,3 +423,73 @@ written handoff containing:
   output, implement that honestly and document it; if it cannot, say it cannot.
 - The ceiling does not move. It reports what ran, where the output is, and the QC numbers. It does
   not interpret them.
+
+---
+
+## 7. In-repo pipelines (`pipelines/<name>`) — the fourth outcome
+
+Reference implementation: `pipelines/pacbio-hifi-wgs` (PR #48, validated 2026-08-20 —
+`docs/examples/20260820-pacbio-hifi-wgs-validation/`). Read it before writing a second one.
+
+### When this outcome applies — and who decides
+
+All three at once: nothing on nf-core covers the analysis (§1 checked, including
+`--show-archived` and nf-core/modules); the tool chain is established best practice, not
+something you would be inventing; and it will be **reused** across datasets or sessions — a
+one-off belongs in §6 as a script. Even then: present the §6-style handoff and **ask. Build-new
+versus reuse-what-exists is the user's decision every time, never the agent's** (standing
+instruction, 2026-08-21).
+
+### Construction requirements
+
+The point of every rule here is the same: the directory must run, unmodified, on a host that has
+only Nextflow and a container runtime — no agent, no this-repo tooling, no network at task time.
+
+- **Self-contained directory** `pipelines/<name>/`: `main.nf`, `nextflow.config`, `README.md`,
+  `assets/` (samplesheet examples + test fixture list). Copying that directory IS the deployment.
+- **Zero Nextflow plugins.** No nf-schema/nf-validation — plugins are fetched over the network at
+  head-job time, which kills offline clusters. Parse and validate the samplesheet in plain Groovy,
+  with named, line-numbered errors. Reject `.`/`..` and enforce a safe charset on any column that
+  becomes an output path component; fail on duplicate rows and on colliding composed IDs.
+- **Every container is an overridable param** (`container_<tool> = '...'`), tags exact and
+  registry-verified on the day you pin them (record the date in a comment). Latest stable unless
+  the user chooses otherwise — and check what the image actually bundles, not what the README
+  implies (clair3 v2.x silently dropped all HiFi models; caught only by running `ls` inside it).
+- **Manifest block** with a version; `nextflowVersion = '!>=X.Y.0'` — the `!` makes an old engine
+  a hard failure instead of a warning that scrolls past.
+- **Profiles:** `docker`, `singularity`, `sge` (queue/PE as params — PE names are site-local),
+  and `test` pointing at real miniature data (remote https URLs are fine; Nextflow stages them).
+- **Every process has a `stub:` block** producing every declared output, so `-stub-run` exercises
+  the full graph. Resource labels, not per-process hardcoding; retry on the OOM exit codes AND
+  `Integer.MAX_VALUE` (SGE memory kills often leave no exit code at all).
+- **Guard the silent failure modes.** A run that finishes green with wrong output is worse than a
+  crash. pacbio-hifi-wgs's CHECK_BAM (BAM contigs+lengths must match `--fasta`; mapped reads > 0)
+  exists because both failure shapes were reachable and both produced clean-looking empty VCFs.
+- **Value-channel gotchas bite here, not in nf-core:** a process fed only by value channels fires
+  even when the queue side is empty (gate it on the samplesheet content); `groupTuple` order is
+  nondeterministic across runs and breaks `-resume` unless sorted; a one-element `path` input
+  arrives as a bare Path whose `.size()` is bytes, not 1.
+
+### Validation gates — identical discipline to §2.4, no waivers for "we wrote it ourselves"
+
+1. `nextflow config pipelines/<name>` parses; `--help` prints and matches reality.
+2. `-stub-run` end to end on a mixed samplesheet covering **every** entry point/branch.
+3. Real miniature E2E (`-profile test,docker`) on real data, however small.
+4. A real-sample micro run of the full chain (pacbio-hifi-wgs used an 11k-read chr20 slice,
+   range-fetched from S3 — minutes, not hours, and it caught two output-naming bugs stub-run
+   could not).
+5. An adversarial review pass before the PR; then the PR itself goes through the Codex loop.
+
+Record all of it in `docs/examples/<date>-<name>-validation/` (plan.md, cmd.sh, samplesheet.csv,
+handoff.md) like any procurement.
+
+### Stocking — same §4 checklist, plus the in-repo specifics
+
+- `config/pipelines.tsv` row with revision **`in-repo`** (schema_checked = validation date).
+  `bin/preflight.sh` recognises `pipelines/<name>` cmd.sh targets: no `-r` (the revision is the
+  repo checkout), but the run path must be **absolute** — write
+  `"$BIOINFO_HOME"/pipelines/<name>`; relative targets and out-of-checkout copies are refused.
+- `pipeline-selection.md` §4.x entry + decision-table row; `samplesheets.md` section;
+  `estimates.md` measured rows; `scripts/check-samplesheet.sh` case.
+- Version bumps and behaviour changes go through a PR like any code change, noted in the
+  pipeline's own README.

@@ -56,6 +56,12 @@ TMP=$(mktemp); trap 'rm -f "$TMP"' EXIT
 # the remaining checks and the PASS/FAILED summary never ran on exactly the degenerate input
 # line 50 detects and means to report.
 sed -e '1s/^\xEF\xBB\xBF//' -e 's/\r$//' "$SHEET" | { grep -v '^[[:space:]]*$' || true; } > "$TMP"
+# pacbio-hifi-wgs's own parser permits full-line # comments (the shipped
+# assets/samplesheet.example.csv opens with six of them); drop them here so the generic
+# header/ragged-row checks below see the real header, matching main.nf's semantics.
+if [[ "$PIPELINE" == pacbio-hifi-wgs ]]; then
+  sed -i '/^[[:space:]]*#/d' "$TMP"
+fi
 
 if [[ "$PIPELINE" == fetchngs ]]; then
   # fetchngs takes a HEADERLESS accession list (references/samplesheets.md) -- line 1 is a real
@@ -126,6 +132,7 @@ case "$PIPELINE" in
   bacass)                REQ='ID' ;;                                       # R1/R2/LongFastQ/Fast5/GenomeSize all optional at schema level -- see below
   viralrecon)            REQ='sample' ;;                                   # fastq_1/fastq_2/barcode all optional at schema level -- see below
   spatialaxe)            REQ='sample bundle' ;;                            # image optional; bundle content checked below, not just column presence
+  pacbio-hifi-wgs)       REQ='sample dataset input_type file' ;;           # in-repo (pipelines/); index optional. main.nf's own Groovy parser enforces the rest (input_type enum, .pbi/.bai typing, dup/ID-collision, dot-path rejection) -- header presence is the useful pre-flight here
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
@@ -1051,6 +1058,67 @@ elif [[ -n "$REQ" ]]; then
       done < <(colvals image)
     fi
   fi
+  if [[ "$PIPELINE" == pacbio-hifi-wgs ]]; then
+  # In-repo pipeline (pipelines/pacbio-hifi-wgs). Its own Groovy parser re-validates all of
+  # this at launch, but this gate's contract is that exit 0 means the sheet is clean -- a
+  # nonexistent file column previously PASSed here because file/index are not in section 3's
+  # fixed column-name list (Codex review, PR #49, round 1, P2). Rules mirror main.nf's
+  # parseSamplesheet(): input_type enum; file suffix per input_type; index typing per
+  # input_type (.pbi only for subreads, .bai only for aligned_bam, EMPTY otherwise); remote
+  # http(s) URLs legal for file (the pipeline's own test profile stages https inputs).
+  ITI=$(colidx input_type); FII=$(colidx file); IXI=$(colidx index)
+  if [[ -n "$ITI" && -n "$FII" ]]; then
+    BADT=$(awk -F, -v i="$ITI" 'NR>1 && $i!~/^(subreads|hifi_bam|hifi_fastq|aligned_bam)$/{printf "%d:%s ", NR, $i}' "$TMP")
+    [[ -z "$BADT" ]] && ok "pacbio-hifi-wgs: input_type values in the enum"                      || fail "pacbio-hifi-wgs: input_type not subreads|hifi_bam|hifi_fastq|aligned_bam on row(s): $BADT"
+    while IFS=$'	' read -r N T P X; do
+      # file: presence, per-type suffix, and (local absolute) existence + gzip magic
+      if [[ -z "$P" ]]; then
+        fail "pacbio-hifi-wgs: row $N: empty file column"
+      else
+        case "$T" in
+          subreads|hifi_bam|aligned_bam)
+            [[ "$P" == *.bam ]] || fail "pacbio-hifi-wgs: row $N ($T): file must be a .bam: $P" ;;
+          hifi_fastq)
+            case "$P" in
+              *.fastq|*.fq|*.fastq.gz|*.fq.gz) : ;;
+              *) fail "pacbio-hifi-wgs: row $N (hifi_fastq): file must be .fastq/.fq(.gz): $P" ;;
+            esac ;;
+        esac
+        case "$P" in
+          http://*|https://*) : ;;
+          /*)
+            if [[ -e "$P" && ! -f "$P" ]]; then
+              fail "pacbio-hifi-wgs: row $N: file is not a regular file (directory?): $P"
+            fi
+            [[ -r "$P" ]] || fail "pacbio-hifi-wgs: row $N: file not readable: $P"
+            [[ -s "$P" ]] || fail "pacbio-hifi-wgs: row $N: file zero bytes: $P"
+            if [[ -f "$P" && -r "$P" && -s "$P" && "$P" == *.gz ]]; then
+              if [[ "$(head -c2 "$P" | od -An -tx1 | tr -d ' ')" != "1f8b" ]]; then
+                fail "pacbio-hifi-wgs: row $N: not a gzip stream: $P"
+              elif (( DEEP )); then
+                gzip -t "$P" 2>/dev/null || fail "pacbio-hifi-wgs: row $N: gzip integrity / truncated: $P"
+              fi
+            fi ;;
+          *) fail "pacbio-hifi-wgs: row $N: file is not an absolute path or http(s):// URL: $P" ;;
+        esac
+      fi
+      # index: typed per input_type, EMPTY for hifi_* (main.nf hard-errors otherwise)
+      if [[ -n "$X" ]]; then
+        case "$T" in
+          subreads)    [[ "$X" == *.pbi ]] || fail "pacbio-hifi-wgs: row $N (subreads): index must be a .pbi: $X" ;;
+          aligned_bam) [[ "$X" == *.bai ]] || fail "pacbio-hifi-wgs: row $N (aligned_bam): index must be a .bai: $X" ;;
+          hifi_bam|hifi_fastq) fail "pacbio-hifi-wgs: row $N ($T): index column must be empty (main.nf rejects it): $X" ;;
+        esac
+        case "$X" in
+          http://*|https://*) : ;;
+          /*) [[ -f "$X" && -r "$X" && -s "$X" ]] || fail "pacbio-hifi-wgs: row $N: index not a regular readable non-empty file: $X" ;;
+          *)  fail "pacbio-hifi-wgs: row $N: index is not an absolute path or http(s):// URL: $X" ;;
+        esac
+      fi
+    done < <(awk -F, -v t="$ITI" -v f="$FII" -v x="$IXI" 'NR>1{print NR "	" $t "	" $f "	" (x?$x:"")}' "$TMP")
+    ok "pacbio-hifi-wgs: file/index columns checked per input_type"
+    fi
+  fi
 elif [[ -z "$PIPELINE" ]]; then
   ID=''
   for C in sample patient group id; do [[ -z "$(colidx "$C")" ]] || { ID="$C"; break; }; done
@@ -1427,7 +1495,11 @@ BACOL=''; [[ "$PIPELINE" == bacass ]] && BACOL='R1 R2 LongFastQ Fast5'
 # instead points INSIDE a `bundle` directory (already walked by that bundle's own recursive
 # `du`) is handled below, per-path, not by leaving the column out altogether.
 SPXCOL=''; [[ "$PIPELINE" == spatialaxe ]] && SPXCOL='bundle image'
-PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads $IFCOL $ISOCOL $BACOL $SPXCOL; do colvals "$C"; done; } | grep '^/' | sort -u || true )
+# file/index are pacbio-hifi-wgs column NAMES, path-typed only there (same per-pipeline
+# gating as input_file/pbi/R1/bundle above) -- and PacBio WGS inputs are exactly the ones
+# large enough for the footprint warning to matter (Codex review, PR #49, round 2).
+PBCOL=''; [[ "$PIPELINE" == pacbio-hifi-wgs ]] && PBCOL='file index'
+PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads $IFCOL $ISOCOL $BACOL $SPXCOL $PBCOL; do colvals "$C"; done; } | grep '^/' | sort -u || true )
 # Bundle directories specifically, for the inside-bundle dedup check below -- collected
 # separately from PATHS since PATHS is deduplicated/sorted and no longer distinguishes which
 # original column a path came from. CANONICALIZED (`readlink -f`, falls back to the raw value
