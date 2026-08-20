@@ -125,6 +125,7 @@ case "$PIPELINE" in
   isoseq)                REQ='sample' ;;                                   # bam+pbi (isoseq entrypoint) or reads (map entrypoint) -- see below
   bacass)                REQ='ID' ;;                                       # R1/R2/LongFastQ/Fast5/GenomeSize all optional at schema level -- see below
   viralrecon)            REQ='sample' ;;                                   # fastq_1/fastq_2/barcode all optional at schema level -- see below
+  spatialaxe)            REQ='sample bundle' ;;                            # image optional; bundle content checked below, not just column presence
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
@@ -869,6 +870,100 @@ elif [[ -n "$REQ" ]]; then
                         || fail "viralrecon: sample(s) with both a paired-end row (fastq_2 set) and a single-end row (fastq_2 empty/NA/absent) -- validateInputSamplesheet() rejects this at runtime with 'Multiple runs of a sample must be of the same datatype': $MIXED"
     fi
   fi
+  if [[ "$PIPELINE" == spatialaxe ]]; then
+    # nf-core/spatialaxe 1.0.1: assets/schema_input.json IS the live validator for column
+    # shape -- subworkflows/local/utils_nfcore_spatialaxe_pipeline/main.nf:137 calls
+    # samplesheetToList() straight against it (columns sample/bundle/image, required=
+    # [sample,bundle], both patterned ^\S+$, no bundled bin/check_samplesheet*.py in the
+    # clone). BUT the schema is NOT sufficient on its own, unlike isoseq/bacass/viralrecon
+    # above: workflows/spatialaxe.nf ~lines 177-217 layers its OWN post-staging bundle
+    # CONTENT check on top, via plain `error()` calls the schema cannot express --
+    # `bundle_path.resolve(check).exists()` against a fixed 16-entry required-file list
+    # (cell_boundaries.csv.gz/.parquet, cell_feature_matrix.h5/.zarr.zip, cells.csv.gz/
+    # .parquet/.zarr.zip, experiment.xenium, gene_panel.json, metrics_summary.csv,
+    # morphology.ome.tif, morphology_focus/, nucleus_boundaries.csv.gz/.parquet,
+    # transcripts.parquet/.zarr.zip) -- any one missing aborts the run with "Missing
+    # required file(s) in xenium bundle", not a schema validation message. Confirmed by
+    # reading that block directly, not inferred.
+    #
+    # ALSO load-bearing: the tar.gz-URL + UNTAR auto-fetch shown in the pipeline's own
+    # assets/samplesheet.csv (bundle=https://.../xenium_bundle.tar.gz) only fires
+    # `if (workflow.profile.contains('test'))` (workflows/spatialaxe.nf ~line 136) -- on
+    # any real (non-test-profile) run, `bundle` MUST already be an extracted, local,
+    # readable DIRECTORY on disk; a tarball URL there is silently never staged and the
+    # bundle-exists check above fails hard. This checker enforces the real-run shape
+    # (local directory with the required-file list), not the test-profile-only URL shape.
+    BUI=$(colidx bundle); IMI=$(colidx image); SAI=$(colidx sample)
+
+    # sample/bundle: schema pattern ^\S+$ on both -- whitespace anywhere fails validation
+    # even though REQ's emptiness check above already passed (same shape as raredisease/
+    # isoseq/bacass's ^\S+$ columns).
+    for FLD in "$SAI:sample" "$BUI:bundle"; do
+      IDX="${FLD%%:*}"; NAME="${FLD##*:}"
+      [[ -n "$IDX" ]] || continue
+      WS=$(awk -F, -v i="$IDX" 'NR>1 && $i ~ /[[:space:]]/ {print NR-1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$WS" ]] || fail "spatialaxe: $NAME value(s) contain whitespace (schema pattern ^\\S+\$ forbids it) on row(s): $WS"
+    done
+
+    if [[ -n "$BUI" ]]; then
+      bundle_required_files() {
+        printf '%s\n' \
+          cell_boundaries.csv.gz cell_boundaries.parquet cell_feature_matrix.h5 \
+          cell_feature_matrix.zarr.zip cells.csv.gz cells.parquet cells.zarr.zip \
+          experiment.xenium gene_panel.json metrics_summary.csv morphology.ome.tif \
+          morphology_focus nucleus_boundaries.csv.gz nucleus_boundaries.parquet \
+          transcripts.parquet transcripts.zarr.zip
+      }
+      N=0
+      while IFS= read -r P; do
+        [[ -n "$P" ]] || continue
+        N=$((N+1))
+        if [[ "$P" =~ ^https?:// ]]; then
+          # legitimate ONLY under -profile test (the pipeline's own UNTAR-from-URL path);
+          # this checker has no profile context, so flag it as a real-run gap rather than
+          # silently pass a shape that will fail outside -profile test.
+          warn "spatialaxe: bundle row $N is a URL ($P) -- only staged via UNTAR under -profile test; a real (non-test) run needs an already-extracted local directory here, per workflows/spatialaxe.nf's workflow.profile.contains('test') gate"
+          continue
+        fi
+        if [[ "$P" != /* ]]; then
+          fail "spatialaxe: bundle row $N: relative path '$P' (resolves against the launch dir, not the sheet)"
+          continue
+        fi
+        if [[ ! -d "$P" ]]; then
+          fail "spatialaxe: bundle row $N: not an existing directory: $P"
+          continue
+        fi
+        MISSING=$(bundle_required_files | while IFS= read -r F; do [[ -e "$P/$F" ]] || printf '%s ' "$F"; done)
+        [[ -z "$MISSING" ]] && ok "spatialaxe: bundle row $N has all 16 required Xenium bundle entries" \
+                            || fail "spatialaxe: bundle row $N ($P) is missing required bundle file(s) (workflows/spatialaxe.nf's own bundle_required_files check will abort with this before any process runs): $MISSING"
+      done < <(colvals bundle)
+    fi
+
+    # image: optional per schema (not in required[]); when given must be a readable path
+    # ending in the OME-TIFF suffix the pipeline actually consumes
+    # (ch_morphology_image = file(image) when image is set, workflows/spatialaxe.nf ~line
+    # 242) -- a present-but-wrong-suffix value is not caught by the schema (schema's
+    # `image` field is just `^\S+$`, no format:file-path/suffix pattern at all) and would
+    # only surface as a Groovy file-not-found deep in the run.
+    if [[ -n "$IMI" ]]; then
+      N=0
+      while IFS= read -r P; do
+        [[ -n "$P" ]] || continue
+        N=$((N+1))
+        if [[ "$P" != /* ]]; then
+          fail "spatialaxe: image row $N: relative path '$P' (resolves against the launch dir, not the sheet)"
+          continue
+        fi
+        if [[ ! -r "$P" ]]; then
+          fail "spatialaxe: image row $N: not readable: $P"
+          continue
+        fi
+        if [[ ! "$P" =~ \.ome\.tif$ ]]; then
+          fail "spatialaxe: image row $N: does not match the required .ome.tif suffix: $P"
+        fi
+      done < <(colvals image)
+    fi
+  fi
 elif [[ -z "$PIPELINE" ]]; then
   ID=''
   for C in sample patient group id; do [[ -z "$(colidx "$C")" ]] || { ID="$C"; break; }; done
@@ -1235,7 +1330,14 @@ ISOCOL=''; [[ "$PIPELINE" == isoseq ]] && ISOCOL='pbi reads'
 # GitHub URLs), which the `grep '^/'` filter below already excludes on its own -- only a LOCAL
 # absolute-path bacass sheet contributes to the footprint here, same as every other pipeline.
 BACOL=''; [[ "$PIPELINE" == bacass ]] && BACOL='R1 R2 LongFastQ Fast5'
-PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads $IFCOL $ISOCOL $BACOL; do colvals "$C"; done; } | grep '^/' | sort -u || true )
+# spatialaxe's `bundle` is a DIRECTORY (a whole Xenium Onboard Analysis output tree, easily
+# tens of GB including morphology_focus/ imagery) -- the biggest footprint driver for this
+# pipeline by far, unlike a single fastq/bam path. `image` is usually a symlink/copy of a
+# file already counted inside `bundle` (schema note: "if not provided, the morphology.ome.tif
+# from the bundle is considered"), so it is deliberately left OUT of this list to avoid
+# double-counting when a sheet's `image` column simply repeats a path under `bundle`.
+SPXCOL=''; [[ "$PIPELINE" == spatialaxe ]] && SPXCOL='bundle'
+PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads $IFCOL $ISOCOL $BACOL $SPXCOL; do colvals "$C"; done; } | grep '^/' | sort -u || true )
 if [[ -z "$PATHS" ]]; then
   printf 'size  nothing to size (no absolute fastq/bam/cram/spring paths)\n'
 else
