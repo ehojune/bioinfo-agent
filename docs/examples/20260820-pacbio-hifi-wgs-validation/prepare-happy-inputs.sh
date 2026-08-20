@@ -32,9 +32,19 @@ docker run --rm -v /mnt/d/Research/references:/refsrc:ro -v /work/staging/pbwgs-
 #    this pipeline's own pbmm2 step ever sees them. See hap-py-accuracy.md's "Reading these
 #    numbers" section for the caveat this implies.
 GIAB_BAM_URL="https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/AshkenazimTrio/HG002_NA24385_son/PacBio_CCS_15kb_20kb_chemistry2/GRCh38/HG002.SequelII.merged_15kb_20kb.pbmm2.GRCh38.haplotag.10x.bam"
+# `-o pipefail` INSIDE this bash -c: without it, a failed/truncated remote fetch or a killed
+# `samtools fastq` would still let `gzip` exit 0 on whatever partial bytes it received, so the
+# outer script's own pipefail (line 14) would not catch it and a rerun could silently
+# benchmark a partial/empty FASTQ.
 docker run --rm -v /work/staging/pbwgs-e2e:/out quay.io/biocontainers/samtools:1.21--h50ea8bc_0 \
-  bash -c "samtools view -b '$GIAB_BAM_URL' chr20:1-3000000 | samtools fastq - | gzip > /out/hg002.chr20_1_3M.hifi.fastq.gz"
-# Expect 11,004 reads (44,016 fastq lines / 4) -- matches the original E2E-B extraction exactly.
+  bash -c "set -o pipefail; samtools view -b '$GIAB_BAM_URL' chr20:1-3000000 | samtools fastq - | gzip > /out/hg002.chr20_1_3M.hifi.fastq.gz"
+# Must be exactly 11,004 reads (44,016 fastq lines / 4) -- matches the original E2E-B
+# extraction exactly; fail loudly rather than silently proceeding on a partial fetch.
+n_reads=$(( $(zcat /work/staging/pbwgs-e2e/hg002.chr20_1_3M.hifi.fastq.gz | wc -l) / 4 ))
+if [ "$n_reads" -ne 11004 ]; then
+  echo "ERROR: expected 11,004 reads in the chr20:1-3Mb extraction, got $n_reads" >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------------------
 # 3. GIAB HG002 NISTv4.2.1 truth set (GRCh38, chr-prefixed), restricted to chr20:1-3,000,000.
@@ -58,4 +68,15 @@ awk -F'\t' '$1=="chr20" && $2 < 3000000' truth_confident.bed \
 docker run --rm -v /work/staging/pbwgs-happy:/d quay.io/biocontainers/bcftools:1.21--h8b25389_0 \
   bash -c "bcftools view -r chr20:1-3000000 -Oz -o /d/truth_chr20_1_3M.vcf.gz /d/truth.vcf.gz && bcftools index -t /d/truth_chr20_1_3M.vcf.gz"
 
-echo "Inputs ready: /work/staging/pbwgs-e2e/{chr20.fa,hg002.chr20_1_3M.hifi.fastq.gz}, /work/staging/pbwgs-happy/{truth_chr20_1_3M.vcf.gz,confident_chr20_1_3M.bed}"
+# ---------------------------------------------------------------------------------------
+# 4. Provision cmd.sh's RUNDIR. cmd.sh (this folder) hardcodes RUNDIR=/work/scratch/pbwgs-e2eb
+#    and reads "$RUNDIR/ss.csv" + writes "$RUNDIR/e2e.config" -- neither the directory nor
+#    ss.csv exist until this step; the only committed samplesheet is this folder's own
+#    samplesheet.csv, one directory up from where cmd.sh expects it.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNDIR=/work/scratch/pbwgs-e2eb            # must match cmd.sh's RUNDIR
+mkdir -p "$RUNDIR"
+cp "$SCRIPT_DIR/samplesheet.csv" "$RUNDIR/ss.csv"
+
+echo "Inputs ready: /work/staging/pbwgs-e2e/{chr20.fa,hg002.chr20_1_3M.hifi.fastq.gz}, /work/staging/pbwgs-happy/{truth_chr20_1_3M.vcf.gz,confident_chr20_1_3M.bed}, $RUNDIR/ss.csv"
+echo "Next: bash '$SCRIPT_DIR/cmd.sh', then bash '$SCRIPT_DIR/run-happy.sh' $RUNDIR"
