@@ -2230,7 +2230,14 @@ restores old behaviour).
 (60+ tasks, all callers + phasing + QC). Real E2E: (a) `-profile test,docker` runs real subreads
 (nf-core isoseq CI subset) through pbindex→ccs→pbmerge→pbmm2; (b) HG002 GIAB Sequel II HiFi
 chr20:1–3 Mb (11,004 reads, S3 range-fetch) through the full caller chain against a chr20-only
-GRCh38 ref. Wall-clock/disk: `references/estimates.md`.
+GRCh38 ref. Wall-clock/disk: `references/estimates.md`. **Accuracy** (2026-08-20/21,
+`hap-py-accuracy.md` in the same folder): hap.py vs GIAB HG002 NISTv4.2.1 truth, same
+chr20:1–3 Mb region, confident-BED-restricted (2.77 Mb, 4,793 evaluated truth records) — DeepVariant SNP
+F1 0.9999 / INDEL F1 0.9960, Clair3 (`hifi_sequel2`) SNP F1 1.0000 / INDEL F1 0.9984. **Scope
+note:** this is a chr20:1–3 Mb slice, not a whole-genome accuracy claim — no segdup/HLA/centromere
+coverage; and the input FASTQ was range-fetched from GIAB's own already-aligned BAM, so this
+measures caller accuracy on reads a prior alignment already placed in the region, not
+alignment-stage recall on unselected reads (detail: `hap-py-accuracy.md`).
 
 **GIAB fit (the phase-2 use case):** the GIAB pacbio_hifi manifests contain **zero raw
 subreads** — every dataset enters at `hifi_fastq`/`hifi_bam` or `aligned_bam`; the survey table

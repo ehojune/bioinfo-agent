@@ -88,6 +88,12 @@ phases indels by default (0.17 did not; `--only-snvs` restores old behaviour via
 <outdir>/pipeline_info/    timeline/report/trace/dag
 ```
 
+## Validation
+
+Mechanical validation (stub-run + two real-data E2E gates) and accuracy validation (hap.py vs
+GIAB HG002 truth, chr20:1-3 Mb region, DeepVariant + Clair3) are both recorded in
+`docs/examples/20260820-pacbio-hifi-wgs-validation/` (`handoff.md`, `hap-py-accuracy.md`).
+
 ## SGE server, offline compute nodes (Singularity)
 
 One-time, on a node with egress (login node):

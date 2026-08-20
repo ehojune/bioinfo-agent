@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Local bioinformatics execution environment: nf-core pipeline knowledge plus an agent that runs them on a WSL2 substrate.",
-    "version": "0.4.5"
+    "version": "0.4.6"
   },
   "plugins": [
     {
       "name": "bioinfo",
       "source": "./",
       "description": "bioinfo-analyze skill and bioinfo-tech agent: select, samplesheet, estimate, stub-run, execute, monitor and QC nf-core pipelines.",
-      "version": "0.4.5",
+      "version": "0.4.6",
       "author": {
         "name": "ehojune"
       },
