@@ -960,8 +960,21 @@ elif [[ -n "$REQ" ]]; then
           fail "spatialaxe: image row $N: relative path '$P' (resolves against the launch dir, not the sheet)"
           continue
         fi
+        # -f/-s, not just -r (Codex review, PR #47, round 2, P2): a readable DIRECTORY
+        # happening to end in .ome.tif, or a readable but zero-byte file, both passed the
+        # old -r-only check and the suffix check below, reporting PASS even though
+        # ch_morphology_image = file(image) has nothing an image reader can open. Require a
+        # non-empty REGULAR file.
+        if [[ ! -f "$P" ]]; then
+          fail "spatialaxe: image row $N: not a regular file: $P"
+          continue
+        fi
         if [[ ! -r "$P" ]]; then
           fail "spatialaxe: image row $N: not readable: $P"
+          continue
+        fi
+        if [[ ! -s "$P" ]]; then
+          fail "spatialaxe: image row $N: zero bytes: $P"
           continue
         fi
         if [[ ! "$P" =~ \.ome\.tif$ ]]; then
@@ -1338,12 +1351,20 @@ ISOCOL=''; [[ "$PIPELINE" == isoseq ]] && ISOCOL='pbi reads'
 BACOL=''; [[ "$PIPELINE" == bacass ]] && BACOL='R1 R2 LongFastQ Fast5'
 # spatialaxe's `bundle` is a DIRECTORY (a whole Xenium Onboard Analysis output tree, easily
 # tens of GB including morphology_focus/ imagery) -- the biggest footprint driver for this
-# pipeline by far, unlike a single fastq/bam path. `image` is usually a symlink/copy of a
-# file already counted inside `bundle` (schema note: "if not provided, the morphology.ome.tif
-# from the bundle is considered"), so it is deliberately left OUT of this list to avoid
-# double-counting when a sheet's `image` column simply repeats a path under `bundle`.
-SPXCOL=''; [[ "$PIPELINE" == spatialaxe ]] && SPXCOL='bundle'
+# pipeline by far, unlike a single fastq/bam path. `image` is INCLUDED too (Codex review, PR
+# #47, round 2, P2: when `image` points OUTSIDE the bundle -- the useful override case the
+# schema note "if not provided, the morphology.ome.tif from the bundle is considered" exists
+# for -- omitting it entirely understated the footprint by potentially a full-slide OME-TIFF,
+# which can be the single largest file in the whole input). Double-counting an `image` that
+# instead points INSIDE a `bundle` directory (already walked by that bundle's own recursive
+# `du`) is handled below, per-path, not by leaving the column out altogether.
+SPXCOL=''; [[ "$PIPELINE" == spatialaxe ]] && SPXCOL='bundle image'
 PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads $IFCOL $ISOCOL $BACOL $SPXCOL; do colvals "$C"; done; } | grep '^/' | sort -u || true )
+# Bundle directories specifically, for the inside-bundle dedup check below -- collected
+# separately from PATHS since PATHS is deduplicated/sorted and no longer distinguishes which
+# original column a path came from.
+SPXBUNDLES=''
+[[ "$PIPELINE" == spatialaxe ]] && SPXBUNDLES=$(colvals bundle | grep '^/' | sort -u || true)
 if [[ -z "$PATHS" ]]; then
   printf 'size  nothing to size (no absolute fastq/bam/cram/spring paths)\n'
 else
@@ -1355,6 +1376,19 @@ else
   BYTES=0
   while IFS= read -r P; do
     [[ -n "$P" ]] || continue
+    # spatialaxe only: skip a path already inside one of this sheet's `bundle` directories --
+    # its bytes are already walked by that bundle's own recursive `du -Dsb` below, and adding
+    # it again would double-count (e.g. `image` legitimately reusing a path under `bundle`).
+    if [[ -n "$SPXBUNDLES" ]]; then
+      SKIP=0
+      while IFS= read -r BD; do
+        [[ -n "$BD" ]] || continue
+        case "$P" in
+          "$BD"/*) SKIP=1; break ;;
+        esac
+      done <<< "$SPXBUNDLES"
+      (( SKIP )) && continue
+    fi
     if [[ -d "$P" ]]; then
       # `-D` (dereference-args): GNU du defaults to NOT following a symlink given directly on
       # its command line, so a symlinked run directory (the supported case fixed above) was
