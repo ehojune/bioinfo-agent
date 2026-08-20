@@ -955,6 +955,17 @@ elif [[ -n "$REQ" ]]; then
           fail "spatialaxe: bundle row $N: not an existing directory: $P"
           continue
         fi
+        # -r AND -x on the bundle ROOT itself (Codex review, PR #47, round 7, P2), same
+        # reasoning as morphology_focus/ above, one level up: without -x on $P, nothing named
+        # inside it can be opened by path regardless of the child's own permissions; without
+        # -r on $P, its own entries cannot be listed. A root with search-but-no-read (e.g.
+        # mode 0101) previously let every per-entry check below pass anyway (each checks the
+        # child directly by name, never lists $P itself) while `du -Dsb` on $P silently failed
+        # and under-reported the footprint as 0B instead of erroring.
+        if [[ ! -r "$P" || ! -x "$P" ]]; then
+          fail "spatialaxe: bundle row $N: bundle root is not both readable and searchable (missing -r or -x): $P"
+          continue
+        fi
         MISSING=$(bundle_required_files | while IFS= read -r F; do
           # -f (regular file) + -s (non-empty) + -r (readable), not just -e: a zero-byte file
           # or a same-named directory both satisfy -e but give every one of these 15
