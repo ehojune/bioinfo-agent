@@ -125,6 +125,7 @@ case "$PIPELINE" in
   isoseq)                REQ='sample' ;;                                   # bam+pbi (isoseq entrypoint) or reads (map entrypoint) -- see below
   bacass)                REQ='ID' ;;                                       # R1/R2/LongFastQ/Fast5/GenomeSize all optional at schema level -- see below
   viralrecon)            REQ='sample' ;;                                   # fastq_1/fastq_2/barcode all optional at schema level -- see below
+  spatialaxe)            REQ='sample bundle' ;;                            # image optional; bundle content checked below, not just column presence
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
@@ -869,6 +870,187 @@ elif [[ -n "$REQ" ]]; then
                         || fail "viralrecon: sample(s) with both a paired-end row (fastq_2 set) and a single-end row (fastq_2 empty/NA/absent) -- validateInputSamplesheet() rejects this at runtime with 'Multiple runs of a sample must be of the same datatype': $MIXED"
     fi
   fi
+  if [[ "$PIPELINE" == spatialaxe ]]; then
+    # nf-core/spatialaxe 1.0.1: assets/schema_input.json IS the live validator for column
+    # shape -- subworkflows/local/utils_nfcore_spatialaxe_pipeline/main.nf:137 calls
+    # samplesheetToList() straight against it (columns sample/bundle/image, required=
+    # [sample,bundle], both patterned ^\S+$, no bundled bin/check_samplesheet*.py in the
+    # clone). BUT the schema is NOT sufficient on its own, unlike isoseq/bacass/viralrecon
+    # above: workflows/spatialaxe.nf ~lines 177-217 layers its OWN post-staging bundle
+    # CONTENT check on top, via plain `error()` calls the schema cannot express --
+    # `bundle_path.resolve(check).exists()` against a fixed 16-entry required-file list
+    # (cell_boundaries.csv.gz/.parquet, cell_feature_matrix.h5/.zarr.zip, cells.csv.gz/
+    # .parquet/.zarr.zip, experiment.xenium, gene_panel.json, metrics_summary.csv,
+    # morphology.ome.tif, morphology_focus/, nucleus_boundaries.csv.gz/.parquet,
+    # transcripts.parquet/.zarr.zip) -- any one missing aborts the run with "Missing
+    # required file(s) in xenium bundle", not a schema validation message. Confirmed by
+    # reading that block directly, not inferred.
+    #
+    # ALSO load-bearing: the tar.gz-URL + UNTAR auto-fetch shown in the pipeline's own
+    # assets/samplesheet.csv (bundle=https://.../xenium_bundle.tar.gz) only fires
+    # `if (workflow.profile.contains('test'))` (workflows/spatialaxe.nf ~line 136) -- on
+    # any real (non-test-profile) run, `bundle` MUST already be an extracted, local,
+    # readable DIRECTORY on disk; a tarball URL there is silently never staged and the
+    # bundle-exists check above fails hard. This checker enforces the real-run shape
+    # (local directory with the required-file list), not the test-profile-only URL shape.
+    BUI=$(colidx bundle); IMI=$(colidx image); SAI=$(colidx sample)
+
+    # sample/bundle/image: schema pattern ^\S+$ on ALL THREE columns (confirmed by reading
+    # assets/schema_input.json directly) -- whitespace anywhere fails validation even though
+    # REQ's emptiness check above only covers sample/bundle (image is optional, so an EMPTY
+    # cell is fine and does not match this regex; only a populated cell containing whitespace
+    # is a problem). image was originally omitted here (Codex review, PR #47, round 1, P2):
+    # the later image-specific check accepts any existing absolute path, including one with a
+    # literal space in it (e.g. "/data/custom image.ome.tif"), which nf-schema's ^\S+$ pattern
+    # rejects before the pipeline ever runs -- this checker previously reported PASS on exactly
+    # that samplesheet.
+    for FLD in "$SAI:sample" "$BUI:bundle" "$IMI:image"; do
+      IDX="${FLD%%:*}"; NAME="${FLD##*:}"
+      [[ -n "$IDX" ]] || continue
+      WS=$(awk -F, -v i="$IDX" 'NR>1 && $i ~ /[[:space:]]/ {print NR-1}' "$TMP" | paste -sd' ' -)
+      [[ -z "$WS" ]] || fail "spatialaxe: $NAME value(s) contain whitespace (schema pattern ^\\S+\$ forbids it) on row(s): $WS"
+    done
+
+    if [[ -n "$BUI" ]]; then
+      # File-shaped entries and the one directory-shaped entry are listed SEPARATELY (Codex
+      # review, PR #47, round 4, P2): the original combined list only tested `-e`, which a
+      # zero-byte file or a wrongly-typed directory/file both satisfy. `workflows/spatialaxe.nf`
+      # reads every one of the 15 file entries for real content (parquet/zarr/h5/csv.gz
+      # readers, or morphology.ome.tif as noted above) and treats `morphology_focus` as a
+      # directory to search for the v3/v4 focus TIFFs -- an `-e`-only check reports PASS on a
+      # bundle that will fail deep inside a downstream process instead. Reproduced with the
+      # exact repro Codex described: all 15 file entries `touch`ed (zero-byte), morphology_focus
+      # a real directory, valid external image -- previously PASS, now correctly FAILs below.
+      bundle_required_dirs() {
+        printf '%s\n' morphology_focus
+      }
+      bundle_required_files() {
+        printf '%s\n' \
+          cell_boundaries.csv.gz cell_boundaries.parquet cell_feature_matrix.h5 \
+          cell_feature_matrix.zarr.zip cells.csv.gz cells.parquet cells.zarr.zip \
+          experiment.xenium gene_panel.json metrics_summary.csv morphology.ome.tif \
+          nucleus_boundaries.csv.gz nucleus_boundaries.parquet \
+          transcripts.parquet transcripts.zarr.zip
+      }
+      # Emit bundle\timage per data row, TAB-joined, straight from the row's own NR -- pairs
+      # each bundle with the SAME row's image cell directly, rather than reconstructing that
+      # pairing from a separately-counted index (which broke on any row bundle happened to
+      # skip -- fragile, and unnecessary when awk can just print both fields from one NR pass).
+      N=0
+      while IFS=$'\t' read -r P IMGCELL; do
+        [[ -n "$P" ]] || continue
+        N=$((N+1))
+        if [[ "$P" =~ ^https?:// ]]; then
+          # legitimate ONLY under -profile test (the pipeline's own UNTAR-from-URL path);
+          # this checker has no profile context, so flag it as a real-run gap rather than
+          # silently pass a shape that will fail outside -profile test.
+          warn "spatialaxe: bundle row $N is a URL ($P) -- only staged via UNTAR under -profile test; a real (non-test) run needs an already-extracted local directory here, per workflows/spatialaxe.nf's workflow.profile.contains('test') gate"
+          continue
+        fi
+        if [[ "$P" != /* ]]; then
+          fail "spatialaxe: bundle row $N: relative path '$P' (resolves against the launch dir, not the sheet)"
+          continue
+        fi
+        if [[ ! -d "$P" ]]; then
+          fail "spatialaxe: bundle row $N: not an existing directory: $P"
+          continue
+        fi
+        # -r AND -x on the bundle ROOT itself (Codex review, PR #47, round 7, P2), same
+        # reasoning as morphology_focus/ above, one level up: without -x on $P, nothing named
+        # inside it can be opened by path regardless of the child's own permissions; without
+        # -r on $P, its own entries cannot be listed. A root with search-but-no-read (e.g.
+        # mode 0101) previously let every per-entry check below pass anyway (each checks the
+        # child directly by name, never lists $P itself) while `du -Dsb` on $P silently failed
+        # and under-reported the footprint as 0B instead of erroring.
+        if [[ ! -r "$P" || ! -x "$P" ]]; then
+          fail "spatialaxe: bundle row $N: bundle root is not both readable and searchable (missing -r or -x): $P"
+          continue
+        fi
+        MISSING=$(bundle_required_files | while IFS= read -r F; do
+          # -f (regular file) + -s (non-empty) + -r (readable), not just -e: a zero-byte file
+          # or a same-named directory both satisfy -e but give every one of these 15
+          # downstream parquet/zarr/h5/csv.gz/json/xenium readers nothing real to parse. -r
+          # added (Codex review, PR #47, round 5, P2): a mode-000 file satisfies -f and -s
+          # just as well as a readable one, and this checker may run as a different/less
+          # privileged account than the one that will actually launch the pipeline.
+          [[ -f "$P/$F" && -r "$P/$F" && -s "$P/$F" ]] || printf '%s ' "$F"
+        done)
+        # -r AND -x, not -r alone (Codex review, PR #47, round 6, P2, following straight from
+        # round 5): a directory needs its EXECUTE (search) bit, not its read bit, to let
+        # anything below it be opened by path -- mode 0400 (r--------) satisfies -d and -r
+        # while `open("morphology_focus/morphology_focus_0000.ome.tif")` still fails with
+        # EACCES, since resolving that path has to traverse (search) morphology_focus/ first.
+        # -r is still checked too: it is what lets the directory's own ENTRIES be listed
+        # (`readdir`), which the same downstream code also needs to find the focus TIFF by
+        # name in the first place.
+        BADDIRS=$(bundle_required_dirs | while IFS= read -r D; do [[ -d "$P/$D" && -r "$P/$D" && -x "$P/$D" ]] || printf '%s ' "$D"; done)
+        DETAIL=''
+        [[ -n "$MISSING" ]] && DETAIL="not a non-empty regular file: $MISSING"
+        [[ -n "$BADDIRS" ]] && DETAIL="${DETAIL:+$DETAIL; }not a directory: $BADDIRS"
+        [[ -z "$DETAIL" ]] && ok "spatialaxe: bundle row $N has all 16 required Xenium bundle entries" \
+                            || fail "spatialaxe: bundle row $N ($P) has missing or malformed required bundle entries (workflows/spatialaxe.nf's own bundle_required_files check will abort with this before any process runs) -- $DETAIL"
+
+        # Bundle's own morphology.ome.tif as the FALLBACK image (Codex review, PR #47, round
+        # 3, P2): the required-file check above only tests `-e`, same as every other entry in
+        # the list -- fine for the other 15 (nothing downstream needs THEM to be a specific
+        # file type), but morphology.ome.tif specifically becomes `ch_morphology_image` when
+        # this row's `image` cell is empty (workflows/spatialaxe.nf's documented fallback,
+        # confirmed by reading it: focus_v3/v4/v1 tried first, `morphology.ome.tif` last). A
+        # directory named `morphology.ome.tif`, or a zero-byte one, both satisfy `-e` and were
+        # reported PASS despite giving the image reader nothing usable. Only checked when
+        # `image` is empty for THIS row -- an explicit `image` value means this file is never
+        # read as the morphology image regardless of its own condition.
+        if [[ -z "$IMGCELL" ]]; then
+          MORPH="$P/morphology.ome.tif"
+          if [[ ! -f "$MORPH" ]]; then
+            fail "spatialaxe: bundle row $N: image column is empty and bundle/morphology.ome.tif is not a regular file (directory or missing) -- this is the fallback image the pipeline would actually read: $MORPH"
+          elif [[ ! -r "$MORPH" ]]; then
+            fail "spatialaxe: bundle row $N: image column is empty and bundle/morphology.ome.tif is not readable (fallback image): $MORPH"
+          elif [[ ! -s "$MORPH" ]]; then
+            fail "spatialaxe: bundle row $N: image column is empty and bundle/morphology.ome.tif is zero bytes (fallback image): $MORPH"
+          fi
+        fi
+      done < <(awk -F, -v bi="$BUI" -v ii="${IMI:-0}" 'NR>1 {img=(ii==0?"":$ii); print $bi"\t"img}' "$TMP")
+    fi
+
+    # image: optional per schema (not in required[]); when given must be a readable path
+    # ending in the OME-TIFF suffix the pipeline actually consumes
+    # (ch_morphology_image = file(image) when image is set, workflows/spatialaxe.nf ~line
+    # 242) -- a present-but-wrong-suffix value is not caught by the schema (schema's
+    # `image` field is just `^\S+$`, no format:file-path/suffix pattern at all) and would
+    # only surface as a Groovy file-not-found deep in the run.
+    if [[ -n "$IMI" ]]; then
+      N=0
+      while IFS= read -r P; do
+        [[ -n "$P" ]] || continue
+        N=$((N+1))
+        if [[ "$P" != /* ]]; then
+          fail "spatialaxe: image row $N: relative path '$P' (resolves against the launch dir, not the sheet)"
+          continue
+        fi
+        # -f/-s, not just -r (Codex review, PR #47, round 2, P2): a readable DIRECTORY
+        # happening to end in .ome.tif, or a readable but zero-byte file, both passed the
+        # old -r-only check and the suffix check below, reporting PASS even though
+        # ch_morphology_image = file(image) has nothing an image reader can open. Require a
+        # non-empty REGULAR file.
+        if [[ ! -f "$P" ]]; then
+          fail "spatialaxe: image row $N: not a regular file: $P"
+          continue
+        fi
+        if [[ ! -r "$P" ]]; then
+          fail "spatialaxe: image row $N: not readable: $P"
+          continue
+        fi
+        if [[ ! -s "$P" ]]; then
+          fail "spatialaxe: image row $N: zero bytes: $P"
+          continue
+        fi
+        if [[ ! "$P" =~ \.ome\.tif$ ]]; then
+          fail "spatialaxe: image row $N: does not match the required .ome.tif suffix: $P"
+        fi
+      done < <(colvals image)
+    fi
+  fi
 elif [[ -z "$PIPELINE" ]]; then
   ID=''
   for C in sample patient group id; do [[ -z "$(colidx "$C")" ]] || { ID="$C"; break; }; done
@@ -1235,7 +1417,28 @@ ISOCOL=''; [[ "$PIPELINE" == isoseq ]] && ISOCOL='pbi reads'
 # GitHub URLs), which the `grep '^/'` filter below already excludes on its own -- only a LOCAL
 # absolute-path bacass sheet contributes to the footprint here, same as every other pipeline.
 BACOL=''; [[ "$PIPELINE" == bacass ]] && BACOL='R1 R2 LongFastQ Fast5'
-PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads $IFCOL $ISOCOL $BACOL; do colvals "$C"; done; } | grep '^/' | sort -u || true )
+# spatialaxe's `bundle` is a DIRECTORY (a whole Xenium Onboard Analysis output tree, easily
+# tens of GB including morphology_focus/ imagery) -- the biggest footprint driver for this
+# pipeline by far, unlike a single fastq/bam path. `image` is INCLUDED too (Codex review, PR
+# #47, round 2, P2: when `image` points OUTSIDE the bundle -- the useful override case the
+# schema note "if not provided, the morphology.ome.tif from the bundle is considered" exists
+# for -- omitting it entirely understated the footprint by potentially a full-slide OME-TIFF,
+# which can be the single largest file in the whole input). Double-counting an `image` that
+# instead points INSIDE a `bundle` directory (already walked by that bundle's own recursive
+# `du`) is handled below, per-path, not by leaving the column out altogether.
+SPXCOL=''; [[ "$PIPELINE" == spatialaxe ]] && SPXCOL='bundle image'
+PATHS=$( { for C in fastq_1 fastq_2 fasta bam cram spring_1 spring_2 forwardReads reverseReads short_reads_1 short_reads_2 long_reads $IFCOL $ISOCOL $BACOL $SPXCOL; do colvals "$C"; done; } | grep '^/' | sort -u || true )
+# Bundle directories specifically, for the inside-bundle dedup check below -- collected
+# separately from PATHS since PATHS is deduplicated/sorted and no longer distinguishes which
+# original column a path came from. CANONICALIZED (`readlink -f`, falls back to the raw value
+# if canonicalization fails -- e.g. a bundle path that does not actually exist, already FAILed
+# above and reaching here only for a best-effort footprint estimate) so a trailing slash
+# (`/data/xenium/`, whose un-normalized containment pattern `/data/xenium//*` would NOT match
+# `/data/xenium/morphology.ome.tif`) or a symlinked bundle directory (compared against an
+# `image` path already written in its RESOLVED form) do not defeat the dedup check below and
+# silently double-count (Codex review, PR #47, round 3, P2).
+SPXBUNDLES=''
+[[ "$PIPELINE" == spatialaxe ]] && SPXBUNDLES=$(colvals bundle | grep '^/' | while IFS= read -r B; do readlink -f "$B" 2>/dev/null || printf '%s\n' "$B"; done | sort -u || true)
 if [[ -z "$PATHS" ]]; then
   printf 'size  nothing to size (no absolute fastq/bam/cram/spring paths)\n'
 else
@@ -1247,6 +1450,23 @@ else
   BYTES=0
   while IFS= read -r P; do
     [[ -n "$P" ]] || continue
+    # spatialaxe only: skip a path already inside one of this sheet's `bundle` directories --
+    # its bytes are already walked by that bundle's own recursive `du -Dsb` below, and adding
+    # it again would double-count (e.g. `image` legitimately reusing a path under `bundle`).
+    # Compare CANONICALIZED forms on both sides (SPXBUNDLES already is; $P canonicalized here,
+    # original $P kept for the actual stat/du below) -- see SPXBUNDLES's own comment for why a
+    # raw string comparison missed a trailing-slash bundle path or a symlinked one.
+    if [[ -n "$SPXBUNDLES" ]]; then
+      CMPP=$(readlink -f "$P" 2>/dev/null || printf '%s' "$P")
+      SKIP=0
+      while IFS= read -r BD; do
+        [[ -n "$BD" ]] || continue
+        case "$CMPP" in
+          "$BD"/*) SKIP=1; break ;;
+        esac
+      done <<< "$SPXBUNDLES"
+      (( SKIP )) && continue
+    fi
     if [[ -d "$P" ]]; then
       # `-D` (dereference-args): GNU du defaults to NOT following a symlink given directly on
       # its command line, so a symlinked run directory (the supported case fixed above) was

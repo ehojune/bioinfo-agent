@@ -1,0 +1,10 @@
+# nf-core/spatialaxe 1.0.1 -- test-profile procurement (CI fixture). -profile test,docker
+# itself supplies --input/--mode via conf/test.config (input=assets/samplesheet.csv,
+# mode=coordinate: PROSEG -> PROSEG2BAYSOR -> XR-IMPORT_SEGMENTATION -> SPATIALDATA -> QC) --
+# this params file is deliberately empty of overrides, matching this repo's own convention
+# for a first, unmodified CI-fixture validation (see bacass/isoseq/viralrecon testprofile
+# procurement dirs). See samplesheet.csv in this directory for a copy of the fixture the test
+# profile resolves to (bundle=https://raw.githubusercontent.com/nf-core/test-datasets/
+# spatialaxe/xenium_bundle.tar.gz, staged via UNTAR -- test-profile-only path, see
+# pipeline-selection.md).
+{}

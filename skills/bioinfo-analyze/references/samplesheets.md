@@ -952,6 +952,64 @@ specifically, the same "repo-scope rule layered on the looser upstream schema" p
 bacass's `R1` enforcement — a `barcode`-only (nanopore-shaped) sheet is schema-legal upstream
 but has no usable read source under this repo's illumina-only stocked configuration.
 
+### nf-core/spatialaxe — 1.0.1
+
+**`assets/schema_input.json` IS wired in and IS the live column-shape validator** —
+`subworkflows/local/utils_nfcore_spatialaxe_pipeline/main.nf:137` calls
+`channel.fromList(samplesheetToList(input, "${projectDir}/assets/schema_input.json"))` directly.
+**But unlike isoseq/bacass/viralrecon, the schema is not the WHOLE story here** — a genuinely new
+shape for this repo: `workflows/spatialaxe.nf` (~lines 177-220) layers its own POST-STAGING
+bundle-CONTENT check on top, via plain Groovy `error()` calls the JSON schema cannot express at
+all (JSON Schema has no "does this directory contain these 16 files" keyword). Confirmed by
+reading that block directly.
+
+| column | required | notes |
+|---|---|---|
+| `sample` | yes | schema's only other `required[]` entry alongside `bundle`; pattern `^\S+$`, `meta:["id"]` |
+| `bundle` | yes | full path to the Xenium bundle (Xenium Onboard Analysis output directory) — see below, the schema's `^\S+$` pattern is necessary but nowhere near sufficient |
+| `image` | no | full path to `morphology.ome.tif`; if omitted, the pipeline falls back to the morphology image already inside `bundle` |
+
+```csv
+sample,bundle,image
+xenium_prime_mouse_ileum,/work/scratch/spatialaxe-realdata/Xenium_Prime_Mouse_Ileum_tiny_outs,
+```
+
+This is the shape of `runs/20260820-spatialaxe-realsample/samplesheet.csv` — a real, small (23
+cell) 10x Genomics "tiny_outs" Xenium bundle, downloaded from `nf-core/test-datasets@spatialaxe`
+(`Xenium_Prime_Mouse_Ileum_tiny_outs.tar.gz`, 5.6 MB compressed / 23 MB extracted). `image` is
+left empty here — the bundle's own `morphology.ome.tif` is used, matching the schema's own
+documented fallback behaviour.
+
+**`bundle` must be a local, already-extracted DIRECTORY on any real run — a tarball URL only
+works under `-profile test`.** The pipeline's own `assets/samplesheet.csv` (what `-profile test`
+resolves `--input` to) sets `bundle` to a `.tar.gz` URL, auto-fetched and extracted via the
+bundled `UNTAR` module — but `workflows/spatialaxe.nf` gates that entire staging path behind
+`if (workflow.profile.contains('test'))` (confirmed by reading it directly, ~line 136). Outside
+`-profile test`, `bundle` is used exactly as written in the sheet: it must already be a
+filesystem directory, or the pipeline's own bundle-exists check (`file(bundle).exists()`) fails
+immediately with `❌ Xenium bundle does not exist`.
+
+**The bundle directory must carry all 16 of these files, checked by filename, not just "the
+directory exists" — the schema alone will not catch a missing one.** `workflows/spatialaxe.nf`'s
+own `bundle_required_files` list, quoted verbatim so a stale copy here is easy to catch later:
+`cell_boundaries.csv.gz`, `cell_boundaries.parquet`, `cell_feature_matrix.h5`,
+`cell_feature_matrix.zarr.zip`, `cells.csv.gz`, `cells.parquet`, `cells.zarr.zip`,
+`experiment.xenium`, `gene_panel.json`, `metrics_summary.csv`, `morphology.ome.tif`,
+`morphology_focus/`, `nucleus_boundaries.csv.gz`, `nucleus_boundaries.parquet`,
+`transcripts.parquet`, `transcripts.zarr.zip`. Any one absent aborts with `❌ Missing required
+file(s) in xenium bundle`, a Groovy-layer error at the very start of the run, before any process
+launches — not a schema-validation message, so `-preview` alone (which only exercises the JSON
+schema) will not surface it; only reading the real bundle directory (what `check-samplesheet.sh
+--pipeline spatialaxe` does) catches it ahead of launch. Three additional "optional but expect a
+WARN if missing" files (`analysis.tar.gz`, `analysis.zarr.zip`, `analysis_summary.html`) are
+checked the same way but do not abort the run.
+
+**`sample` uniqueness — no `uniqueEntries` anywhere in the schema, and nothing in the workflow
+groups rows by `meta.id` the way rnaseq/mag/viralrecon do**, so a repeated `sample` value has no
+confirmed supported-merge behaviour here (unlike those pipelines' documented multi-lane merges).
+Left to the generic identifier-check WARN in `check-samplesheet.sh`, not asserted as either safe
+or unsafe — untested at this pin, since this procurement's real-sample sheet is single-row.
+
 ---
 
 ## Common breakages, with the text you will actually see

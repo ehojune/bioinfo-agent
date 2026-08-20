@@ -232,3 +232,11 @@ db/kraken2_viralrecon_human/kraken2_human/	fetch	https://ngi-igenomes.s3.eu-west
 # bam_variant_demix_boot_freyja/main.nf) skips FREYJA_UPDATE entirely.
 db/freyja/usher_barcodes.feather	fetch	https://github.com/andersen-lab/Freyja-data/raw/main/usher_barcodes.feather	UShER lineage-defining mutation barcodes, fetched 2026-08-18 (git clone, not raw.githubusercontent.com directly); wire with --freyja_barcodes /refs/db/freyja/usher_barcodes.feather	5275d9684f829b97fd44f91ae758c754c4a7efcf6d61d2b0610bc9c972e5c580
 db/freyja/curated_lineages.json	fetch	https://github.com/andersen-lab/Freyja-data/raw/main/curated_lineages.json	Freyja lineage metadata matching the barcodes above; wire with --freyja_lineages /refs/db/freyja/curated_lineages.json	9227e19e3b86f43e18213b738a94b6ac3a1f53e0c7e01d2939ff4e84af2cbf36
+
+# nf-core/spatialaxe 1.0.1 -- NO NEW ROWS NEEDED, confirmed by reading nextflow_schema.json in
+# full: no genome/reference/FASTA/GTF parameter exists anywhere in it, and there is no alignment
+# step in the pipeline at all (confirmed by reading workflows/spatialaxe.nf). The pipeline
+# consumes only what the Xenium bundle itself already carries (transcripts, cell/nucleus
+# boundaries, a gene_panel.json probe-panel definition) -- there is nothing here that maps to a
+# manifest row the way a genome FASTA/GTF/index does for every other stocked pipeline. See
+# config/pipelines.tsv's spatialaxe row and pipeline-selection.md sec 4.19.
