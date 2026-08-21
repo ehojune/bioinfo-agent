@@ -2245,6 +2245,14 @@ reference-build choice — Tier1 SV v0.6 is stable but GRCh37-only, the T2T-Q100
 GRCh38 but is labelled draft by its own authors. Work instruction, with the verified region
 coverage and parameter decisions: `truvari-sv-plan.md` in the same folder.
 
+**Deliberate non-goals, so they are not rediscovered mid-run:** reference `.fai`/`.mmi` are built
+per run (a fresh run rebuilds the whole-genome `.mmi`, ~10-15 GB RAM — batch datasets or `-resume`
+to pay it once); a *supplied* `.bai` is trusted as-is (an omitted one is built, and that build
+refuses an unsorted BAM); and **CLR is out of scope** — `input_type` is declared, never sniffed,
+so CLR reads declared as `hifi_fastq` run to completion with the wrong pbmm2 preset and HiFi-only
+caller models, and `ccs` cannot recover them (it needs a `.subreads.bam` with >=3 passes/ZMW,
+which single-pass CLR does not have). Full list: the pipeline README's "Not implemented" section.
+
 **GIAB fit (the phase-2 use case):** the GIAB pacbio_hifi manifests contain **zero raw
 subreads** — every dataset enters at `hifi_fastq`/`hifi_bam` or `aligned_bam`; the survey table
 per sample×dataset (what exists where, which movies are duplicated across dirs) is in the
