@@ -99,6 +99,38 @@ GIAB SV truth set (HG002 only). The work instruction — truth-set choice, the G
 constraint, verified region coverage, and the parameter decisions — is in the same folder's
 `truvari-sv-plan.md`.
 
+## Not implemented — known gaps and future work
+
+Nothing here is a bug; each is a deliberate boundary. Listed so the next person does not
+rediscover them at hour six.
+
+**Reference indexes are rebuilt per run.** `SAMTOOLS_FAIDX` and `PBMM2_INDEX` write `.fai`/`.mmi`
+into the work directory, so `-resume` reuses them but a *new* run rebuilds them. On a whole human
+genome the `.mmi` build costs ~10-15 GB RAM and real minutes, paid once per run. Running many
+datasets therefore pays it many times. **Future work:** accept a prebuilt `--mmi`/`--fai` (and
+promote a built copy into `$BIOINFO_REFS/genomes/<build>/index/pbmm2/` the way the bowtie2 index
+was promoted after atacseq first built it). Until then, batching datasets into one run — or
+`-resume` against the same work dir — is the only way to pay it once.
+
+**A supplied `.bai` is trusted.** For an `aligned_bam` row with an empty index column the pipeline
+builds the index, which fails loudly on an unsorted BAM (`samtools index` refuses: "Unsorted
+positions on sequence #1", verified). But a *supplied* `.bai` is used as-is: nothing re-verifies
+that it matches the BAM or that the BAM is coordinate-sorted. Do not hand-pair a stale index.
+**Future work:** a cheap `samtools quickcheck` + sort-order header assertion inside `CHECK_BAM`.
+
+**CLR input is not supported, and is not merely unimplemented.** `input_type` is declared by the
+samplesheet, never sniffed from file content, so a CLR FASTQ declared as `hifi_fastq` will run —
+and produce quietly untrustworthy calls: pbmm2 would use the `CCS` preset (CLR needs `SUBREAD`),
+and DeepVariant's `PACBIO` model and Clair3's `hifi*` models are trained on Q20+ HiFi reads, not
+~85-90% accuracy single-pass reads. CCS cannot rescue it either: `ccs` takes
+`IN.subreads.bam` and needs **≥3 full-length subreads per ZMW** (`--min-passes` default 3,
+`--min-rq` 0.99) — a CLR FASTQ has no per-ZMW multi-pass information left to consense, and CLR
+libraries are long-insert with ~1 pass per ZMW by design. **Future work, if ever wanted:** a
+separate CLR scope (SUBREAD preset + CLR-appropriate callers), not a flag on this one. GIAB does
+carry 14.4 TB of CLR data, but it is legacy relative to the HiFi sets this pipeline targets.
+
+**SV accuracy is unvalidated.** See the Validation section above and `truvari-sv-plan.md`.
+
 ## SGE server, offline compute nodes (Singularity)
 
 One-time, on a node with egress (login node):
