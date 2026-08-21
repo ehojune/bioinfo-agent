@@ -5,7 +5,7 @@
  */
 nextflow.enable.dsl = 2
 
-VALID_TYPES = ['subreads', 'hifi_bam', 'hifi_fastq', 'aligned_bam']
+VALID_TYPES = ['subreads', 'hifi_bam', 'hifi_fastq', 'aligned_bam', 'clr_subreads']
 // sample/dataset become path components of <outdir>/<sample>/<platform>/<dataset>, so '.' and
 // '..' must be excluded outright — '..' would publish outside --outdir
 NAME_RE     = ~/^(?!\.{1,2}$)[A-Za-z0-9._-]+$/
@@ -22,8 +22,8 @@ def helpMessage() {
       sample,dataset,input_type,file[,index]
         sample      e.g. HG002                     [A-Za-z0-9._-]
         dataset     e.g. PacBio_CCS_15kb           [A-Za-z0-9._-]
-        input_type  subreads | hifi_bam | hifi_fastq | aligned_bam
-        file        path to .subreads.bam / hifi uBAM / .fastq(.gz) / sorted .bam
+        input_type  subreads | hifi_bam | hifi_fastq | aligned_bam | clr_subreads
+        file        .subreads.bam / hifi uBAM / .fastq(.gz) / sorted .bam / CLR .subreads.bam
         index       optional: .pbi (subreads) or .bai (aligned_bam)
       Rows sharing (sample,dataset) are merged after alignment.
 
@@ -79,6 +79,14 @@ def parseSamplesheet(sheet) {
         }
         if (row.input_type in ['hifi_bam', 'hifi_fastq'] && row.index)
             error "Line ${i + 2}: index column must be empty for ${row.input_type}"
+        // CLR: a Sequel .subreads.bam that deliberately does NOT go through ccs. Nothing in
+        // the CLR path reads a .pbi (no chunked ccs), so the column must stay empty.
+        if (row.input_type == 'clr_subreads') {
+            if (!row.file.endsWith('.bam'))
+                error "Line ${i + 2}: clr_subreads must be a .subreads.bam"
+            if (row.index)
+                error "Line ${i + 2}: index column must be empty for clr_subreads (nothing reads a .pbi on this path)"
+        }
         rows << row
     }
     return rows
@@ -107,6 +115,9 @@ workflow {
     def ref_name = params.ref_name ?: file(params.fasta).getBaseName()
     def rows     = parseSamplesheet(file(params.input, checkIfExists: true))
     def n_units  = rows.countBy { [it.sample, it.dataset] }   // for groupKey sizes
+    // per-group CLR flag; the guard below proves a group is homogeneous, so any row decides it
+    def clr_group = rows.groupBy { [it.sample, it.dataset] }
+                        .collectEntries { k, rs -> [k, rs[0].input_type == 'clr_subreads'] }
 
     // fail fast on duplicates: the same file twice, or two rows in one group whose
     // filenames collapse to the same unit name (=> output filename collisions later)
@@ -121,6 +132,17 @@ workflow {
     // '.' is legal inside both names, so distinct groups can compose the same meta.id
     // ("A.B"+"C" and "A"+"B.C" both give A.B.C) — every published filename and the flat
     // MultiQC input directory derive from that id, so collisions would silently drop reports.
+    // A (sample,dataset) group is merged into one BAM and called as one unit, so it cannot
+    // mix CLR with HiFi: the two need different pbmm2 presets (SUBREAD vs CCS) and a different
+    // pbsv preset, and merging reads aligned under different presets into one BAM would make
+    // the group's provenance — and its CLR warning — meaningless.
+    def mixed = rows.groupBy { [it.sample, it.dataset] }
+                    .findAll { k, rs -> rs.collect { it.input_type == 'clr_subreads' }.toSet().size() > 1 }
+    if (mixed)
+        error "These (sample,dataset) groups mix clr_subreads with HiFi rows: " +
+              "${mixed.keySet()}. They align under different pbmm2 presets and call SVs under " +
+              "different pbsv presets, so they cannot share one merged BAM — give CLR its own " +
+              "dataset name."
     def dup_id = n_units.keySet().groupBy { s, d -> "${s}.${d}".toString() }
                         .findAll { it.value.size() > 1 }
     if (dup_id)
@@ -136,7 +158,8 @@ workflow {
     ch_rows = Channel.fromList(rows).map { r ->
         def f    = file(r.file, checkIfExists: true)
         def idx  = r.index ? file(r.index, checkIfExists: true) : null
-        def meta = [sample: r.sample, dataset: r.dataset, type: r.input_type, unit: unitName(f)]
+        def meta = [sample: r.sample, dataset: r.dataset, type: r.input_type,
+                    unit: unitName(f), clr: r.input_type == 'clr_subreads']
         tuple(meta, f, idx)
     }
 
@@ -145,6 +168,7 @@ workflow {
         hifi_bam:   it[0].type == 'hifi_bam'
         hifi_fastq: it[0].type == 'hifi_fastq'
         aligned:    it[0].type == 'aligned_bam'
+        clr:        it[0].type == 'clr_subreads'
     }
 
     // ---- reference prep -------------------------------------------------
@@ -176,9 +200,13 @@ workflow {
     ch_aligned_new = Channel.empty()
     if (rows.any { it.input_type != 'aligned_bam' }) {
         PBMM2_INDEX(ch_fasta)
+        // CLR joins here, NOT via ccs: consensus needs several passes per ZMW and a CLR
+        // library gives ~1, so ccs would filter essentially everything out. The preset differs
+        // too (SUBREAD vs CCS) — chosen per row from meta.clr inside PBMM2_ALIGN.
         ch_align_in = ch_hifi_ccs
             .mix(ch_in.hifi_bam.map   { m, f, i -> tuple(m, f) })
             .mix(ch_in.hifi_fastq.map { m, f, i -> tuple(m, f) })
+            .mix(ch_in.clr.map        { m, f, i -> tuple(m, f) })
         PBMM2_ALIGN(ch_align_in, PBMM2_INDEX.out.mmi)
         ch_aligned_new = PBMM2_ALIGN.out.bam
     }
@@ -207,7 +235,7 @@ workflow {
             // deterministic member order (arrival order varies run to run and would
             // change FINALIZE_BAM's task hash, defeating -resume)
             def trip = [bams, bais, origins].transpose().sort { a, b -> a[0].name <=> b[0].name }
-            tuple([sample: s, dataset: d, id: "${s}.${d}".toString()],
+            tuple([sample: s, dataset: d, id: "${s}.${d}".toString(), clr: clr_group[[s, d]]],
                   trip.collect { it[0] }, trip.collect { it[1] }, trip.collect { it[2] })
         }
         .branch {
@@ -226,6 +254,22 @@ workflow {
         ch_fai
     )
     ch_bam = CHECK_BAM.out.bam
+
+    // CLR runs the full caller set by explicit request (2026-08-21), but the small-variant
+    // half of it is not trustworthy on CLR and the run must say so rather than look clean:
+    // DeepVariant's PACBIO model and Clair3's hifi* models are trained on Q20+ HiFi reads,
+    // and WhatsHap phases their output. Only pbmm2's preset (SUBREAD) and pbsv's preset
+    // (no --hifi) actually adapt. So every CLR dataset gets a warning file next to its
+    // results, and the warning is repeated in the log.
+    ch_clr_bam = ch_bam.filter { m, b, i -> m.clr }
+    CLR_WARNING(ch_clr_bam.map { m, b, i -> m })
+    if (rows.any { it.input_type == 'clr_subreads' })
+        log.warn "CLR datasets present — running the FULL caller set on them as requested. " +
+                 "pbmm2 uses --preset ${params.pbmm2_clr_preset} and pbsv drops --hifi, but " +
+                 "DeepVariant (${params.deepvariant_model}) and Clair3 " +
+                 "(${params.clair3_platform}/${params.clair3_model}) have no CLR model: their " +
+                 "SNV/indel output, and the WhatsHap phasing derived from it, are NOT " +
+                 "benchmark-grade for CLR. See 04_QC/CLR_WARNING.txt in each CLR dataset."
 
     // ---- small variants ---------------------------------------------------
     ch_dv_vcf     = Channel.empty()
@@ -398,8 +442,10 @@ process PBMM2_ALIGN {
     output: tuple val(meta), path("${meta.unit}.aligned.bam"), path("${meta.unit}.aligned.bam.bai"), emit: bam
     script:
     def rg = reads.name.endsWith('.bam') ? '' : "--rg '@RG\\tID:${meta.unit}'"
+    // CLR must not use the CCS/HiFi preset — different error model entirely
+    def preset = meta.clr ? params.pbmm2_clr_preset : params.pbmm2_preset
     """
-    pbmm2 align --preset ${params.pbmm2_preset} -j ${task.cpus} \\
+    pbmm2 align --preset ${preset} -j ${task.cpus} \\
         --sort -J 4 --sort-memory 1G --bam-index BAI --unmapped \\
         --sample ${meta.sample} ${rg} ${params.pbmm2_args} \\
         ${mmi} ${reads} ${meta.unit}.aligned.bam
@@ -491,6 +537,35 @@ process CHECK_BAM {
     """
     true
     """
+}
+
+process CLR_WARNING {
+    tag "${meta.id}"
+    container params.container_samtools
+    publishDir path: { "${outbase(meta)}/04_QC" }, mode: 'copy'
+    input:  val meta
+    output: path 'CLR_WARNING.txt'
+    exec:
+    task.workDir.resolve('CLR_WARNING.txt').text = """CLR dataset: ${meta.id}
+
+This dataset was declared input_type=clr_subreads. Continuous Long Reads are single-pass
+(~85-90% accuracy); they are NOT HiFi, and ccs cannot make them HiFi (consensus needs several
+passes per ZMW).
+
+What adapted to CLR in this run:
+  * pbmm2   --preset ${params.pbmm2_clr_preset}   (not the CCS/HiFi preset)
+  * pbsv    --hifi omitted                        (HiFi-tuned thresholds not applied)
+
+What did NOT adapt, and is therefore not benchmark-grade here:
+  * DeepVariant  --model_type=${params.deepvariant_model}
+  * Clair3       --platform=${params.clair3_platform} --model_path=/opt/models/${params.clair3_model}
+    Both models are trained on Q20+ HiFi reads. No CLR model exists for either tool.
+  * WhatsHap phasing / haplotagging, which is derived from the above small-variant VCF.
+
+Treat 03_VCF/SV_pbsv as the usable product of a CLR dataset. Treat the SNV/indel and phased
+outputs as exploratory only -- do not report them as accuracy figures or feed them to a
+benchmark without saying they came from CLR.
+"""
 }
 
 process DEEPVARIANT {
@@ -684,7 +759,7 @@ process PBSV_DISCOVER {
     script:
     def trf_arg = trf.name != 'NO_TRF' ? "--tandem-repeats ${trf}" : ''
     """
-    pbsv discover --hifi ${trf_arg} ${params.pbsv_discover_args} ${bam} ${meta.id}.svsig.gz
+    pbsv discover ${meta.clr ? '' : '--hifi'} ${trf_arg} ${params.pbsv_discover_args} ${bam} ${meta.id}.svsig.gz
     """
     stub:
     """
@@ -704,7 +779,7 @@ process PBSV_CALL {
     output: tuple val(meta), path("${meta.id}.${ref_name}.pbsv.vcf"), emit: vcf_raw
     script:
     """
-    pbsv call --hifi -j ${task.cpus} ${params.pbsv_call_args} \\
+    pbsv call ${meta.clr ? '' : '--hifi'} -j ${task.cpus} ${params.pbsv_call_args} \\
         ${fasta} ${svsig} ${meta.id}.${ref_name}.pbsv.vcf
     """
     stub:

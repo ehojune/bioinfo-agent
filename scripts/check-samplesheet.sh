@@ -1068,15 +1068,15 @@ elif [[ -n "$REQ" ]]; then
   # http(s) URLs legal for file (the pipeline's own test profile stages https inputs).
   ITI=$(colidx input_type); FII=$(colidx file); IXI=$(colidx index)
   if [[ -n "$ITI" && -n "$FII" ]]; then
-    BADT=$(awk -F, -v i="$ITI" 'NR>1 && $i!~/^(subreads|hifi_bam|hifi_fastq|aligned_bam)$/{printf "%d:%s ", NR, $i}' "$TMP")
-    [[ -z "$BADT" ]] && ok "pacbio-hifi-wgs: input_type values in the enum"                      || fail "pacbio-hifi-wgs: input_type not subreads|hifi_bam|hifi_fastq|aligned_bam on row(s): $BADT"
+    BADT=$(awk -F, -v i="$ITI" 'NR>1 && $i!~/^(subreads|hifi_bam|hifi_fastq|aligned_bam|clr_subreads)$/{printf "%d:%s ", NR, $i}' "$TMP")
+    [[ -z "$BADT" ]] && ok "pacbio-hifi-wgs: input_type values in the enum"                      || fail "pacbio-hifi-wgs: input_type not subreads|hifi_bam|hifi_fastq|aligned_bam|clr_subreads on row(s): $BADT"
     while IFS=$'	' read -r N T P X; do
       # file: presence, per-type suffix, and (local absolute) existence + gzip magic
       if [[ -z "$P" ]]; then
         fail "pacbio-hifi-wgs: row $N: empty file column"
       else
         case "$T" in
-          subreads|hifi_bam|aligned_bam)
+          subreads|hifi_bam|aligned_bam|clr_subreads)
             [[ "$P" == *.bam ]] || fail "pacbio-hifi-wgs: row $N ($T): file must be a .bam: $P" ;;
           hifi_fastq)
             case "$P" in
@@ -1113,7 +1113,7 @@ elif [[ -n "$REQ" ]]; then
             # catches it before launch).
             _bn=$(basename "$P"); _ix=$(basename "$X")
             [[ "$_ix" == "$_bn.bai" || "$_ix" == "${_bn%.bam}.bai" ]]               || fail "pacbio-hifi-wgs: row $N: index must be named '$_bn.bai' or '${_bn%.bam}.bai', not '$_ix'" ;;
-          hifi_bam|hifi_fastq) fail "pacbio-hifi-wgs: row $N ($T): index column must be empty (main.nf rejects it): $X" ;;
+          hifi_bam|hifi_fastq|clr_subreads) fail "pacbio-hifi-wgs: row $N ($T): index column must be empty (main.nf rejects it): $X" ;;
         esac
         case "$X" in
           http://*|https://*) : ;;
