@@ -82,14 +82,17 @@ The full caller set runs on CLR by explicit request, but only two stages actuall
 
 | stage | on CLR | |
 |---|---|---|
-| pbmm2 | `--preset SUBREAD` (`--pbmm2_clr_preset`) | adapts |
+| pbmm2 | `--preset SUBREAD` (`--pbmm2_clr_preset`), against its **own** SUBREAD-built `.mmi` | adapts |
 | pbsv | `--hifi` omitted | adapts |
 | DeepVariant | `--model_type=PACBIO` | **no CLR model exists** |
 | Clair3 | `--platform hifi`, `hifi*` model | **no CLR model exists** |
 | WhatsHap | phases the above VCF | inherits the problem |
 
 Every CLR dataset therefore gets `04_QC/CLR_WARNING.txt` next to its results, and the same
-warning is printed at launch. Read `03_VCF/SV_pbsv/` as the usable product; treat the SNV/indel
+warning is printed at launch. The preset is baked into the `.mmi` and pbmm2 does **not** complain
+when the align preset disagrees with the index's — it silently uses the index's parameters — so a
+mixed CLR+HiFi run builds one index per preset (`<ref>.CCS.mmi`, `<ref>.SUBREAD.mmi`) and routes
+each row to the matching one. Read `03_VCF/SV_pbsv/` as the usable product; treat the SNV/indel
 and phased outputs as exploratory and never quote them as accuracy figures without saying they
 came from CLR.
 

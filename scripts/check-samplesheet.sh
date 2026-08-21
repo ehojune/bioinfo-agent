@@ -1122,6 +1122,16 @@ elif [[ -n "$REQ" ]]; then
         esac
       fi
     done < <(awk -F, -v t="$ITI" -v f="$FII" -v x="$IXI" 'NR>1{print NR "	" $t "	" $f "	" (x?$x:"")}' "$TMP")
+    # main.nf rejects a (sample,dataset) group that mixes clr_subreads with HiFi rows (they
+    # align under different pbmm2 presets and would share one merged BAM). Mirror it so exit 0
+    # here still means "launchable" (Codex, PR #53, P2).
+    SAI=$(colidx sample); DSI=$(colidx dataset)
+    if [[ -n "$SAI" && -n "$DSI" ]]; then
+      MIXED=$(awk -F, -v s="$SAI" -v d="$DSI" -v t="$ITI" 'NR>1{
+                k=$s"/"$d; if ($t=="clr_subreads") c[k]=1; else h[k]=1 }
+              END{ for (k in c) if (k in h) printf "%s ", k }' "$TMP")
+      [[ -z "$MIXED" ]] && ok "pacbio-hifi-wgs: no (sample,dataset) mixes CLR with HiFi rows"         || fail "pacbio-hifi-wgs: (sample,dataset) group(s) mix clr_subreads with HiFi rows: $MIXED -- different pbmm2 presets, cannot share one merged BAM; give CLR its own dataset name"
+    fi
     ok "pacbio-hifi-wgs: file/index columns checked per input_type"
     fi
   fi

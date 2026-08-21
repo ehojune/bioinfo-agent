@@ -199,15 +199,25 @@ workflow {
     // samplesheet actually containing something to align.
     ch_aligned_new = Channel.empty()
     if (rows.any { it.input_type != 'aligned_bam' }) {
-        PBMM2_INDEX(ch_fasta)
         // CLR joins here, NOT via ccs: consensus needs several passes per ZMW and a CLR
-        // library gives ~1, so ccs would filter essentially everything out. The preset differs
-        // too (SUBREAD vs CCS) — chosen per row from meta.clr inside PBMM2_ALIGN.
+        // library gives ~1, so ccs would filter essentially everything out.
+        //
+        // The preset is baked INTO the .mmi (verified: a CCS-preset index and a SUBREAD-preset
+        // index of the same FASTA differ in size, 257,217 vs 292,305 B on a 60 kb test
+        // reference), and pbmm2 align neither warns nor errors when the align preset disagrees
+        // with the index's — it silently uses the index's parameters (Codex, PR #53, P1). So
+        // build one index per preset actually needed and route each row to the matching one.
+        def hifi_rows = rows.any { !(it.input_type in ['aligned_bam', 'clr_subreads']) }
+        def clr_rows  = rows.any { it.input_type == 'clr_subreads' }
+        def presets   = ((hifi_rows ? [params.pbmm2_preset] : []) +
+                         (clr_rows  ? [params.pbmm2_clr_preset] : [])).unique()
+        PBMM2_INDEX(ch_fasta.combine(Channel.fromList(presets)))
         ch_align_in = ch_hifi_ccs
             .mix(ch_in.hifi_bam.map   { m, f, i -> tuple(m, f) })
             .mix(ch_in.hifi_fastq.map { m, f, i -> tuple(m, f) })
             .mix(ch_in.clr.map        { m, f, i -> tuple(m, f) })
-        PBMM2_ALIGN(ch_align_in, PBMM2_INDEX.out.mmi)
+            .map { m, f -> tuple(m.clr ? params.pbmm2_clr_preset : params.pbmm2_preset, m, f) }
+        PBMM2_ALIGN(ch_align_in.combine(PBMM2_INDEX.out.mmi, by: 0))
         ch_aligned_new = PBMM2_ALIGN.out.bam
     }
 
@@ -418,17 +428,18 @@ process MERGE_HIFI {
 }
 
 process PBMM2_INDEX {
+    tag "${preset}"
     label 'process_high'
     container params.container_pbmm2
-    input:  path fasta
-    output: path "${fasta.baseName}.mmi", emit: mmi
+    input:  tuple path(fasta), val(preset)
+    output: tuple val(preset), path("${fasta.baseName}.${preset}.mmi"), emit: mmi
     script:
     """
-    pbmm2 index --preset ${params.pbmm2_preset} -j ${task.cpus} ${fasta} ${fasta.baseName}.mmi
+    pbmm2 index --preset ${preset} -j ${task.cpus} ${fasta} ${fasta.baseName}.${preset}.mmi
     """
     stub:
     """
-    touch ${fasta.baseName}.mmi
+    touch ${fasta.baseName}.${preset}.mmi
     """
 }
 
@@ -437,13 +448,10 @@ process PBMM2_ALIGN {
     label 'process_high'
     container params.container_pbmm2
     input:
-        tuple val(meta), path(reads)
-        path mmi
+        tuple val(preset), val(meta), path(reads), path(mmi)
     output: tuple val(meta), path("${meta.unit}.aligned.bam"), path("${meta.unit}.aligned.bam.bai"), emit: bam
     script:
     def rg = reads.name.endsWith('.bam') ? '' : "--rg '@RG\\tID:${meta.unit}'"
-    // CLR must not use the CCS/HiFi preset — different error model entirely
-    def preset = meta.clr ? params.pbmm2_clr_preset : params.pbmm2_preset
     """
     pbmm2 align --preset ${preset} -j ${task.cpus} \\
         --sort -J 4 --sort-memory 1G --bam-index BAI --unmapped \\
