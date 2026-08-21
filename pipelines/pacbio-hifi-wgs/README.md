@@ -90,9 +90,14 @@ phases indels by default (0.17 did not; `--only-snvs` restores old behaviour via
 
 ## Validation
 
-Mechanical validation (stub-run + two real-data E2E gates) and accuracy validation (hap.py vs
-GIAB HG002 truth, chr20:1-3 Mb region, DeepVariant + Clair3) are both recorded in
+Mechanical validation (stub-run + two real-data E2E gates) and small-variant accuracy validation
+(hap.py vs GIAB HG002 truth, chr20:1-3 Mb region, DeepVariant + Clair3) are both recorded in
 `docs/examples/20260820-pacbio-hifi-wgs-validation/` (`handoff.md`, `hap-py-accuracy.md`).
+
+**pbsv is not yet accuracy-validated.** hap.py cannot score SVs; that needs Truvari against a
+GIAB SV truth set (HG002 only). The work instruction — truth-set choice, the GRCh37/GRCh38
+constraint, verified region coverage, and the parameter decisions — is in the same folder's
+`truvari-sv-plan.md`.
 
 ## SGE server, offline compute nodes (Singularity)
 
