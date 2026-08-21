@@ -1028,7 +1028,10 @@ reports overwrite the other's.
   `aligned_bam` enters at variant calling.
 - `index` is optional and type-checked: `.pbi` only for `subreads` (built via pbindex when
   empty), `.bai` only for `aligned_bam` (built when empty), and must be EMPTY for
-  `hifi_bam`/`hifi_fastq`.
+  `hifi_bam`/`hifi_fastq`. A supplied `.bai` must additionally be **named** `<bam>.bai`
+  or `<bam minus .bam>.bai` — htslib derives an index's name from the BAM, so any other basename
+  is not found and the run dies mid-flight in mosdepth/samtools. Enforced at parse time since
+  PR #52; verified both directions.
 - Rows sharing `(sample,dataset)` are one merge group: aligned per-row, then samtools-merged.
   One row per movie is the normal multi-movie shape. All rows of a group must be against the
   same reference — nothing checks this for `aligned_bam` rows; it is on you.

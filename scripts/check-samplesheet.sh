@@ -1106,7 +1106,13 @@ elif [[ -n "$REQ" ]]; then
       if [[ -n "$X" ]]; then
         case "$T" in
           subreads)    [[ "$X" == *.pbi ]] || fail "pacbio-hifi-wgs: row $N (subreads): index must be a .pbi: $X" ;;
-          aligned_bam) [[ "$X" == *.bai ]] || fail "pacbio-hifi-wgs: row $N (aligned_bam): index must be a .bai: $X" ;;
+          aligned_bam)
+            [[ "$X" == *.bai ]] || fail "pacbio-hifi-wgs: row $N (aligned_bam): index must be a .bai: $X"
+            # htslib derives an index name from the BAM; any other basename is never found and
+            # the run dies mid-flight (main.nf enforces this too -- mirrored here so the gate
+            # catches it before launch).
+            _bn=$(basename "$P"); _ix=$(basename "$X")
+            [[ "$_ix" == "$_bn.bai" || "$_ix" == "${_bn%.bam}.bai" ]]               || fail "pacbio-hifi-wgs: row $N: index must be named '$_bn.bai' or '${_bn%.bam}.bai', not '$_ix'" ;;
           hifi_bam|hifi_fastq) fail "pacbio-hifi-wgs: row $N ($T): index column must be empty (main.nf rejects it): $X" ;;
         esac
         case "$X" in

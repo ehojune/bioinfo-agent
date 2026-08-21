@@ -65,6 +65,18 @@ def parseSamplesheet(sheet) {
             error "Line ${i + 2}: index for subreads must be a .pbi"
         if (row.input_type == 'aligned_bam' && row.index && !row.index.endsWith('.bai'))
             error "Line ${i + 2}: index for aligned_bam must be a .bai"
+        // htslib finds a BAM index by deriving its name from the BAM, so an index whose
+        // basename is neither <bam>.bai nor <bam minus .bam>.bai is simply not found — the run
+        // dies mid-flight in mosdepth/samtools, not here. Verified both ways (Codex, PR #52).
+        if (row.input_type == 'aligned_bam' && row.index) {
+            def bamName = file(row.file).name
+            def want    = [bamName + '.bai', bamName.replaceAll(/\.bam$/, '') + '.bai']
+            if (!(file(row.index).name in want))
+                error "Line ${i + 2}: index '${file(row.index).name}' must be named " +
+                      "'${want[0]}' or '${want[1]}' — htslib looks an index up by the BAM's own " +
+                      "name, so any other basename is not found at runtime. Rename it, or leave " +
+                      "the index column empty to have it built."
+        }
         if (row.input_type in ['hifi_bam', 'hifi_fastq'] && row.index)
             error "Line ${i + 2}: index column must be empty for ${row.input_type}"
         rows << row

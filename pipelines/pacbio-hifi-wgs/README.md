@@ -44,7 +44,7 @@ CSV with header `sample,dataset,input_type,file[,index]`. `#` comments allowed; 
 | dataset | e.g. `PacBio_CCS_15kb` — output namespace |
 | input_type | `subreads` \| `hifi_bam` \| `hifi_fastq` \| `aligned_bam` |
 | file | `.subreads.bam` / HiFi uBAM / `.fastq(.gz)` / sorted+aligned `.bam` |
-| index | optional: `.pbi` (subreads) or `.bai` (aligned_bam); built if empty |
+| index | optional: `.pbi` (subreads) or `.bai` (aligned_bam); built if empty. A supplied `.bai` must be named `<bam>.bai` or `<bam minus .bam>.bai` — htslib derives the name from the BAM, so any other basename is not found |
 
 Rows sharing (sample, dataset) are merged after alignment — one row per movie is the normal
 multi-movie shape. All rows of a group must be against the same reference. This is how you enter
@@ -112,11 +112,15 @@ promote a built copy into `$BIOINFO_REFS/genomes/<build>/index/pbmm2/` the way t
 was promoted after atacseq first built it). Until then, batching datasets into one run — or
 `-resume` against the same work dir — is the only way to pay it once.
 
-**A supplied `.bai` is trusted.** For an `aligned_bam` row with an empty index column the pipeline
-builds the index, which fails loudly on an unsorted BAM (`samtools index` refuses: "Unsorted
-positions on sequence #1", verified). But a *supplied* `.bai` is used as-is: nothing re-verifies
-that it matches the BAM or that the BAM is coordinate-sorted. Do not hand-pair a stale index.
-**Future work:** a cheap `samtools quickcheck` + sort-order header assertion inside `CHECK_BAM`.
+**A supplied `.bai`'s contents are trusted.** With an empty index column the pipeline builds the
+index, and that build fails loudly on an unsorted BAM (`samtools index` refuses: "Unsorted
+positions on sequence #1", verified). A *supplied* index now has its **name** checked at parse
+time — it must be `<bam>.bai` or `<bam minus .bam>.bai`, the two htslib actually looks for
+(verified both ways: `a.bam.bai` and `a.bai` run; `a.custom.bai` used to reach mosdepth and die
+with "index not found for: a.bam", and is now rejected before launch). Its **contents** are still
+taken on faith: nothing verifies the index matches the BAM, or that the BAM is coordinate-sorted.
+Do not hand-pair a stale index. **Future work:** `samtools quickcheck` + a sort-order header
+assertion inside `CHECK_BAM`.
 
 **CLR input is not supported, and is not merely unimplemented.** `input_type` is declared by the
 samplesheet, never sniffed from file content, so a CLR FASTQ declared as `hifi_fastq` will run —
