@@ -1023,7 +1023,8 @@ flat MultiQC input directory all derive from `<sample>.<dataset>`, so `(A.B, C)`
 would collide on `A.B.C`; the parser errors on that pair rather than letting one group's
 reports overwrite the other's.
 
-- `input_type` per row: `subreads` | `hifi_bam` | `hifi_fastq` | `aligned_bam` — this column IS
+- `input_type` per row: `subreads` | `hifi_bam` | `hifi_fastq` | `aligned_bam` |
+  `clr_subreads` — this column IS
   the mid-pipeline entry mechanism. `subreads` runs pbccs first; `hifi_*` enter at pbmm2;
   `aligned_bam` enters at variant calling.
 - `index` is optional and type-checked: `.pbi` only for `subreads` (built via pbindex when
@@ -1039,6 +1040,11 @@ reports overwrite the other's.
   re-published under `02_alignedBAM` (deliberate — GIAB aligned BAMs are 60–120 GB).
 - Repeated identical rows are not deduplicated; the same movie under two datasets is processed
   twice (the GIAB HudsonAlpha-vs-chemistry2 duplicate warning in §4.20's survey applies).
+- `clr_subreads` is a Sequel CLR `.subreads.bam` that deliberately **skips ccs** (CLR is
+  single-pass; ccs needs ~3 passes/ZMW). Index column must be empty. The full caller set runs
+  on it by request, but only pbmm2 (`SUBREAD` preset) and pbsv (no `--hifi`) actually adapt —
+  DeepVariant/Clair3 have no CLR model, so each CLR dataset gets `04_QC/CLR_WARNING.txt`. A
+  group may not mix `clr_subreads` with HiFi rows (rejected at parse time).
 
 ---
 

@@ -2200,7 +2200,7 @@ exactly what TRGT consumes (§6.2, which this pipeline un-blocks).
 
 **Minimum input:** `--input samplesheet.csv --fasta ref.fa`. Samplesheet columns
 `sample,dataset,input_type,file[,index]` — the `input_type` column (`subreads` | `hifi_bam` |
-`hifi_fastq` | `aligned_bam`) is the per-row mid-pipeline entry mechanism; rows sharing
+`hifi_fastq` | `aligned_bam` | `clr_subreads`) is the per-row mid-pipeline entry mechanism; rows sharing
 (sample,dataset) merge after alignment. Full spec: `references/samplesheets.md` and the
 pipeline's own `README.md`.
 
@@ -2245,13 +2245,21 @@ reference-build choice — Tier1 SV v0.6 is stable but GRCh37-only, the T2T-Q100
 GRCh38 but is labelled draft by its own authors. Work instruction, with the verified region
 coverage and parameter decisions: `truvari-sv-plan.md` in the same folder.
 
+**CLR is a supported entry point, with a caveat that must travel with the numbers.**
+`clr_subreads` (Sequel CLR `.subreads.bam`) **skips ccs** — CLR is single-pass and ccs needs ~3
+full-length subreads per ZMW, so it cannot be turned into HiFi. The full caller set runs on CLR
+by explicit request (2026-08-21), but only pbmm2 (`--preset SUBREAD`) and pbsv (`--hifi`
+dropped) actually adapt; DeepVariant's PACBIO model and Clair3's `hifi*` models have no CLR
+equivalent, and WhatsHap phases their output. Every CLR dataset therefore gets
+`04_QC/CLR_WARNING.txt` plus a launch-time warning: read `SV_pbsv/` as the product and treat the
+SNV/indel and phased outputs as exploratory. A group may not mix CLR with HiFi rows.
+
 **Deliberate non-goals, so they are not rediscovered mid-run:** reference `.fai`/`.mmi` are built
 per run (a fresh run rebuilds the whole-genome `.mmi`, ~10-15 GB RAM — batch datasets or `-resume`
 to pay it once); a *supplied* `.bai` is trusted as-is (an omitted one is built, and that build
-refuses an unsorted BAM); and **CLR is out of scope** — `input_type` is declared, never sniffed,
-so CLR reads declared as `hifi_fastq` run to completion with the wrong pbmm2 preset and HiFi-only
-caller models, and `ccs` cannot recover them (it needs a `.subreads.bam` with >=3 passes/ZMW,
-which single-pass CLR does not have). Full list: the pipeline README's "Not implemented" section.
+refuses an unsorted BAM); and `input_type` is declared, never sniffed — CLR
+reads mislabelled as `hifi_fastq` still run with the CCS preset and no warning, so label them
+`clr_subreads`. Full list: the pipeline README's "Not implemented" section.
 
 **GIAB fit (the phase-2 use case):** the GIAB pacbio_hifi manifests contain **zero raw
 subreads** — every dataset enters at `hifi_fastq`/`hifi_bam` or `aligned_bam`; the survey table

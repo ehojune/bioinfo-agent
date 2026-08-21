@@ -8,6 +8,7 @@ subreads.bam ──pbccs──▶ HiFi uBAM ──pbmm2──▶ aligned BAM ─
                  (entry 1)   (entry 2/3: uBAM/FASTQ)       ├─▶ Clair3 ──────┘
                                         (entry 4: aligned) ├─▶ pbsv discover+call (SV)
                                                            └─▶ mosdepth / stats / MultiQC
+CLR subreads.bam ─────────────▲  (entry 5: skips pbccs entirely — SUBREAD preset, + a warning)
 ```
 
 Order follows PacBio's HiFi-human-WGS-WDL v1.x best practice: DeepVariant (≥1.4 phases reads
@@ -42,9 +43,9 @@ CSV with header `sample,dataset,input_type,file[,index]`. `#` comments allowed; 
 |---|---|
 | sample | e.g. `HG002` (`A-Za-z0-9._-`) |
 | dataset | e.g. `PacBio_CCS_15kb` — output namespace |
-| input_type | `subreads` \| `hifi_bam` \| `hifi_fastq` \| `aligned_bam` |
-| file | `.subreads.bam` / HiFi uBAM / `.fastq(.gz)` / sorted+aligned `.bam` |
-| index | optional: `.pbi` (subreads) or `.bai` (aligned_bam); built if empty. A supplied `.bai` must be named `<bam>.bai` or `<bam minus .bam>.bai` — htslib derives the name from the BAM, so any other basename is not found |
+| input_type | `subreads` \| `hifi_bam` \| `hifi_fastq` \| `aligned_bam` \| `clr_subreads` |
+| file | `.subreads.bam` / HiFi uBAM / `.fastq(.gz)` / sorted+aligned `.bam` / CLR `.subreads.bam` |
+| index | optional: `.pbi` (subreads) or `.bai` (aligned_bam); must be empty for `hifi_*` and `clr_subreads`; built if empty. A supplied `.bai` must be named `<bam>.bai` or `<bam minus .bam>.bai` — htslib derives the name from the BAM, so any other basename is not found |
 
 Rows sharing (sample, dataset) are merged after alignment — one row per movie is the normal
 multi-movie shape. All rows of a group must be against the same reference. This is how you enter
@@ -70,6 +71,33 @@ Container/version pins (verified 2026-08-20): pbccs 6.4.0 (final release; Revio 
 on-instrument), pbmm2 26.2.0, pbsv 2.11.0, WhatsHap 2.8, DeepVariant 1.10.0, Clair3 v1.2.0.
 Clair3 is deliberately not v2.x: the v2 images dropped all bundled HiFi models. WhatsHap 2.x
 phases indels by default (0.17 did not; `--only-snvs` restores old behaviour via `--whatshap_args`).
+
+## CLR (`clr_subreads`) — supported, with a standing warning
+
+Continuous Long Reads are single-pass (~85-90% accuracy). **They are not HiFi and `ccs` cannot
+make them HiFi** — consensus needs several full-length subreads per ZMW (`ccs --min-passes`
+default 3) and a CLR library gives about one. So `clr_subreads` skips pbccs and enters at pbmm2.
+
+The full caller set runs on CLR by explicit request, but only two stages actually adapt:
+
+| stage | on CLR | |
+|---|---|---|
+| pbmm2 | `--preset SUBREAD` (`--pbmm2_clr_preset`), against its **own** SUBREAD-built `.mmi` | adapts |
+| pbsv | `--hifi` omitted | adapts |
+| DeepVariant | `--model_type=PACBIO` | **no CLR model exists** |
+| Clair3 | `--platform hifi`, `hifi*` model | **no CLR model exists** |
+| WhatsHap | phases the above VCF | inherits the problem |
+
+Every CLR dataset therefore gets `04_QC/CLR_WARNING.txt` next to its results, and the same
+warning is printed at launch. The preset is baked into the `.mmi` and pbmm2 does **not** complain
+when the align preset disagrees with the index's — it silently uses the index's parameters — so a
+mixed CLR+HiFi run builds one index per preset (`<ref>.CCS.mmi`, `<ref>.SUBREAD.mmi`) and routes
+each row to the matching one. Read `03_VCF/SV_pbsv/` as the usable product; treat the SNV/indel
+and phased outputs as exploratory and never quote them as accuracy figures without saying they
+came from CLR.
+
+A `(sample,dataset)` group may not mix `clr_subreads` with HiFi rows — they align under
+different presets and would share one merged BAM. Give CLR its own `dataset` name.
 
 ## Outputs
 
@@ -122,16 +150,11 @@ taken on faith: nothing verifies the index matches the BAM, or that the BAM is c
 Do not hand-pair a stale index. **Future work:** `samtools quickcheck` + a sort-order header
 assertion inside `CHECK_BAM`.
 
-**CLR input is not supported, and is not merely unimplemented.** `input_type` is declared by the
-samplesheet, never sniffed from file content, so a CLR FASTQ declared as `hifi_fastq` will run —
-and produce quietly untrustworthy calls: pbmm2 would use the `CCS` preset (CLR needs `SUBREAD`),
-and DeepVariant's `PACBIO` model and Clair3's `hifi*` models are trained on Q20+ HiFi reads, not
-~85-90% accuracy single-pass reads. CCS cannot rescue it either: `ccs` takes
-`IN.subreads.bam` and needs **≥3 full-length subreads per ZMW** (`--min-passes` default 3,
-`--min-rq` 0.99) — a CLR FASTQ has no per-ZMW multi-pass information left to consense, and CLR
-libraries are long-insert with ~1 pass per ZMW by design. **Future work, if ever wanted:** a
-separate CLR scope (SUBREAD preset + CLR-appropriate callers), not a flag on this one. GIAB does
-carry 14.4 TB of CLR data, but it is legacy relative to the HiFi sets this pipeline targets.
+**CLR small-variant calling has no proper model.** CLR is now a supported entry point
+(`clr_subreads`, see above) but DeepVariant and Clair3 ship no CLR model, so their output on a
+CLR dataset is exploratory only — flagged at runtime and in `04_QC/CLR_WARNING.txt` rather than
+silently produced. **Future work, if CLR small variants are ever needed for real:** a
+CLR-appropriate caller, not a flag on these two.
 
 **SV accuracy is unvalidated.** See the Validation section above and `truvari-sv-plan.md`.
 
