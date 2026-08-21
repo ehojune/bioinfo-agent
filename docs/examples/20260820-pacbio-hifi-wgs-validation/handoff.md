@@ -32,8 +32,10 @@ dominates — the RSS floor holds for any input size), Clair3 48 s / 2.7 GB, pbm
 WhatsHap phase 7 s + haplotag 6 s, pbsv 3 s. MultiQC picked up mosdepth + samtools + bcftools
 + whatshap modules in one report.
 
-These numbers validate mechanics, not accuracy — no hap.py/truth-set comparison was run
-(that is the GIAB phase-2 work this pipeline exists for).
+These numbers validate mechanics, not accuracy. Accuracy was added afterwards for **small
+variants only** — see `hap-py-accuracy.md` (hap.py vs GIAB HG002 v4.2.1, same region).
+**pbsv remains unbenchmarked:** hap.py does not score structural variants, so that half needs
+Truvari against a GIAB SV truth set. Work instruction: `truvari-sv-plan.md`.
 
 ## Fixes made during validation (already in the committed code)
 Caught by the gates:

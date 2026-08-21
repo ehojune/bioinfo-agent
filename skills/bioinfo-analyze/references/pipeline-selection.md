@@ -2238,6 +2238,12 @@ note:** this is a chr20:1–3 Mb slice, not a whole-genome accuracy claim — no
 coverage; and the input FASTQ was range-fetched from GIAB's own already-aligned BAM, so this
 measures caller accuracy on reads a prior alignment already placed in the region, not
 alignment-stage recall on unselected reads (detail: `hap-py-accuracy.md`).
+**SV accuracy is still open:** hap.py scores only small variants (symbolic `<DEL>`/`<INS>`/`BND`
+are outside its model, and v4.2.1 holds nothing >=50 bp), so pbsv has no accuracy number yet.
+Closing it needs Truvari against a GIAB SV truth set, which is **HG002-only** and forces a
+reference-build choice — Tier1 SV v0.6 is stable but GRCh37-only, the T2T-Q100 `stvar` set covers
+GRCh38 but is labelled draft by its own authors. Work instruction, with the verified region
+coverage and parameter decisions: `truvari-sv-plan.md` in the same folder.
 
 **GIAB fit (the phase-2 use case):** the GIAB pacbio_hifi manifests contain **zero raw
 subreads** — every dataset enters at `hifi_fastq`/`hifi_bam` or `aligned_bam`; the survey table
