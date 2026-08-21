@@ -50,20 +50,36 @@ Fetch from `https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/data/Ashken
 
 ## Scope decision: the existing chr20:1-3 Mb slice is enough for mechanics, not for accuracy
 
-The hap.py work reused a chr20:1-3,000,000 slice. That region **is** inside a Q100 benchmark
-interval (81,335-25,737,456), so the same slice can be reused — but count what is in it first.
-Records in `chr20:1-3,000,000` of the Q100 GRCh38 `stvar` VCF (remote `tabix`, verified):
+The hap.py work reused a chr20:1-3,000,000 slice. That region overlaps a Q100 benchmark interval
+(chr20 81,335-25,737,456) but is **not fully inside it** — bases 1-81,334 precede the benchmark.
+So the include BED must be the **intersection**, not the raw slice: a raw 1-3 Mb BED would let
+pbsv calls in that first 81 kb count as false positives and understate precision.
 
-| | total | ≥50 bp |
+```bash
+# clip the Q100 benchmark BED to the slice -> chr20 81,335-3,000,000 (2,918,665 bp evaluated).
+# Default whitespace splitting handles BED; the \t lives inside awk printf, so no
+# shell-level tab escaping is involved.
+awk '$1=="chr20" && $2<3000000 {
+       s=$2; e=($3>3000000?3000000:$3)
+       if (e>s) printf "%s\t%d\t%d\n",$1,s,e
+ }' \
+    GRCh38_HG002-T2TQ100-V1.0_stvar.benchmark.bed > stvar_chr20_1_3M.bed
+```
+
+Truth records in the slice, before and after that intersection (remote `tabix`, verified) — the
+difference is exactly why it matters:
+
+| | raw chr20:1-3,000,000 | benchmark-clipped (81,336-3,000,000) |
 |---|---|---|
-| DEL | 33 | 16 |
-| INS | 59 | 35 |
-| **sum** | **92** | **51** |
+| DEL | 33 total / 16 ≥50 bp | 32 total / 16 ≥50 bp |
+| INS | 59 total / 35 ≥50 bp | 58 total / 34 ≥50 bp |
+| **sum** | **92 / 51** | **90 / 50** |
 
-51 benchmarkable SVs means **one missed call moves recall by ~2 points**. That is fine for
-proving the Truvari branch runs and produces a sane report; it is not an accuracy claim. Say so
-explicitly in the writeup, and if a real accuracy number is wanted, widen the region (chr20
-whole: ~59 Mb of benchmark regions) or go whole-genome and budget accordingly.
+**50** benchmarkable SVs is the real denominator, and it means **one missed call moves recall by
+2 points**. That is fine for proving the Truvari branch runs and produces a sane report; it is not
+an accuracy claim. Say so explicitly in the writeup, and if a real accuracy number is wanted,
+widen the region (chr20 whole: ~59 Mb of benchmark regions) or go whole-genome and budget
+accordingly.
 
 ## Method
 
