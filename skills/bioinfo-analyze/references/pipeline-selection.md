@@ -1444,11 +1444,17 @@ that will be written up, use it.
 **Stage 2 — the STR caller, run directly, per sample, outside Nextflow:**
 
 ```bash
-# ExpansionHunter — targeted, catalog-driven, the standard short-read choice
+# ExpansionHunter — targeted, catalog-driven, the standard short-read choice.
+# The stocked disease catalog is bare-contig while the GRCh38gatk FASTA is chr-prefixed
+# (see "Catalog/reference build must agree" below) — make a chr-prefixed copy once:
+sed -E 's/"([0-9]+|X|Y|MT?):([0-9]+)-/"chr\1:\2-/g' \
+  "$BIOINFO_REFS/catalogs/str/eh_catalog.disease.GRCh38.json" \
+  > "$RUNDIR/eh_catalog.disease.chr.GRCh38.json"
+
 ExpansionHunter \
   --reads         "$CRAM" \
   --reference     "$BIOINFO_REFS/genomes/GRCh38gatk/fasta/genome.fa" \
-  --variant-catalog "$BIOINFO_REFS/catalogs/str/eh_catalog.disease.GRCh38.json" \
+  --variant-catalog "$RUNDIR/eh_catalog.disease.chr.GRCh38.json" \
   --sex           male \
   --output-prefix "$RUNDIR/${SAMPLE}.eh"
 ```
@@ -1472,8 +1478,9 @@ contig naming (verified 2026-08-22 against the store files). `eh_catalog.GRCh38.
 `eh_catalog.disease.GRCh38.json` uses bare GRCh38 contigs in every one of its 31 loci
 (e.g. `14:92071009-92071042`) — it matches NEITHER stocked FASTA's naming, so check before launch
 (`grep -o '"ReferenceRegion": "[^:"]*' <catalog> | sort -u`) and use a bare-contig FASTA or a
-chr-renamed copy of the catalog with it. As always, **use the same FASTA the BAM was aligned
-against**, not merely a compatible one.
+chr-renamed copy of the catalog with it — the `sed` in the ExpansionHunter example above builds
+that copy. As always, **use the same FASTA the BAM was aligned against**, not merely a
+compatible one.
 
 Two catalogs are available for ExpansionHunter: `eh_catalog.disease.GRCh38.json` (the known
 pathogenic loci — fast, this is what a clinical-style screen wants) and
