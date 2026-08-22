@@ -1466,9 +1466,13 @@ HipSTR \
      with --save_output_as_bam or convert with `samtools view -T <fasta> -b`. Confirm against the
      HipSTR version you install. -->
 
-Catalog/reference build must agree. Both `eh_catalog.*.GRCh38.json` and `hipstr.GRCh38.bed` in the
-store are hg38 with `chr`-prefixed contigs, and both `GRCh38` and `GRCh38gatk` are chr-prefixed on
-the primary chromosomes, so either FASTA works — but **use the same FASTA the BAM was aligned
+Catalog/reference build must agree — and the stocked STR catalogs do NOT agree with each other on
+contig naming (verified 2026-08-22 against the store files). `eh_catalog.GRCh38.json` (full) and
+`hipstr.GRCh38.bed` are `chr`-prefixed, so either stocked FASTA matches them. But
+`eh_catalog.disease.GRCh38.json` uses bare GRCh38 contigs in every one of its 31 loci
+(e.g. `14:92071009-92071042`) — it matches NEITHER stocked FASTA's naming, so check before launch
+(`grep -o '"ReferenceRegion": "[^:"]*' <catalog> | sort -u`) and use a bare-contig FASTA or a
+chr-renamed copy of the catalog with it. As always, **use the same FASTA the BAM was aligned
 against**, not merely a compatible one.
 
 Two catalogs are available for ExpansionHunter: `eh_catalog.disease.GRCh38.json` (the known
