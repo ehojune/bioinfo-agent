@@ -767,6 +767,15 @@ process DEEPSOMATIC {
         --intermediate_results_dir=ds_intermediate \\
         ${regions_arg} \\
         ${params.deepsomatic_args}
+    # DeepSomatic 1.10.0 declares FORMAT/NAF as Number=R but writes one value per ALT
+    # (header text: "VAF of ALT alleles"), so bcftools norm aborts on the first multiallelic
+    # record ("wrong number of fields in FMT/NAF ... expected 3, found 2", HG008 chr13).
+    # Correct the declaration only; records are untouched.
+    bcftools view -h ${prefix}.vcf.gz \\
+      | sed 's/^##FORMAT=<ID=NAF,Number=R,/##FORMAT=<ID=NAF,Number=A,/' > naf_fixed.hdr
+    bcftools reheader -h naf_fixed.hdr -o fixed.vcf.gz ${prefix}.vcf.gz
+    mv fixed.vcf.gz ${prefix}.vcf.gz
+    tabix -f -p vcf ${prefix}.vcf.gz
     """
     stub:
     """

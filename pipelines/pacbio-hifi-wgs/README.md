@@ -1,6 +1,7 @@
 # pacbio-hifi-wgs
 
-PacBio HiFi human WGS germline pipeline. Self-contained Nextflow DSL2, zero plugins —
+PacBio HiFi human WGS germline pipeline, plus tumor-normal somatic SNV/indel calling from
+already-aligned BAMs (DeepSomatic, CPU — see [Somatic](#somatic-tumor-normal-snvindel-deepsomatic-cpu)). Self-contained Nextflow DSL2, zero plugins —
 copy this directory anywhere with Nextflow ≥ 24.04 + Docker/Singularity and run.
 
 ```
@@ -66,6 +67,8 @@ steps are skipped for that row. A single pre-`aligned_bam` row is used in place 
 | `--skip_deepvariant/clair3/pbsv/phasing/qc` | false | step toggles |
 | `--clair3_args` | '' | e.g. `--include_all_ctgs` to call decoy/unplaced/ALT contigs (Clair3's default set already covers 1–22/X/Y both with and without `chr` prefix, so plain hs37d5 works without it) |
 | `--container_*` | see nextflow.config | every tool image is a param — pin any version |
+| `--run_label` | '' | prefixes `pipeline_info/<label>-*` and publishes MultiQC to `multiqc/<label>/`, so several runs can share one `--outdir`. Empty keeps the old layout |
+| `--somatic_input` | — | tumor-normal pair CSV, see [Somatic](#somatic-tumor-normal-snvindel-deepsomatic-cpu) |
 
 Container/version pins (verified 2026-08-20): pbccs 6.4.0 (final release; Revio does CCS
 on-instrument), pbmm2 26.2.0, pbsv 2.11.0, WhatsHap 2.8, DeepVariant 1.10.0, Clair3 v1.2.0.
@@ -99,6 +102,45 @@ came from CLR.
 A `(sample,dataset)` group may not mix `clr_subreads` with HiFi rows — they align under
 different presets and would share one merged BAM. Give CLR its own `dataset` name.
 
+## Somatic tumor-normal SNV/indel (DeepSomatic, CPU)
+
+Takes BAMs **already aligned to `--fasta`** and calls somatic SNVs and indels with DeepSomatic
+tumor-normal. Nothing is realigned. It runs with or without `--input`:
+
+```bash
+nextflow run pipelines/pacbio-hifi-wgs -profile docker \
+  --somatic_input pairs.csv --fasta GRCh38.fa --outdir results
+```
+
+```csv
+pair_id,tumor_sample,tumor_bam,tumor_index,normal_sample,normal_bam,normal_index
+T1_vs_N,T1,/data/T1.GRCh38.bam,/data/T1.GRCh38.bam.bai,N,/data/N.GRCh38.bam,/data/N.GRCh38.bam.bai
+T2_vs_N,T2,/data/T2.GRCh38.bam,/data/T2.GRCh38.bam.bai,N,/data/N.GRCh38.bam,/data/N.GRCh38.bam.bai
+```
+
+- Both indexes are required and follow the same basename rule as `aligned_bam`.
+- One normal may serve several pairs. Each distinct BAM goes through `CHECK_BAM` once (@SQ
+  name+length vs `--fasta`, mapped reads > 0).
+- `pair_id` must be unique. Outputs go to `<outdir>/<tumor_sample>/PacBio/<pair_id>/`.
+
+| param | default | note |
+|---|---|---|
+| `--deepsomatic_model` | `PACBIO` | tumor-normal model bundled in the image (`/opt/models/deepsomatic/pacbio`). `*_TUMOR_ONLY` models are rejected at launch: tumor-only is not wired in |
+| `--deepsomatic_customized_model` | — | optional checkpoint path, passed as `--customized_model`; staged into the task, so it can sit on an offline node's filesystem |
+| `--deepsomatic_regions` | — | optional BED restricting calling |
+| `--container_deepsomatic` | `google/deepsomatic:1.10.0` | CPU image (the `-gpu` tag is the GPU build) |
+
+Output `03_VCF/deepsomatic/<tumor>.<pair>.<ref>.deepsomatic.vcf.gz(.tbi)`, plus the visual report
+and `SNV_deepsomatic/` `INDEL_deepsomatic/` splits. The VCF sample is the tumor. FORMAT is
+`GT:GQ:DP:AD:VAF:MID:NDP:NAD:NAF:PL` (the `N*` fields come from the normal), and FILTER is
+one of `PASS`, `GERMLINE`, `RefCall`, `LowQual`, `NoCall`. The `NAF` header line is corrected
+from `Number=R` to `Number=A`, because DeepSomatic 1.10.0 writes one value per ALT and
+`bcftools norm` rejects the original.
+
+**Validation status: stub regression plus one real 4 Mb CPU slice (HG008-T/N-P, chr13).** No
+whole-genome run and no accuracy benchmark yet. The whole-genome cost estimate is linear
+extrapolation. See `docs/examples/20260925-pacbio-somatic-cpu-validation/handoff.md`.
+
 ## Outputs
 
 ```
@@ -112,8 +154,10 @@ different presets and would share one merged BAM. Give CLR its own `dataset` nam
     SV_pbsv/               <...>.pbsv.vcf.gz(.tbi)
     phased_whatshap/       phased VCF + whatshap stats
   04_QC/                   mosdepth/ samtools/ bcftools_stats/
-<outdir>/multiqc/          one report across all samples
-<outdir>/pipeline_info/    timeline/report/trace/dag
+<outdir>/<tumor_sample>/PacBio/<pair_id>/03_VCF/               (--somatic_input only)
+    deepsomatic/ SNV_deepsomatic/ INDEL_deepsomatic/
+<outdir>/multiqc/          one report across all samples   (multiqc/<run_label>/ when set)
+<outdir>/pipeline_info/    timeline/report/trace/dag       (<run_label>-* when set)
 ```
 
 ## Validation
