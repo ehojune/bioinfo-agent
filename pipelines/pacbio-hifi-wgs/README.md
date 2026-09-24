@@ -137,6 +137,10 @@ one of `PASS`, `GERMLINE`, `RefCall`, `LowQual`, `NoCall`. The `NAF` header line
 from `Number=R` to `Number=A`, because DeepSomatic 1.10.0 writes one value per ALT and
 `bcftools norm` rejects the original.
 
+**CPUs.** `DEEPSOMATIC` takes the `process_high` label (16 CPU) and passes `--num_shards=${task.cpus}`.
+A site config's `resourceLimits` only caps that downward, so on a bigger node raise it explicitly —
+e.g. `process { withName: 'DEEPSOMATIC' { cpus = 60 } }` in a `-c` file — or the extra cores sit idle.
+
 **Validation status: stub regression plus one real 4 Mb CPU slice (HG008-T/N-P, chr13).** No
 whole-genome run and no accuracy benchmark yet. The whole-genome cost estimate is linear
 extrapolation. See `docs/examples/20260925-pacbio-somatic-cpu-validation/handoff.md`.

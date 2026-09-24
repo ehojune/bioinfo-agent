@@ -247,8 +247,10 @@ estimates, QC thresholds and failure modes in
 | **scrnaseq** | single-cell RNA | count matrix, h5ad |
 
 Anything else in nf-core gets procured on request. Tools nf-core does not have — ExpansionHunter,
-TRGT, HipSTR — get run directly, version pinned in a container and recorded in the run log. **Not
-covered**: long-read (ONT, PacBio) pipelines, and biological interpretation.
+TRGT, HipSTR — get run directly, version pinned in a container and recorded in the run log. PacBio HiFi is covered
+by the in-repo [`pipelines/pacbio-hifi-wgs`](pipelines/pacbio-hifi-wgs/) — germline variants, phasing and SV, and
+since 0.2.0 tumour–normal somatic SNV/indel (DeepSomatic, CPU) from aligned BAMs. **Not covered**:
+ONT long-read pipelines, and biological interpretation.
 
 ---
 
