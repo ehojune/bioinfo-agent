@@ -51,7 +51,7 @@ m84 Revio), not from the dataset name.
 | HG001.PacBio_SequelII_CCS_11kb | Sequel II | 0.9930 | 0.9939 | 0.9994 | 0.9992 |
 | HG002.PacBio_CCS_15kb_20kb_chemistry2 | Sequel II | 0.9973 | 0.9980 | 0.9993 | 0.9993 |
 | HG002.PacBio_SequelII_CCS_11kb | Sequel II | 0.9932 | 0.9951 | 0.9992 | 0.9990 |
-| HG003.PacBio_CCS_Google_15kb | Sequel II | 0.9855 | 0.9843 | 0.9987 | 0.9986 |
+| HG003.PacBio_CCS_Google_15kb | Sequel I + II (1 + 2 movies) | 0.9855 | 0.9843 | 0.9987 | 0.9986 |
 | HG003.PacBio_CCS_HudsonAlpha_14kb_15kb_19kb | Sequel II | 0.9950 | 0.9959 | 0.9992 | 0.9991 |
 | HG004.PacBio_CCS_Google_15kb | Sequel II | 0.9860 | 0.9866 | 0.9986 | 0.9986 |
 | HG004.PacBio_CCS_HudsonAlpha_15kb_21kb | Sequel II | 0.9933 | 0.9949 | 0.9992 | 0.9991 |
@@ -64,6 +64,8 @@ m84 Revio), not from the dataset name.
 | HG006.PacBio_CCS_15kb_20kb_chemistry2 | (no movie ID) | 0.9967 | 0.9974 | 0.9993 | 0.9991 |
 | HG007.PacBio_CCS_15kb_20kb_chemistry2 | (no movie ID) | 0.9935 | 0.9936 | 0.9992 | 0.9992 |
 
+- `HG003.PacBio_CCS_Google_15kb` mixes one Sequel I movie (`m54262U`) with two Sequel II movies
+  (`m64017`); it is not used for generation statements (the ranges below do not change without it).
 - **SNP is saturated**: F1 0.9984–0.9994 over all 38 run × caller pairs.
 - **INDEL splits by instrument generation, not caller model.** DeepVariant runs one model on every
   instrument and shows the same Sequel I gap as Clair3.
