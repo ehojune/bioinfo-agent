@@ -73,8 +73,9 @@ m84 Revio), not from the dataset name.
   homopolymers ≥ 12 bp. Outside homopolymers Sequel I is 0.9945–0.9951, like the rest; inside
   HP ≥ 12 it is 0.737–0.871, and 83–87% of its INDEL errors fall there. Sequel II runs at 27x or
   less are lower outside homopolymers too (0.986–0.995) — depth, not instrument.
-- **Revio: Clair3 v1.2.0 `hifi_revio` loses to DeepVariant on INDEL** (−0.006 to −0.017); 80–91% of
-  Clair3's errors there are in HP ≥ 12. On Sequel II the two callers tie (−0.002 to +0.001).
+- **Revio: Clair3 v1.2.0 `hifi_revio` loses to DeepVariant on INDEL** (Clair3 − DV −0.006 to −0.017);
+  80–91% of Clair3's errors there are in HP ≥ 12. On Sequel II the two callers tie (Clair3 − DV
+  −0.001 to +0.002).
 - **Outside v4.2.1** (HG002, v5.0q smvar, the 83 Mb v4.2.1 leaves out, scored as strata of one
   v5.0q run): DeepVariant still leads — SNP on all 5 runs, INDEL on Sequel II and Revio.
 
@@ -84,7 +85,8 @@ m84 Revio), not from the dataset name.
 | Sequel II (2 runs) | 0.948–0.954 / 0.919–0.924 | 0.907–0.937 / 0.867–0.891 |
 | Sequel I (2 runs) | 0.938–0.941 / 0.908–0.913 | 0.604–0.728 / 0.603–0.747 |
 
-**Default small-variant caller for HiFi: DeepVariant.** Keep Clair3 as a cross-check.
+**Read DeepVariant as the primary HiFi small-variant call set.** The pipeline runs both callers by
+default; keep Clair3 as a cross-check.
 
 ## Structural variants — pbsv, HG002, 5 runs
 

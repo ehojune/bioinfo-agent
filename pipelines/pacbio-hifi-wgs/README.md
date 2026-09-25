@@ -176,8 +176,9 @@ Mechanical validation (stub-run + two real-data E2E gates) and small-variant acc
 
 - Small variants, 19 runs (HG001–HG007) vs NIST v4.2.1: SNP F1 0.9984–0.9994 everywhere. DeepVariant
   INDEL F1 is 0.975–0.997 on Sequel II and Revio, 0.928 / 0.965 on Sequel I — that gap is in
-  homopolymers of 12 bp or more. **DeepVariant is the default caller**; Clair3 v1.2.0 loses INDEL on
-  Revio (−0.006 to −0.017) and ties on Sequel II.
+  homopolymers of 12 bp or more. Both callers run by default; **read DeepVariant as the primary
+  call set** (it is also the default `--phase_vcf`). Clair3 v1.2.0 loses INDEL on Revio (Clair3 − DV
+  −0.006 to −0.017) and ties on Sequel II (−0.001 to +0.002).
 - pbsv, HG002 only (5 runs, Truvari vs v5.0q stvar): precision 0.897–0.904, recall 0.757–0.788,
   F1 0.821–0.842. Recall is the weak side. The scoring used the v5.0q README's parameters, not
   `truvari-sv-plan.md`'s; the record lists the differences.

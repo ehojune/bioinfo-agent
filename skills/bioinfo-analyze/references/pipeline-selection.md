@@ -2252,8 +2252,8 @@ measures caller accuracy on reads a prior alignment already placed in the region
 alignment-stage recall on unselected reads (detail: `hap-py-accuracy.md`).
 **Whole-genome accuracy** (GIAB public HiFi, `docs/examples/20260926-pacbio-hifi-wgs-giab-wholegenome/`): 19 runs
 vs v4.2.1 — SNP F1 0.9984–0.9994; DeepVariant INDEL F1 0.975–0.997 on Sequel II/Revio and
-0.928/0.965 on Sequel I, the gap sitting in homopolymers of 12 bp or more. DeepVariant is the
-default caller (Clair3 v1.2.0 loses INDEL on Revio). pbsv on HG002 (5 runs, Truvari 5.4.0 vs v5.0q
+0.928/0.965 on Sequel I, the gap sitting in homopolymers of 12 bp or more. Both callers run by
+default; read DeepVariant as the primary call set (Clair3 v1.2.0 loses INDEL on Revio). pbsv on HG002 (5 runs, Truvari 5.4.0 vs v5.0q
 `stvar`, the only GRCh38 germline SV truth): precision 0.897–0.904, recall 0.757–0.788 — recall is
 the weak side.
 
