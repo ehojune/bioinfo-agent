@@ -1,4 +1,7 @@
-# Truvari SV accuracy validation — work instruction (NOT YET RUN)
+# Truvari SV accuracy validation — work instruction (plan; executed 2026-09-22 with other parameters)
+
+> Executed downstream on 5 whole-genome HG002 runs with the GIAB v5.0q README's parameters, not the
+> decisions below. Results and the differences: `../20260926-pacbio-hifi-wgs-giab-wholegenome/handoff.md`.
 
 `hap-py-accuracy.md` closed the small-variant half of accuracy validation. **pbsv is still
 unbenchmarked.** This file is the instruction for closing that gap; it is a plan, not a result.

@@ -2250,12 +2250,12 @@ note:** this is a chr20:1–3 Mb slice, not a whole-genome accuracy claim — no
 coverage; and the input FASTQ was range-fetched from GIAB's own already-aligned BAM, so this
 measures caller accuracy on reads a prior alignment already placed in the region, not
 alignment-stage recall on unselected reads (detail: `hap-py-accuracy.md`).
-**SV accuracy is still open:** hap.py scores only small variants (symbolic `<DEL>`/`<INS>`/`BND`
-are outside its model, and v4.2.1 holds nothing >=50 bp), so pbsv has no accuracy number yet.
-Closing it needs Truvari against a GIAB SV truth set, which is **HG002-only** and forces a
-reference-build choice — Tier1 SV v0.6 is stable but GRCh37-only, the T2T-Q100 `stvar` set covers
-GRCh38 but is labelled draft by its own authors. Work instruction, with the verified region
-coverage and parameter decisions: `truvari-sv-plan.md` in the same folder.
+**Whole-genome accuracy** (GIAB public HiFi, `docs/examples/20260926-pacbio-hifi-wgs-giab-wholegenome/`): 19 runs
+vs v4.2.1 — SNP F1 0.9984–0.9994; DeepVariant INDEL F1 0.975–0.997 on Sequel II/Revio and
+0.928/0.965 on Sequel I, the gap sitting in homopolymers of 12 bp or more. DeepVariant is the
+default caller (Clair3 v1.2.0 loses INDEL on Revio). pbsv on HG002 (5 runs, Truvari 5.4.0 vs v5.0q
+`stvar`, the only GRCh38 germline SV truth): precision 0.897–0.904, recall 0.757–0.788 — recall is
+the weak side.
 
 **CLR is a supported entry point, with a caveat that must travel with the numbers.**
 `clr_subreads` (Sequel CLR `.subreads.bam`) **skips ccs** — CLR is single-pass and ccs needs ~3
@@ -2277,10 +2277,12 @@ or without `--input`; nothing is realigned. One normal may back several pairs an
 DeepSomatic 1.10.0's `FORMAT/NAF` header from `Number=R` to `Number=A` — the tool writes one value
 per ALT and `bcftools norm` aborts on the original. `DEEPSOMATIC` inherits `process_high`
 (16 CPU); `--num_shards` follows `task.cpus`, so raise that label's CPUs in a site config to use
-a bigger node. Validation (2026-09-25, `docs/examples/20260925-pacbio-somatic-cpu-validation/`): stub
-regression against the germline-only base + 7 negative cases, and one real CPU slice (GIAB HG008-T
-vs HG008-N-P, chr13:82–86 Mb). **No whole-genome run and no accuracy benchmark yet** — the
-slice's counts show sane output, not precision/recall.
+a bigger node. Validation: stub regression against the germline-only base + 10 negative cases and
+one real CPU slice (2026-09-25, `docs/examples/20260925-pacbio-somatic-cpu-validation/`), then 13
+whole-genome GIAB HG008 pairs (2026-09-25, `docs/examples/20260926-pacbio-hifi-wgs-giab-wholegenome/`): the
+matched pair with a 68x normal scores SNV recall 0.950 / precision 0.953, INDEL recall 0.249.
+Pairs with a borrowed normal are read for recall only — the truth holds truncal variants, so a
+clone's own variants count as FP. 60 CPU: 2.4–3.4 h per pair.
 
 **Deliberate non-goals, so they are not rediscovered mid-run:** reference `.fai`/`.mmi` are built
 per run (a fresh run rebuilds the whole-genome `.mmi`, ~10-15 GB RAM — batch datasets or `-resume`

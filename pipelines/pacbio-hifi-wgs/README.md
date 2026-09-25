@@ -141,9 +141,11 @@ from `Number=R` to `Number=A`, because DeepSomatic 1.10.0 writes one value per A
 A site config's `resourceLimits` only caps that downward, so on a bigger node raise it explicitly —
 e.g. `process { withName: 'DEEPSOMATIC' { cpus = 60 } }` in a `-c` file — or the extra cores sit idle.
 
-**Validation status: stub regression plus one real 4 Mb CPU slice (HG008-T/N-P, chr13).** No
-whole-genome run and no accuracy benchmark yet. The whole-genome cost estimate is linear
-extrapolation. See `docs/examples/20260925-pacbio-somatic-cpu-validation/handoff.md`.
+**Validation status:** stub regression and one real 4 Mb CPU slice
+(`docs/examples/20260925-pacbio-somatic-cpu-validation/`), then a whole-genome benchmark on 13 GIAB
+HG008 pairs (`docs/examples/20260926-pacbio-hifi-wgs-giab-wholegenome/`): the matched pair with a 68x normal scores SNV
+recall 0.950 / precision 0.953 and INDEL recall 0.249 (the public DeepSomatic 1.6.0 callset reaches 0.205).
+At 60 CPU a pair takes 2.4–3.4 h.
 
 ## Outputs
 
@@ -170,10 +172,15 @@ Mechanical validation (stub-run + two real-data E2E gates) and small-variant acc
 (hap.py vs GIAB HG002 truth, chr20:1-3 Mb region, DeepVariant + Clair3) are both recorded in
 `docs/examples/20260820-pacbio-hifi-wgs-validation/` (`handoff.md`, `hap-py-accuracy.md`).
 
-**pbsv is not yet accuracy-validated.** hap.py cannot score SVs; that needs Truvari against a
-GIAB SV truth set (HG002 only). The work instruction — truth-set choice, the GRCh37/GRCh38
-constraint, verified region coverage, and the parameter decisions — is in the same folder's
-`truvari-sv-plan.md`.
+**Whole-genome accuracy** (GIAB public HiFi, `docs/examples/20260926-pacbio-hifi-wgs-giab-wholegenome/`):
+
+- Small variants, 19 runs (HG001–HG007) vs NIST v4.2.1: SNP F1 0.9984–0.9994 everywhere. DeepVariant
+  INDEL F1 is 0.975–0.997 on Sequel II and Revio, 0.928 / 0.965 on Sequel I — that gap is in
+  homopolymers of 12 bp or more. **DeepVariant is the default caller**; Clair3 v1.2.0 loses INDEL on
+  Revio (−0.006 to −0.017) and ties on Sequel II.
+- pbsv, HG002 only (5 runs, Truvari vs v5.0q stvar): precision 0.897–0.904, recall 0.757–0.788,
+  F1 0.821–0.842. Recall is the weak side. The scoring used the v5.0q README's parameters, not
+  `truvari-sv-plan.md`'s; the record lists the differences.
 
 ## Not implemented — known gaps and future work
 
@@ -204,7 +211,8 @@ CLR dataset is exploratory only — flagged at runtime and in `04_QC/CLR_WARNING
 silently produced. **Future work, if CLR small variants are ever needed for real:** a
 CLR-appropriate caller, not a flag on these two.
 
-**SV accuracy is unvalidated.** See the Validation section above and `truvari-sv-plan.md`.
+**SV accuracy is known for HG002 only.** GIAB has no GRCh38 germline SV truth for the other
+samples. See the Validation section above.
 
 ## SGE server, offline compute nodes (Singularity)
 

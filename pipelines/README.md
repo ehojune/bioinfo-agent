@@ -11,7 +11,7 @@ same way it does for nf-core runs (absolute path required:
 
 | pipeline | what it does | docs |
 |---|---|---|
-| `pacbio-hifi-wgs` | PacBio HiFi human WGS germline: subreads→pbccs→pbmm2→{DeepVariant, Clair3}+WhatsHap phase/haplotag+pbsv SV+QC; per-row mid-pipeline entry via samplesheet `input_type`. Since 0.2.0 also **tumour–normal somatic SNV/indel** (DeepSomatic, CPU) from already-aligned BAMs via `--somatic_input` | its `README.md`; `pipeline-selection.md` §4.20; validation records `docs/examples/20260820-pacbio-hifi-wgs-validation/` (germline), `docs/examples/20260925-pacbio-somatic-cpu-validation/` (somatic) |
+| `pacbio-hifi-wgs` | PacBio HiFi human WGS germline: subreads→pbccs→pbmm2→{DeepVariant, Clair3}+WhatsHap phase/haplotag+pbsv SV+QC; per-row mid-pipeline entry via samplesheet `input_type`. Since 0.2.0 also **tumour–normal somatic SNV/indel** (DeepSomatic, CPU) from already-aligned BAMs via `--somatic_input` | its `README.md`; `pipeline-selection.md` §4.20; validation records `docs/examples/20260820-pacbio-hifi-wgs-validation/` (germline), `docs/examples/20260925-pacbio-somatic-cpu-validation/` (somatic), `docs/examples/20260926-pacbio-hifi-wgs-giab-wholegenome/` (whole-genome accuracy on GIAB) |
 
 Adding a new one: `skills/bioinfo-analyze/references/new-pipeline.md` §7. Whether to build new
 or reuse something existing is the **user's** decision — propose and ask first.
