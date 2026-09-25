@@ -106,6 +106,30 @@ def baiNames(bam) {
     return [n + '.bai', n.replaceAll(/\.bam$/, '') + '.bai']
 }
 
+// --deepsomatic_customized_model -> [path to stage, checkpoint prefix or ''].
+// Two shapes are valid: a SavedModel *directory*, or a TF checkpoint *prefix* such as /m/model.ckpt
+// whose companions (model.ckpt.index, model.ckpt.data-*, example_info.json) sit beside it. The prefix
+// is not itself a file, so a plain existence check rejects it and staging it alone drops the
+// companions — stage the whole directory instead and pass <dir>/<prefix> to DeepSomatic.
+def dsModelSpec(String p) {
+    def f = file(p)
+    if (f.isDirectory()) return [f, '']
+    if (!file("${p}.index").exists())
+        error "--deepsomatic_customized_model '${p}': neither a directory nor a checkpoint prefix " +
+              "(expected '${f.name}.index' in ${f.parent})"
+    if (!f.parent.listFiles().any { it.name.startsWith("${f.name}.data-") })
+        error "--deepsomatic_customized_model '${p}': checkpoint prefix has no '${f.name}.data-*' file in ${f.parent}"
+    return [f.parent, f.name]
+}
+
+// The DeepSomatic model flag for a staged model (see dsModelSpec). Shared by DEEPSOMATIC's script
+// and stub so the stub can record exactly what a real run would pass.
+def dsModelArg(model, prefix) {
+    model.name == 'NO_DS_MODEL' ? ''
+        : prefix ? "--customized_model=${model}/${prefix}"
+        : "--customized_model=${model}"
+}
+
 def parseSomaticSheet(sheet) {
     def lines = sheet.readLines().findAll { it.trim() && !it.trim().startsWith('#') }
     if (lines.size() < 2) error "Somatic samplesheet has no data rows: ${sheet}"
@@ -420,8 +444,8 @@ workflow {
             .combine(ch_checked_bams, by: 0)
             .map { nk, meta, tb, ti, nb, ni -> tuple(meta, tb, ti, nb, ni) }
         ch_ds_model = params.deepsomatic_customized_model
-            ? Channel.value(file(params.deepsomatic_customized_model, checkIfExists: true))
-            : Channel.value(file("${projectDir}/assets/NO_DS_MODEL"))
+            ? Channel.value(dsModelSpec(params.deepsomatic_customized_model.toString()))
+            : Channel.value([file("${projectDir}/assets/NO_DS_MODEL"), ''])
         ch_ds_regions = params.deepsomatic_regions
             ? Channel.value(file(params.deepsomatic_regions, checkIfExists: true))
             : Channel.value(file("${projectDir}/assets/NO_REGIONS"))
@@ -739,7 +763,7 @@ process DEEPSOMATIC {
                          path(nbam, stageAs: 'normal/*'), path(nbai, stageAs: 'normal/*')
         path fasta
         path fai
-        path model
+        tuple path(model), val(model_prefix)   // dsModelSpec(): SavedModel dir, or checkpoint dir + prefix
         path regions
         val ref_name
     output:
@@ -747,7 +771,7 @@ process DEEPSOMATIC {
         path "${meta.id}.${ref_name}.deepsomatic.visual_report.html", optional: true, emit: report
     script:
     def prefix      = "${meta.id}.${ref_name}.deepsomatic"
-    def model_arg   = model.name != 'NO_DS_MODEL' ? "--customized_model=${model}" : ''
+    def model_arg   = dsModelArg(model, model_prefix)
     def regions_arg = regions.name != 'NO_REGIONS' ? "--regions=${regions}" : ''
     """
     export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
@@ -779,6 +803,7 @@ process DEEPSOMATIC {
     """
     stub:
     """
+    echo '${dsModelArg(model, model_prefix)}' > deepsomatic.model_arg.txt
     touch ${meta.id}.${ref_name}.deepsomatic.vcf.gz ${meta.id}.${ref_name}.deepsomatic.vcf.gz.tbi
     """
 }

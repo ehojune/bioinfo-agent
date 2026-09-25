@@ -17,11 +17,17 @@ nextflow -log $R/real.nflog run $NEW -profile docker -c clamp.config \
   --fasta $D/GRCh38_GIABv3_no_alt_analysis_set_maskedGRC_decoys_MAP2K3_KMT2C_KCNJ18.fasta \
   --ref_name GRCh38 --deepsomatic_regions $D/test_region.bed \
   --outdir $R/results -work-dir $R/work -ansi-log false -resume
-echo "NF_EXIT=$? wall_s=$(( $(date +%s) - start ))"
+nf_rc=$?
+echo "NF_EXIT=$nf_rc wall_s=$(( $(date +%s) - start ))"
+# Stop here on a failed run — the checks below would only describe stale or missing outputs, and the
+# script must not end with REAL_DONE / exit 0 after a failure (PR #57 Codex review).
+[ "$nf_rc" = 0 ] || { echo "REAL_FAILED: nextflow exited $nf_rc"; exit "$nf_rc"; }
 cat $R/results/pipeline_info/trace-*.txt | cut -f4,5,9,10,11,12 | column -t
 O=$R/results/HG008-T/PacBio/HG008-T_vs_N-P.PacBio_Revio_20240125/03_VCF
 docker run --rm -v $O:/o -v $D:/t -w /o quay.io/biocontainers/bcftools:1.24--h118bc1c_2 bash -c '
+set -eo pipefail
 v=deepsomatic/HG008-T.HG008-T_vs_N-P.PacBio_Revio_20240125.GRCh38.deepsomatic.vcf.gz
+[ -s "$v" ] || { echo "missing $v"; exit 1; }
 echo "NAF header: $(bcftools view -h $v | grep ID=NAF, | cut -c1-40)"
 echo "FILTER counts:"; bcftools query -f "%FILTER\n" $v | sort | uniq -c
 echo "split: snv=$(bcftools view -H SNV_deepsomatic/*.snv.vcf.gz | wc -l) indel=$(bcftools view -H INDEL_deepsomatic/*.indel.vcf.gz | wc -l)"
@@ -31,4 +37,6 @@ echo "truth in window: $(bcftools view -H /tmp/truth.vcf.gz | wc -l)  PASS calls
 bcftools isec -c none -n=2 -w1 /tmp/pass.vcf.gz /tmp/truth.vcf.gz 2>/dev/null | grep -vc "^#" | sed "s/^/PASS matching truth (pos+allele): /"
 echo "matched VAF (tumor):"; bcftools isec -c none -n=2 -w1 /tmp/pass.vcf.gz /tmp/truth.vcf.gz 2>/dev/null | bcftools query -f "[%VAF]\n" | sort -g | awk "{a[NR]=\$1} END{print \"n=\"NR\" min=\"a[1]\" median=\"a[int((NR+1)/2)]\" max=\"a[NR]}"
 '
+chk_rc=$?
+[ "$chk_rc" = 0 ] || { echo "REAL_FAILED: output checks exited $chk_rc"; exit "$chk_rc"; }
 echo REAL_DONE

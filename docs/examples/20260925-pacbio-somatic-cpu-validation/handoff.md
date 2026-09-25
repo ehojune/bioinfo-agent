@@ -12,7 +12,15 @@
 | `--run_label ds1` | `multiqc/ds1/`, `pipeline_info/ds1-*` |
 | germline + 3 somatic pairs (shared normal; tumor/normal with the same basename) | 10 CHECK_BAM (5 germline + 5 distinct somatic BAMs; the shared normal checked once), 3 DEEPSOMATIC |
 | somatic only (no `--input`) | 5 CHECK_BAM, 3 DEEPSOMATIC, 0 PBMM2, MultiQC from bcftools stats |
-| 7 negative cases | all rejected at parse time: bad index basename, duplicate pair_id, missing index, `*_TUMOR_ONLY` model, neither sheet given, bad run_label, tumor = normal sample |
+| `--deepsomatic_customized_model` (added after PR #57 review) | checkpoint prefix → staged as its directory, flag `--customized_model=ckpt/model.ckpt`, `.index`/`.data-*` present in the task; SavedModel directory → `--customized_model=ckpt`; no model → no flag (the stub records the exact flag via the same `dsModelArg()` the script uses) |
+| 8 negative cases | all exit non-zero **and** print the expected message: bad index basename, duplicate pair_id, missing index, `*_TUMOR_ONLY` model, neither sheet given, bad run_label, tumor = normal sample, a model path that is neither a directory nor a checkpoint prefix |
+
+`stub-regression.sh` now exits 1 if any check fails (a failed positive run, a tree diff, a task-count
+mismatch, a negative case that did not fail with its message) — before PR #57's review it printed
+`STUB_DONE` and exited 0 regardless. Re-run after the review fixes (2026-09-25, WSL2 + Docker, base
+`dd9262b`): **all checks pass, exit 0.** `real-slice.sh` likewise stops with the Nextflow exit code on a
+failed run and propagates output-check failures; it was not re-run (the fix touches only its exit
+handling, and the slice numbers below are from the original run).
 
 BCFTOOLS_SPLIT and every other germline process script are byte-identical to the base, so
 existing `-resume` caches stay valid. Only MULTIQC's publishDir (a directive) changed.

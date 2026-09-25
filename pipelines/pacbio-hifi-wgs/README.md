@@ -126,7 +126,7 @@ T2_vs_N,T2,/data/T2.GRCh38.bam,/data/T2.GRCh38.bam.bai,N,/data/N.GRCh38.bam,/dat
 | param | default | note |
 |---|---|---|
 | `--deepsomatic_model` | `PACBIO` | tumor-normal model bundled in the image (`/opt/models/deepsomatic/pacbio`). `*_TUMOR_ONLY` models are rejected at launch: tumor-only is not wired in |
-| `--deepsomatic_customized_model` | — | optional checkpoint path, passed as `--customized_model`; staged into the task, so it can sit on an offline node's filesystem |
+| `--deepsomatic_customized_model` | — | optional model instead of the bundled one: a SavedModel **directory**, or a TF checkpoint **prefix** (`/m/model.ckpt` with `model.ckpt.index`, `model.ckpt.data-*` and `example_info.json` beside it). The whole directory is staged into the task — so it can sit on an offline node's filesystem — and DeepSomatic gets `<dir>/<prefix>`. A prefix without `.index`/`.data-*` is rejected at launch |
 | `--deepsomatic_regions` | — | optional BED restricting calling |
 | `--container_deepsomatic` | `google/deepsomatic:1.10.0` | CPU image (the `-gpu` tag is the GPU build) |
 
