@@ -3,10 +3,10 @@
 > Executed downstream on 5 whole-genome HG002 runs with the GIAB v5.0q README's parameters, not the
 > decisions below. Results and the differences: `../20260926-pacbio-hifi-wgs-giab-wholegenome/handoff.md`.
 
-`hap-py-accuracy.md` closed the small-variant half of accuracy validation. **pbsv is still
-unbenchmarked.** This file is the instruction for closing that gap; it is a plan, not a result.
-Nothing here has been executed — every number below is a property of a truth set, verified by
-reading it, not a measurement of our pipeline.
+`hap-py-accuracy.md` closed the small-variant half of accuracy validation. When this was written
+(2026-08-20) pbsv was unbenchmarked, and this file is the instruction written to close that gap —
+a plan, not a result. Every number below is a property of a truth set, verified by reading it,
+not a measurement of our pipeline.
 
 ## Why hap.py cannot be reused
 

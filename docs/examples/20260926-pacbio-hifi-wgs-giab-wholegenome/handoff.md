@@ -6,8 +6,9 @@ downstream benchmarking project that vendored this pipeline and ran it on an SGE
 small variants were scored on a 2 Mb slice only, pbsv had no accuracy number, and the somatic path
 had no whole-genome run.
 
-Scoring was done outside the pipeline (hap.py / Truvari / aardvark on the published VCFs). No
-pipeline code was changed for these runs. Numbers are PASS rows unless stated.
+Scoring was done outside the pipeline (hap.py / Truvari / aardvark on the published VCFs). The code
+ran as committed except the germline copy's 3-line `run_label` patch (table below); the somatic run
+raised `DEEPSOMATIC` CPUs through a site config only. Numbers are PASS rows unless stated.
 
 ## Pipeline versions
 
@@ -16,9 +17,10 @@ pipeline code was changed for these runs. Numbers are PASS rows unless stated.
 | germline (DeepVariant, Clair3, pbsv) | `48ec463` (2026-08-20) | 3 lines: a `run_label` param, `pipeline_info/<run_label>-*`, `multiqc/<run_label>/` — later upstreamed as `--run_label` |
 | somatic (DeepSomatic) | `f2de95e` (0.2.0 branch of PR #57) | none |
 
-**How this maps to the current code (0.2.0).** Between `48ec463` and 0.2.0 the HiFi germline path
-changed in one place: the pbmm2 index file is now named per preset (`<ref>.mmi` → `<ref>.CCS.mmi`;
-HiFi still uses the CCS preset). Caller images, command lines, defaults and sample channels for
+**How this maps to the current code (0.2.0).** 0.2.0 also adds the CLR entry point, the supplied-`.bai`
+name check for `aligned_bam`, and the somatic path; none of those touch `hifi_fastq`/`hifi_bam`
+germline runs. On that path the one change is the pbmm2 index file name, now per preset
+(`<ref>.mmi` → `<ref>.CCS.mmi`; HiFi still uses the CCS preset). Caller images, command lines, defaults and sample channels for
 `hifi_fastq`/`hifi_bam` are unchanged (independent Codex diff review, 2026-09-26). No run repeated
 these datasets on 0.2.0, so the numbers below are results **of `48ec463`**, not a proof that 0.2.0
 writes identical files — the new index path can at least appear in the BAM's `@PG` line.
@@ -89,7 +91,7 @@ using the v5.0q README's own command: `truvari bench --includebed <bed> --pick a
 -r 2000 -C 5000`, then `truvari refine`. `ALT=*` records were removed from the truth first, as that
 README asks. Everything else is Truvari's default (sizemin 50, sizemax 50,000, pctseq/pctsize 0.70).
 
-This is **not** the parameter set `20260820-pacbio-hifi-wgs-validation/truvari-sv-plan.md`
+This is **not** the parameter set `../20260820-pacbio-hifi-wgs-validation/truvari-sv-plan.md`
 proposed: `--passonly` was kept because the README uses it, and no DEL/INS-only restriction was
 applied.
 
@@ -128,7 +130,8 @@ HG008-T smvar **V0.3** `tumorvariants`, PASS and tumour VAF ≥ 0.05, BED `all` 
   passage (p100) has the most of them (2,885 PASS SNVs outside truth).
 - The matched pair with the 35x normal has lower SNV precision (0.864 vs 0.953). That matches the
   normal-depth difference in direction; the cause was not checked.
-- INDEL recall is low (~0.25) for the public 1.6.0 callset as well — not specific to this pipeline.
+- INDEL recall is low for the public 1.6.0 callset as well (0.205 vs 0.249) — not specific to this
+  pipeline.
 - The UCSC callset's input pair was not confirmed to be the same as ours, so the gap to it is not a
   version effect by itself.
 - All 13 pairs exit 0; FILTER counts per pair: PASS 12,100–14,947, LowQual 0.
