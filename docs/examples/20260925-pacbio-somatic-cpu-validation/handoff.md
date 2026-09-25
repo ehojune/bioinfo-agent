@@ -2,7 +2,8 @@
 
 `pipelines/pacbio-hifi-wgs`: `--run_label` became a general feature, and DeepSomatic tumor-normal
 (`--somatic_input`, CPU) was added. Validated mechanically and on one small real slice.
-**Not validated at whole-genome scale, and not an accuracy benchmark.**
+**Not validated at whole-genome scale, and not an accuracy benchmark.** (Whole-genome accuracy since
+then: `../20260926-pacbio-hifi-wgs-giab-wholegenome/handoff.md`.)
 
 ## Gate 1 — stub regression (`stub-regression.sh`)
 
