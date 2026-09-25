@@ -69,6 +69,7 @@ If step 1 or 2 cannot be answered from what the user said, stop and ask. §8 lis
 | Germline WGS or WES FASTQ | SNV + indel VCF per sample | `nf-core/sarek` | `--tools haplotypecaller` |
 | Germline WGS, multiple related samples | joint-called cohort VCF | `nf-core/sarek` | `--joint_germline` |
 | Tumour–normal pairs | somatic SNV/indel/CNV | `nf-core/sarek` | `--tools mutect2,strelka,manta,ascat` |
+| PacBio HiFi tumour–normal pairs (already-aligned BAMs) | somatic SNV/indel (no CNV/SV) | `pipelines/pacbio-hifi-wgs` **(in-repo)** | `--somatic_input` — see §4.20 |
 | Tumour-only | somatic-ish calls | `nf-core/sarek` | `--tools mutect2` + PoN — see §4.4 caveat |
 | WGBS / RRBS / EM-seq | per-CpG methylation calls | `nf-core/methylseq` | terminal |
 | ATAC-seq | peaks + consensus count matrix | `nf-core/atacseq` | → differentialabundance (see §5.4) |
@@ -2204,8 +2205,8 @@ directory can be copied to an offline SGE+Singularity cluster and run as-is. Ord
 PacBio's HiFi-human-WGS-WDL v1.x: DeepVariant (≥1.4, internal read phasing) and pbsv both consume
 the plain aligned BAM; WhatsHap phases afterwards.
 
-**Not for:** somatic tumour–normal calling (no paired mode — DeepSomatic/ClairS are different
-tools). Not for ONT (nanoseq, §4.14). Not for Iso-Seq (isoseq, §4.16). Not for short reads
+**Not for:** tumour-only somatic calling (only tumour–normal is wired — `*_TUMOR_ONLY` models are
+rejected at launch), somatic SV/CNV, or ClairS. Not for ONT (nanoseq, §4.14). Not for Iso-Seq (isoseq, §4.16). Not for short reads
 (sarek, §4.4). Not for assembly. Repeat genotyping is downstream: its haplotagged pbmm2 BAM is
 exactly what TRGT consumes (§6.2, which this pipeline un-blocks).
 
@@ -2264,6 +2265,22 @@ dropped) actually adapt; DeepVariant's PACBIO model and Clair3's `hifi*` models 
 equivalent, and WhatsHap phases their output. Every CLR dataset therefore gets
 `04_QC/CLR_WARNING.txt` plus a launch-time warning: read `SV_pbsv/` as the product and treat the
 SNV/indel and phased outputs as exploratory. A group may not mix CLR with HiFi rows.
+
+**Somatic tumour–normal (0.2.0, `--somatic_input`).** A second, independent sheet
+`pair_id,tumor_sample,tumor_bam,tumor_index,normal_sample,normal_bam,normal_index` of BAMs
+**already aligned to `--fasta`** runs DeepSomatic 1.10.0 (`--model_type=PACBIO`, the model bundled in
+the CPU image `google/deepsomatic:1.10.0`, so an offline node needs nothing else). It runs with
+or without `--input`; nothing is realigned. One normal may back several pairs and is checked once
+(`CHECK_BAM`: `@SQ` name+length vs `--fasta`, mapped reads > 0). Output
+`<outdir>/<tumor_sample>/PacBio/<pair_id>/03_VCF/deepsomatic/`, FILTER one of `PASS`/`GERMLINE`/
+`RefCall`/`LowQual`/`NoCall`, FORMAT carries tumour `VAF` and normal `NAF`. The pipeline rewrites
+DeepSomatic 1.10.0's `FORMAT/NAF` header from `Number=R` to `Number=A` — the tool writes one value
+per ALT and `bcftools norm` aborts on the original. `DEEPSOMATIC` inherits `process_high`
+(16 CPU); `--num_shards` follows `task.cpus`, so raise that label's CPUs in a site config to use
+a bigger node. Validation (2026-09-25, `docs/examples/20260925-pacbio-somatic-cpu-validation/`): stub
+regression against the germline-only base + 7 negative cases, and one real CPU slice (GIAB HG008-T
+vs HG008-N-P, chr13:82–86 Mb). **No whole-genome run and no accuracy benchmark yet** — the
+slice's counts show sane output, not precision/recall.
 
 **Deliberate non-goals, so they are not rediscovered mid-run:** reference `.fai`/`.mmi` are built
 per run (a fresh run rebuilds the whole-genome `.mmi`, ~10-15 GB RAM — batch datasets or `-resume`

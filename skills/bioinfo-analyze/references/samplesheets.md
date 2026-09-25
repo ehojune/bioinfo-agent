@@ -1046,6 +1046,17 @@ reports overwrite the other's.
   DeepVariant/Clair3 have no CLR model, so each CLR dataset gets `04_QC/CLR_WARNING.txt`. A
   group may not mix `clr_subreads` with HiFi rows (rejected at parse time).
 
+**Somatic sheet (`--somatic_input`, 0.2.0).** Separate from `--input`; either or both may be given.
+Header `pair_id,tumor_sample,tumor_bam,tumor_index,normal_sample,normal_bam,normal_index`, same
+parser rules (comma-separated, no quotes, `#` comments). Both indexes are **required** and follow
+the `.bai` basename rule above. `pair_id`, `tumor_sample`, `normal_sample` use the same name
+restriction; `pair_id` must be unique and so must `<tumor_sample>.<pair_id>` (outputs are named
+from it). Rejected at parse time: tumour and normal with the same sample or the same BAM, a
+missing index, a `*_TUMOR_ONLY` model. One normal may appear in several rows. The BAMs must be
+aligned to `--fasta` — `CHECK_BAM` fails the run if their `@SQ` names+lengths are not in the FASTA.
+`scripts/check-samplesheet.sh --pipeline pacbio-hifi-wgs` recognises a pair sheet by its `pair_id`
+column and applies the same rules before launch (same BAM also caught through a symlink).
+
 ---
 
 ## Common breakages, with the text you will actually see

@@ -230,8 +230,10 @@ Claude Code의 스킬과 에이전트는 **로컬 파일**이라 Anthropic 계�
 | **scrnaseq** | 단일세포 RNA | count matrix, h5ad |
 
 나머지 nf-core 파이프라인도 요청하면 그때 조달한다. nf-core에 없는 ExpansionHunter, TRGT, HipSTR
-같은 도구는 직접 돌리되 버전을 컨테이너로 고정하고 실행 기록에 남긴다. **커버하지 않는 것**:
-롱리드(ONT, PacBio) 파이프라인, 그리고 생물학적 해석.
+같은 도구는 직접 돌리되 버전을 컨테이너로 고정하고 실행 기록에 남긴다. PacBio HiFi 는 저장소 안 파이프라인
+[`pipelines/pacbio-hifi-wgs`](pipelines/pacbio-hifi-wgs/)가 맡는다 — germline 변이·위상·SV, 그리고
+0.2.0 부터 정렬된 BAM 에서의 tumor–normal somatic SNV/indel(DeepSomatic, CPU). **커버하지 않는 것**:
+ONT 롱리드 파이프라인, 그리고 생물학적 해석.
 
 ---
 

@@ -27,8 +27,15 @@ def helpMessage() {
         index       optional: .pbi (subreads) or .bai (aligned_bam)
       Rows sharing (sample,dataset) are merged after alignment.
 
+    Somatic sheet (--somatic_input, CSV, header required; with or without --input):
+      pair_id,tumor_sample,tumor_bam,tumor_index,normal_sample,normal_bam,normal_index
+        BAMs already aligned to --fasta (not realigned), indexes (.bai) required.
+        One normal may serve several pairs. Calls DeepSomatic tumor-normal.
+
     Key params (see nextflow.config for all):
       --fasta               reference FASTA (required)
+      --run_label           prefix for multiqc/ and pipeline_info/ outputs [none]
+      --deepsomatic_model   DeepSomatic tumor-normal model [PACBIO]
       --ref_name            name used in output files [default: fasta basename]
       --skip_deepvariant / --skip_clair3 / --skip_pbsv / --skip_phasing / --skip_qc
       --gvcf                also emit DeepVariant gVCF
@@ -92,6 +99,88 @@ def parseSamplesheet(sheet) {
     return rows
 }
 
+// htslib finds a BAM index by deriving its name from the BAM (see parseSamplesheet), so the
+// same basename rule applies to the somatic sheet's two index columns.
+def baiNames(bam) {
+    def n = file(bam).name
+    return [n + '.bai', n.replaceAll(/\.bam$/, '') + '.bai']
+}
+
+// --deepsomatic_customized_model -> [path to stage, checkpoint prefix or ''].
+// Two shapes are valid: a SavedModel *directory*, or a TF checkpoint *prefix* such as /m/model.ckpt
+// whose companions (model.ckpt.index, model.ckpt.data-*, example_info.json) sit beside it. The prefix
+// is not itself a file, so a plain existence check rejects it and staging it alone drops the
+// companions — stage the whole directory instead and pass <dir>/<prefix> to DeepSomatic.
+def dsModelSpec(String p) {
+    def f = file(p)
+    if (f.isDirectory()) return [f, '']
+    if (!file("${p}.index").exists())
+        error "--deepsomatic_customized_model '${p}': neither a directory nor a checkpoint prefix " +
+              "(expected '${f.name}.index' in ${f.parent})"
+    if (!f.parent.listFiles().any { it.name.startsWith("${f.name}.data-") })
+        error "--deepsomatic_customized_model '${p}': checkpoint prefix has no '${f.name}.data-*' file in ${f.parent}"
+    return [f.parent, f.name]
+}
+
+// The DeepSomatic model flag for a staged model (see dsModelSpec). Shared by DEEPSOMATIC's script
+// and stub so the stub can record exactly what a real run would pass.
+def dsModelArg(model, prefix) {
+    model.name == 'NO_DS_MODEL' ? ''
+        : prefix ? "--customized_model=${model}/${prefix}"
+        : "--customized_model=${model}"
+}
+
+def parseSomaticSheet(sheet) {
+    def lines = sheet.readLines().findAll { it.trim() && !it.trim().startsWith('#') }
+    if (lines.size() < 2) error "Somatic samplesheet has no data rows: ${sheet}"
+    def header   = lines[0].split(',', -1)*.trim()
+    def required = ['pair_id', 'tumor_sample', 'tumor_bam', 'tumor_index',
+                    'normal_sample', 'normal_bam', 'normal_index']
+    def missing  = required - header.toList()
+    if (missing) error "Somatic samplesheet is missing required column(s): ${missing.join(', ')}"
+    def rows = []
+    lines.tail().eachWithIndex { line, i ->
+        def n    = i + 2
+        def vals = line.split(',', -1)*.trim()
+        if (vals.size() != header.size())
+            error "Somatic sheet line ${n}: expected ${header.size()} fields, got ${vals.size()}: '${line}'"
+        def row = [header, vals].transpose().collectEntries { k, v -> [k, v] }
+        ['pair_id', 'tumor_sample', 'normal_sample'].each { c ->
+            if (!(row[c] ==~ NAME_RE))
+                error "Somatic sheet line ${n}: bad ${c} '${row[c]}' (allowed: A-Za-z0-9._- ; " +
+                      "'.' and '..' are rejected because the value becomes an output path component)"
+        }
+        ['tumor', 'normal'].each { r ->
+            def bam = row["${r}_bam"], bai = row["${r}_index"]
+            if (!bam?.endsWith('.bam')) error "Somatic sheet line ${n}: ${r}_bam must be a .bam"
+            if (!bai) error "Somatic sheet line ${n}: ${r}_index is required (run `samtools index` on the BAM)"
+            if (!(file(bai).name in baiNames(bam)))
+                error "Somatic sheet line ${n}: ${r}_index '${file(bai).name}' must be named " +
+                      "'${baiNames(bam)[0]}' or '${baiNames(bam)[1]}' — htslib looks an index up by " +
+                      "the BAM's own name, so any other basename is not found at runtime."
+        }
+        if (row.tumor_sample == row.normal_sample)
+            error "Somatic sheet line ${n}: tumor_sample and normal_sample are both '${row.tumor_sample}'"
+        // Same reads in both roles would make every call "germline". Compare file identity, not
+        // path strings, so a symlink or ../ alias to the tumor BAM is caught too (local paths only;
+        // remote URLs fall back to the string comparison).
+        def tf = file(row.tumor_bam), nf = file(row.normal_bam)
+        def local = { p -> p.fileSystem == java.nio.file.FileSystems.default }
+        if (tf.toString() == nf.toString() ||
+            (local(tf) && local(nf) && tf.exists() && nf.exists() && java.nio.file.Files.isSameFile(tf, nf)))
+            error "Somatic sheet line ${n}: tumor_bam and normal_bam are the same file"
+        rows << row
+    }
+    def dup_pair = rows.countBy { it.pair_id }.findAll { it.value > 1 }
+    if (dup_pair) error "Somatic sheet repeats pair_id: ${dup_pair.keySet().join(', ')}"
+    // outputs live under <outdir>/<tumor_sample>/<platform>/<pair_id>/ and are named
+    // <tumor_sample>.<pair_id>.*, so two rows composing the same id would overwrite each other
+    def dup_id = rows.groupBy { "${it.tumor_sample}.${it.pair_id}".toString() }.findAll { it.value.size() > 1 }
+    if (dup_id)
+        error "Somatic rows compose the same output id: ${dup_id.keySet().join(', ')}. Rename a pair_id."
+    return rows
+}
+
 def unitName(path) {
     // movie/unit id from filename: strip common extensions
     def n = path.getName()
@@ -103,17 +192,30 @@ def unitName(path) {
 workflow {
 
     if (params.containsKey('help') && params.help) { helpMessage(); exit 0 }
-    if (!params.input) { helpMessage(); error "--input samplesheet.csv is required" }
+    if (!params.input && !params.somatic_input) {
+        helpMessage(); error "--input samplesheet.csv and/or --somatic_input pairs.csv is required"
+    }
     if (!params.fasta) { helpMessage(); error "--fasta reference.fa is required" }
-    if (!(params.phase_vcf in ['deepvariant', 'clair3']))
-        error "--phase_vcf must be 'deepvariant' or 'clair3'"
-    if (!params.skip_phasing && params.phase_vcf == 'deepvariant' && params.skip_deepvariant)
-        error "--phase_vcf deepvariant conflicts with --skip_deepvariant (use --phase_vcf clair3 or --skip_phasing)"
-    if (!params.skip_phasing && params.phase_vcf == 'clair3' && params.skip_clair3)
-        error "--phase_vcf clair3 conflicts with --skip_clair3 (use --phase_vcf deepvariant or --skip_phasing)"
+    if (params.run_label && !(params.run_label ==~ NAME_RE))
+        error "--run_label '${params.run_label}' must match A-Za-z0-9._- (it becomes a path component)"
+    // Somatic-only settings are checked only with --somatic_input, and germline-only ones only with
+    // --input: a shared site config's settings for the other mode must not block a run.
+    if (params.somatic_input && params.deepsomatic_model.toString().toUpperCase().contains('TUMOR_ONLY'))
+        error "--deepsomatic_model ${params.deepsomatic_model}: tumor-only models are not wired " +
+              "into this pipeline — every --somatic_input row has a normal, use a tumor-normal model"
+    if (params.input) {
+        if (!(params.phase_vcf in ['deepvariant', 'clair3']))
+            error "--phase_vcf must be 'deepvariant' or 'clair3'"
+        if (!params.skip_phasing && params.phase_vcf == 'deepvariant' && params.skip_deepvariant)
+            error "--phase_vcf deepvariant conflicts with --skip_deepvariant (use --phase_vcf clair3 or --skip_phasing)"
+        if (!params.skip_phasing && params.phase_vcf == 'clair3' && params.skip_clair3)
+            error "--phase_vcf clair3 conflicts with --skip_clair3 (use --phase_vcf deepvariant or --skip_phasing)"
+    }
 
     def ref_name = params.ref_name ?: file(params.fasta).getBaseName()
-    def rows     = parseSamplesheet(file(params.input, checkIfExists: true))
+    // without --input every germline channel below is simply empty and its processes never fire
+    def rows     = params.input ? parseSamplesheet(file(params.input, checkIfExists: true)) : []
+    def som_rows = params.somatic_input ? parseSomaticSheet(file(params.somatic_input, checkIfExists: true)) : []
     def n_units  = rows.countBy { [it.sample, it.dataset] }   // for groupKey sizes
     // per-group CLR flag; the guard below proves a group is homogeneous, so any row decides it
     def clr_group = rows.groupBy { [it.sample, it.dataset] }
@@ -151,7 +253,7 @@ workflow {
               ". Rename one of them (the '.' placement differs but the composed id does not)."
 
     log.info "pacbio-hifi-wgs v${workflow.manifest.version} | ${rows.size()} row(s), " +
-             "${n_units.size()} sample-dataset group(s) | ref: ${ref_name}"
+             "${n_units.size()} sample-dataset group(s), ${som_rows.size()} tumor-normal pair(s) | ref: ${ref_name}"
 
     ch_fasta = Channel.value(file(params.fasta, checkIfExists: true))
 
@@ -255,15 +357,30 @@ workflow {
 
     FINALIZE_BAM(ch_grouped.finalize.map { m, bams, bais, o -> tuple(m, bams, bais) }, ref_name)
 
+    // Somatic BAMs go through the same check. A normal shared by several pairs is checked
+    // once: rows are keyed by the BAM's absolute path and deduplicated before the check.
+    def som_key  = { p -> file(p).toAbsolutePath().toString() }
+    def som_bams = som_rows.collectMany { r -> [[r.tumor_bam, r.tumor_index], [r.normal_bam, r.normal_index]] }
+                           .unique { som_key(it[0]) }
+    ch_som_check = Channel.fromList(som_bams).map { b, i ->
+        tuple([id: file(b).name, somatic_key: som_key(b)],
+              file(b, checkIfExists: true), file(i, checkIfExists: true))
+    }
+
     // guard against the two silent failure modes: a BAM aligned to a different
     // reference than --fasta (chimeric merges, empty caller output), and a BAM with
     // zero mapped reads (all callers would emit empty VCFs without complaint)
     CHECK_BAM(
         FINALIZE_BAM.out.bam
-            .mix(ch_grouped.passthrough.map { m, bams, bais, o -> tuple(m, bams[0], bais[0]) }),
+            .mix(ch_grouped.passthrough.map { m, bams, bais, o -> tuple(m, bams[0], bais[0]) })
+            .mix(ch_som_check),
         ch_fai
     )
-    ch_bam = CHECK_BAM.out.bam
+    ch_checked = CHECK_BAM.out.bam.branch { m, b, i ->
+        somatic:  m.somatic_key != null
+        germline: true
+    }
+    ch_bam = ch_checked.germline
 
     // CLR runs the full caller set by explicit request (2026-08-21), but the small-variant
     // half of it is not trustworthy on CLR and the run must say so rather than look clean:
@@ -320,9 +437,36 @@ workflow {
         ch_pbsv_vcf = BCFTOOLS_SORT_PBSV.out.vcf
     }
 
+    // ---- somatic SNV / indel: DeepSomatic tumor-normal ------------------------
+    // Pairs are joined to their checked BAMs by absolute path, tumor first then normal;
+    // combine(by: 0) is a keyed cross-join, so one checked normal feeds every pair using it.
+    ch_ds_vcf = Channel.empty()
+    if (som_rows) {
+        ch_checked_bams = ch_checked.somatic.map { m, b, i -> tuple(m.somatic_key, b, i) }
+        ch_pairs = Channel.fromList(som_rows).map { r ->
+            def meta = [sample: r.tumor_sample, dataset: r.pair_id, id: "${r.tumor_sample}.${r.pair_id}".toString(),
+                        normal: r.normal_sample, clr: false]
+            tuple(som_key(r.tumor_bam), som_key(r.normal_bam), meta)
+        }
+        ch_ds_in = ch_pairs
+            .combine(ch_checked_bams, by: 0)
+            .map { tk, nk, meta, tb, ti -> tuple(nk, meta, tb, ti) }
+            .combine(ch_checked_bams, by: 0)
+            .map { nk, meta, tb, ti, nb, ni -> tuple(meta, tb, ti, nb, ni) }
+        ch_ds_model = params.deepsomatic_customized_model
+            ? Channel.value(dsModelSpec(params.deepsomatic_customized_model.toString()))
+            : Channel.value([file("${projectDir}/assets/NO_DS_MODEL"), ''])
+        ch_ds_regions = params.deepsomatic_regions
+            ? Channel.value(file(params.deepsomatic_regions, checkIfExists: true))
+            : Channel.value(file("${projectDir}/assets/NO_REGIONS"))
+        DEEPSOMATIC(ch_ds_in, ch_fasta, ch_fai, ch_ds_model, ch_ds_regions, ref_name)
+        ch_ds_vcf = DEEPSOMATIC.out.vcf
+    }
+
     // ---- SNV / indel convenience splits ------------------------------------
     ch_split_in = ch_dv_vcf.map     { m, v, t -> tuple(m, 'deepvariant', v, t) }
         .mix(ch_clair3_vcf.map      { m, v, t -> tuple(m, 'clair3', v, t) })
+        .mix(ch_ds_vcf.map          { m, v, t -> tuple(m, 'deepsomatic', v, t) })
     BCFTOOLS_SPLIT(ch_split_in, ch_fasta, ch_fai, ref_name)
 
     // ---- QC -----------------------------------------------------------------
@@ -332,6 +476,7 @@ workflow {
         ch_stats_in = ch_dv_vcf.map { m, v, t -> tuple(m, 'deepvariant', v) }
             .mix(ch_clair3_vcf.map  { m, v, t -> tuple(m, 'clair3', v) })
             .mix(ch_pbsv_vcf.map    { m, v, t -> tuple(m, 'pbsv', v) })
+            .mix(ch_ds_vcf.map      { m, v, t -> tuple(m, 'deepsomatic', v) })
         BCFTOOLS_STATS(ch_stats_in, ref_name)
 
         ch_mqc = MOSDEPTH.out.reports.map { m, f -> f }.flatten()
@@ -611,6 +756,65 @@ process DEEPVARIANT {
     stub:
     """
     touch ${meta.id}.${ref_name}.deepvariant.vcf.gz ${meta.id}.${ref_name}.deepvariant.vcf.gz.tbi
+    """
+}
+
+// Tumor-normal somatic SNV/indel. CPU image; the model for --deepsomatic_model is bundled
+// under /opt/models/deepsomatic/, so a default run needs no network. FORMAT carries
+// GT:GQ:DP:AD:VAF:PL for the tumor sample, which downstream truncal-vs-subclonal reads rely on.
+process DEEPSOMATIC {
+    tag "${meta.id}"
+    label 'process_high'
+    container params.container_deepsomatic
+    publishDir path: { "${outbase(meta)}/03_VCF/deepsomatic" }, mode: 'copy'
+    input:
+        // tumor and normal may share a basename (same pipeline, different samples)
+        tuple val(meta), path(tbam, stageAs: 'tumor/*'), path(tbai, stageAs: 'tumor/*'),
+                         path(nbam, stageAs: 'normal/*'), path(nbai, stageAs: 'normal/*')
+        path fasta
+        path fai
+        tuple path(model), val(model_prefix)   // dsModelSpec(): SavedModel dir, or checkpoint dir + prefix
+        path regions
+        val ref_name
+    output:
+        tuple val(meta), path("${meta.id}.${ref_name}.deepsomatic.vcf.gz"), path("${meta.id}.${ref_name}.deepsomatic.vcf.gz.tbi"), emit: vcf
+        path "${meta.id}.${ref_name}.deepsomatic.visual_report.html", optional: true, emit: report
+    script:
+    def prefix      = "${meta.id}.${ref_name}.deepsomatic"
+    def model_arg   = dsModelArg(model, model_prefix)
+    def regions_arg = regions.name != 'NO_REGIONS' ? "--regions=${regions}" : ''
+    """
+    export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+    mkdir -p ds_intermediate ds_logs
+    run_deepsomatic \\
+        --model_type=${params.deepsomatic_model} \\
+        ${model_arg} \\
+        --ref=${fasta} \\
+        --reads_tumor=${tbam} \\
+        --reads_normal=${nbam} \\
+        --sample_name_tumor=${meta.sample} \\
+        --sample_name_normal=${meta.normal} \\
+        --output_vcf=${prefix}.vcf.gz \\
+        --num_shards=${task.cpus} \\
+        --vcf_stats_report=true \\
+        --logging_dir=ds_logs \\
+        --intermediate_results_dir=ds_intermediate \\
+        ${regions_arg} \\
+        ${params.deepsomatic_args}
+    # DeepSomatic 1.10.0 declares FORMAT/NAF as Number=R but writes one value per ALT
+    # (header text: "VAF of ALT alleles"), so bcftools norm aborts on the first multiallelic
+    # record ("wrong number of fields in FMT/NAF ... expected 3, found 2", HG008 chr13).
+    # Correct the declaration only; records are untouched.
+    bcftools view -h ${prefix}.vcf.gz \\
+      | sed 's/^##FORMAT=<ID=NAF,Number=R,/##FORMAT=<ID=NAF,Number=A,/' > naf_fixed.hdr
+    bcftools reheader -h naf_fixed.hdr -o fixed.vcf.gz ${prefix}.vcf.gz
+    mv fixed.vcf.gz ${prefix}.vcf.gz
+    tabix -f -p vcf ${prefix}.vcf.gz
+    """
+    stub:
+    """
+    echo '${dsModelArg(model, model_prefix)}' > deepsomatic.model_arg.txt
+    touch ${meta.id}.${ref_name}.deepsomatic.vcf.gz ${meta.id}.${ref_name}.deepsomatic.vcf.gz.tbi
     """
 }
 
@@ -908,7 +1112,7 @@ process BCFTOOLS_STATS {
 process MULTIQC {
     label 'process_low'
     container params.container_multiqc
-    publishDir path: { "${params.outdir}/multiqc" }, mode: 'copy'
+    publishDir path: { params.run_label ? "${params.outdir}/multiqc/${params.run_label}" : "${params.outdir}/multiqc" }, mode: 'copy'
     input:  path 'qc_inputs/*'
     output: path "multiqc_report.html", emit: report
             path "multiqc_report_data", emit: data
