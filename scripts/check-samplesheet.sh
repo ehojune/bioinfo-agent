@@ -136,6 +136,16 @@ case "$PIPELINE" in
   *) fail "--pipeline $PIPELINE is not stocked; see config/pipelines.tsv"; REQ='' ;;
 esac
 
+# pacbio-hifi-wgs takes two sheet kinds: the germline --input sheet and, since 0.2.0, the
+# --somatic_input tumor/normal pair sheet. Tell them apart by header so one --pipeline name gates
+# both (the somatic header has no sample/dataset/input_type/file and failed the germline set).
+SOMATIC=0
+if [[ "$PIPELINE" == pacbio-hifi-wgs && -n "$(colidx pair_id)" ]]; then
+  SOMATIC=1
+  REQ='pair_id tumor_sample tumor_bam tumor_index normal_sample normal_bam normal_index'
+  ok "pacbio-hifi-wgs: somatic pair sheet (--somatic_input) detected by its pair_id column"
+fi
+
 if [[ "$PIPELINE" == fetchngs ]]; then
   warn "fetchngs takes a headerless accession list; the column checks below do not apply to it"
 elif [[ "$PIPELINE" == ampliseq ]]; then
@@ -1058,7 +1068,7 @@ elif [[ -n "$REQ" ]]; then
       done < <(colvals image)
     fi
   fi
-  if [[ "$PIPELINE" == pacbio-hifi-wgs ]]; then
+  if [[ "$PIPELINE" == pacbio-hifi-wgs && "$SOMATIC" == 0 ]]; then
   # In-repo pipeline (pipelines/pacbio-hifi-wgs). Its own Groovy parser re-validates all of
   # this at launch, but this gate's contract is that exit 0 means the sheet is clean -- a
   # nonexistent file column previously PASSed here because file/index are not in section 3's
@@ -1134,6 +1144,49 @@ elif [[ -n "$REQ" ]]; then
     fi
     ok "pacbio-hifi-wgs: file/index columns checked per input_type"
     fi
+  fi
+  if [[ "$PIPELINE" == pacbio-hifi-wgs && "$SOMATIC" == 1 && -z "$MISS" ]]; then
+  # --somatic_input pair sheet. Mirrors main.nf parseSomaticSheet(): path-safe names (not . or ..),
+  # unique pair_id and <tumor_sample>.<pair_id> (outputs are named from it), tumor_sample differs
+  # from normal_sample, *.bam files whose REQUIRED index is named <bam>.bai or <stem>.bai, and the
+  # two BAMs are not the same file -- compared by inode (-ef), so a symlink or ../ alias to the
+  # tumor BAM is still caught. Local paths must be readable non-empty files; http(s) URLs pass.
+    for C in pair_id tumor_sample normal_sample; do
+      BADN=$(colvals "$C" | awk '!/^[A-Za-z0-9._-]+$/ || $0=="." || $0==".." {printf "%s ", $0}')
+      [[ -z "$BADN" ]] && ok "pacbio-hifi-wgs somatic: $C values are path-safe" \
+                       || fail "pacbio-hifi-wgs somatic: bad $C value(s) (A-Za-z0-9._-, not . or ..): $BADN"
+    done
+    D=$(colvals pair_id | sort | uniq -d | paste -sd' ' -)
+    [[ -z "$D" ]] && ok "pacbio-hifi-wgs somatic: pair_id unique" \
+                  || fail "pacbio-hifi-wgs somatic: duplicate pair_id: $D"
+    D=$(awk -F, -v t="$(colidx tumor_sample)" -v p="$(colidx pair_id)" 'NR>1{print $t"."$p}' "$TMP" | sort | uniq -d | paste -sd' ' -)
+    [[ -z "$D" ]] && ok "pacbio-hifi-wgs somatic: <tumor_sample>.<pair_id> unique" \
+                  || fail "pacbio-hifi-wgs somatic: <tumor_sample>.<pair_id> repeats (outputs would overwrite each other): $D"
+    SAME=$(awk -F, -v t="$(colidx tumor_sample)" -v n="$(colidx normal_sample)" 'NR>1 && $t==$n {printf "%d ", NR-1}' "$TMP")
+    [[ -z "$SAME" ]] && ok "pacbio-hifi-wgs somatic: tumor_sample differs from normal_sample" \
+                     || fail "pacbio-hifi-wgs somatic: tumor_sample == normal_sample on row(s): $SAME"
+    # \037 (unit separator) as the field delimiter: IFS tab would collapse an empty field
+    while IFS=$'\037' read -r N TB TX NB NX; do
+      for role in tumor normal; do
+        if [[ $role == tumor ]]; then P=$TB; X=$TX; else P=$NB; X=$NX; fi
+        [[ "$P" == *.bam ]] || fail "pacbio-hifi-wgs somatic: row $N: ${role}_bam must be a .bam: $P"
+        _bn=$(basename "$P"); _ix=$(basename "$X")
+        [[ "$_ix" == "$_bn.bai" || "$_ix" == "${_bn%.bam}.bai" ]] \
+          || fail "pacbio-hifi-wgs somatic: row $N: ${role}_index must be named '$_bn.bai' or '${_bn%.bam}.bai', not '$_ix'"
+        for F in "$P" "$X"; do
+          case "$F" in
+            http://*|https://*) : ;;
+            /*) [[ -f "$F" && -r "$F" && -s "$F" ]] || fail "pacbio-hifi-wgs somatic: row $N: not a regular readable non-empty file: $F" ;;
+            *)  fail "pacbio-hifi-wgs somatic: row $N: not an absolute path or http(s):// URL: $F" ;;
+          esac
+        done
+      done
+      if [[ "$TB" == "$NB" ]] || { [[ -e "$TB" && -e "$NB" ]] && [[ "$TB" -ef "$NB" ]]; }; then
+        fail "pacbio-hifi-wgs somatic: row $N: tumor_bam and normal_bam are the same file: $TB | $NB"
+      fi
+    done < <(awk -F, -v a="$(colidx tumor_bam)" -v b="$(colidx tumor_index)" -v c="$(colidx normal_bam)" -v d="$(colidx normal_index)" \
+               'NR>1{printf "%d\037%s\037%s\037%s\037%s\n", NR-1, $a, $b, $c, $d}' "$TMP")
+    ok "pacbio-hifi-wgs somatic: bam/index columns checked"
   fi
 elif [[ -z "$PIPELINE" ]]; then
   ID=''

@@ -161,7 +161,13 @@ def parseSomaticSheet(sheet) {
         }
         if (row.tumor_sample == row.normal_sample)
             error "Somatic sheet line ${n}: tumor_sample and normal_sample are both '${row.tumor_sample}'"
-        if (file(row.tumor_bam).toString() == file(row.normal_bam).toString())
+        // Same reads in both roles would make every call "germline". Compare file identity, not
+        // path strings, so a symlink or ../ alias to the tumor BAM is caught too (local paths only;
+        // remote URLs fall back to the string comparison).
+        def tf = file(row.tumor_bam), nf = file(row.normal_bam)
+        def local = { p -> p.fileSystem == java.nio.file.FileSystems.default }
+        if (tf.toString() == nf.toString() ||
+            (local(tf) && local(nf) && tf.exists() && nf.exists() && java.nio.file.Files.isSameFile(tf, nf)))
             error "Somatic sheet line ${n}: tumor_bam and normal_bam are the same file"
         rows << row
     }
@@ -192,11 +198,11 @@ workflow {
     if (!params.fasta) { helpMessage(); error "--fasta reference.fa is required" }
     if (params.run_label && !(params.run_label ==~ NAME_RE))
         error "--run_label '${params.run_label}' must match A-Za-z0-9._- (it becomes a path component)"
-    if (params.deepsomatic_model.toString().toUpperCase().contains('TUMOR_ONLY'))
+    // Somatic-only settings are checked only with --somatic_input, and germline-only ones only with
+    // --input: a shared site config's settings for the other mode must not block a run.
+    if (params.somatic_input && params.deepsomatic_model.toString().toUpperCase().contains('TUMOR_ONLY'))
         error "--deepsomatic_model ${params.deepsomatic_model}: tumor-only models are not wired " +
               "into this pipeline — every --somatic_input row has a normal, use a tumor-normal model"
-    // Germline-only settings are checked only when there is germline input to apply them to: a
-    // somatic-only launch must not trip over a site config's skip_deepvariant / skip_clair3.
     if (params.input) {
         if (!(params.phase_vcf in ['deepvariant', 'clair3']))
             error "--phase_vcf must be 'deepvariant' or 'clair3'"

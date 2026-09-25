@@ -14,12 +14,14 @@
 | somatic only (no `--input`) | 5 CHECK_BAM, 3 DEEPSOMATIC, 0 PBMM2, MultiQC from bcftools stats |
 | `--deepsomatic_customized_model` (added after PR #57 review) | checkpoint prefix → staged as its directory, flag `--customized_model=ckpt/model.ckpt`, `.index`/`.data-*` present in the task; SavedModel directory → `--customized_model=ckpt`; no model → no flag (the stub records the exact flag via the same `dsModelArg()` the script uses) |
 | somatic only with `--skip_deepvariant` (added in PR #57 review round 2) | runs — germline-only checks (`--phase_vcf` vs `--skip_deepvariant/--skip_clair3`) apply only when `--input` is given |
-| 9 negative cases | all exit non-zero **and** print the expected message: bad index basename, duplicate pair_id, missing index, `*_TUMOR_ONLY` model, neither sheet given, bad run_label, tumor = normal sample, a model path that is neither a directory nor a checkpoint prefix, germline `--input` with `--phase_vcf deepvariant --skip_deepvariant` |
+| germline only with `--deepsomatic_model PACBIO_TUMOR_ONLY` (round 3) | runs — the tumor-only model check applies only when `--somatic_input` is given |
+| `scripts/check-samplesheet.sh --pipeline pacbio-hifi-wgs` on a pair sheet (round 3) | detects the `pair_id` header and validates somatic columns; accepts a valid 2-pair sheet, rejects duplicate pair_id, tumor = normal sample, tumor/normal the same file via symlink, bad index path |
+| 10 negative cases | all exit non-zero **and** print the expected message: bad index basename, duplicate pair_id, missing index, `*_TUMOR_ONLY` model, neither sheet given, bad run_label, tumor = normal sample, a model path that is neither a directory nor a checkpoint prefix, germline `--input` with `--phase_vcf deepvariant --skip_deepvariant`, tumor/normal BAM the same file under two names (symlink) |
 
 `stub-regression.sh` now exits 1 if any check fails (a failed positive run, a tree diff, a task-count
 mismatch, a negative case that did not fail with its message) — before PR #57's review it printed
 `STUB_DONE` and exited 0 regardless. Re-run after the review fixes (2026-09-25, WSL2 + Docker, base
-`dd9262b`): **all checks pass, exit 0** (re-run again after review round 2). `real-slice.sh` likewise stops with the Nextflow exit code on a
+`dd9262b`): **all checks pass, exit 0** (re-run again after review rounds 2 and 3). `real-slice.sh` likewise stops with the Nextflow exit code on a
 failed run and propagates trace/output-check failures, and `fetch-inputs.sh` stops on a failed slice
 and checks each slice (quickcheck, mapped reads); it was not re-run (the fix touches only its exit
 handling, and the slice numbers below are from the original run).

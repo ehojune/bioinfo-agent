@@ -88,8 +88,30 @@ run savedmodel $NEW --somatic_input som.csv --deepsomatic_customized_model $R/in
 model_flag savedmodel "--customized_model=ckpt"
 model_flag somonly ""
 
-# germline-only settings must not block a somatic-only run (PR #57 Codex review round 2)
+# germline-only settings must not block a somatic-only run (PR #57 Codex review round 2), and a
+# somatic-only setting must not block a germline-only run (round 3)
 run somskip $NEW --somatic_input som.csv --skip_deepvariant true
+run germtonly $NEW --input germ.csv --deepsomatic_model PACBIO_TUMOR_ONLY
+
+# The agent's mandatory samplesheet gate (scripts/check-samplesheet.sh --pipeline pacbio-hifi-wgs)
+# must accept a valid pair sheet and reject the bad ones (round 3). The gate refuses empty files,
+# so this fixture uses non-empty stand-ins; Tlink.bam is a symlink to T.bam (same file, new name).
+CS=${BIOINFO_HOME:-/mnt/d/bioinfo-agent}/scripts/check-samplesheet.sh
+mkdir -p in/cs; for f in T N T2; do echo x > in/cs/$f.bam; echo x > in/cs/$f.bam.bai; done
+ln -sf $R/in/cs/T.bam in/cs/Tlink.bam; echo x > in/cs/Tlink.bam.bai
+H=pair_id,tumor_sample,tumor_bam,tumor_index,normal_sample,normal_bam,normal_index
+C=$R/in/cs
+printf '%s\np1,T,%s/T.bam,%s/T.bam.bai,N,%s/N.bam,%s/N.bam.bai\np2,T2,%s/T2.bam,%s/T2.bam.bai,N,%s/N.bam,%s/N.bam.bai\n' "$H" $C $C $C $C $C $C $C $C > cs_ok.csv
+printf '%s\np1,T,%s/T.bam,%s/T.bam.bai,N,%s/N.bam,%s/N.bam.bai\np1,T2,%s/T2.bam,%s/T2.bam.bai,N,%s/N.bam,%s/N.bam.bai\n' "$H" $C $C $C $C $C $C $C $C > cs_dup.csv
+printf '%s\np1,T,%s/T.bam,%s/T.bam.bai,T,%s/N.bam,%s/N.bam.bai\n' "$H" $C $C $C $C > cs_samename.csv
+printf '%s\np1,T,%s/T.bam,%s/T.bam.bai,N,%s/Tlink.bam,%s/Tlink.bam.bai\n' "$H" $C $C $C $C > cs_symlink.csv
+printf '%s\np1,T,%s/T.bam,%s/T.idx.bai,N,%s/N.bam,%s/N.bam.bai\n' "$H" $C $C $C $C > cs_badidx.csv
+bash $CS --pipeline pacbio-hifi-wgs cs_ok.csv > cs_ok.out 2>&1 && echo "  ok: samplesheet gate accepts a valid pair sheet" \
+  || { fail "samplesheet gate rejected a valid pair sheet"; tail -8 cs_ok.out; }
+for b in dup samename symlink badidx; do
+  bash $CS --pipeline pacbio-hifi-wgs cs_$b.csv > cs_$b.out 2>&1 && { fail "samplesheet gate accepted cs_$b.csv"; tail -5 cs_$b.out; } \
+    || echo "  ok: samplesheet gate rejects cs_$b.csv"
+done
 grep -A3 'Submitted process > DEEPSOMATIC' somonly.nflog | head -0
 for d in work_somonly/*/*; do [ -f $d/.command.sh ] && grep -q run_deepsomatic $d/.command.sh 2>/dev/null && { ls $d/tumor $d/normal; }; done 2>/dev/null | head
 
@@ -113,4 +135,7 @@ awk -F, 'BEGIN{OFS=","} NR==2{$5="TUM"} {print}' som.csv > samename.csv
 neg samename "are both" --somatic_input samename.csv
 neg badmodel "neither a directory nor a checkpoint prefix" --somatic_input som.csv --deepsomatic_customized_model $R/in/nope.ckpt
 neg phaseconflict "conflicts with --skip_deepvariant" --input germ.csv --skip_deepvariant true
+ln -sf $R/in/T.bam in/Tlink.bam; touch in/Tlink.bam.bai
+awk -F, -v r=$R 'BEGIN{OFS=","} NR==2{$6=r"/in/Tlink.bam"; $7=r"/in/Tlink.bam.bai"} {print}' som.csv > symlink.csv
+neg symlink "are the same file" --somatic_input symlink.csv
 if [ "$FAIL" = 0 ]; then echo STUB_DONE; else echo "STUB_FAILED ($FAIL check(s))"; exit 1; fi

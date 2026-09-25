@@ -1054,6 +1054,8 @@ restriction; `pair_id` must be unique and so must `<tumor_sample>.<pair_id>` (ou
 from it). Rejected at parse time: tumour and normal with the same sample or the same BAM, a
 missing index, a `*_TUMOR_ONLY` model. One normal may appear in several rows. The BAMs must be
 aligned to `--fasta` — `CHECK_BAM` fails the run if their `@SQ` names+lengths are not in the FASTA.
+`scripts/check-samplesheet.sh --pipeline pacbio-hifi-wgs` recognises a pair sheet by its `pair_id`
+column and applies the same rules before launch (same BAM also caught through a symlink).
 
 ---
 
