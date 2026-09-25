@@ -13,13 +13,15 @@
 | germline + 3 somatic pairs (shared normal; tumor/normal with the same basename) | 10 CHECK_BAM (5 germline + 5 distinct somatic BAMs; the shared normal checked once), 3 DEEPSOMATIC |
 | somatic only (no `--input`) | 5 CHECK_BAM, 3 DEEPSOMATIC, 0 PBMM2, MultiQC from bcftools stats |
 | `--deepsomatic_customized_model` (added after PR #57 review) | checkpoint prefix → staged as its directory, flag `--customized_model=ckpt/model.ckpt`, `.index`/`.data-*` present in the task; SavedModel directory → `--customized_model=ckpt`; no model → no flag (the stub records the exact flag via the same `dsModelArg()` the script uses) |
-| 8 negative cases | all exit non-zero **and** print the expected message: bad index basename, duplicate pair_id, missing index, `*_TUMOR_ONLY` model, neither sheet given, bad run_label, tumor = normal sample, a model path that is neither a directory nor a checkpoint prefix |
+| somatic only with `--skip_deepvariant` (added in PR #57 review round 2) | runs — germline-only checks (`--phase_vcf` vs `--skip_deepvariant/--skip_clair3`) apply only when `--input` is given |
+| 9 negative cases | all exit non-zero **and** print the expected message: bad index basename, duplicate pair_id, missing index, `*_TUMOR_ONLY` model, neither sheet given, bad run_label, tumor = normal sample, a model path that is neither a directory nor a checkpoint prefix, germline `--input` with `--phase_vcf deepvariant --skip_deepvariant` |
 
 `stub-regression.sh` now exits 1 if any check fails (a failed positive run, a tree diff, a task-count
 mismatch, a negative case that did not fail with its message) — before PR #57's review it printed
 `STUB_DONE` and exited 0 regardless. Re-run after the review fixes (2026-09-25, WSL2 + Docker, base
-`dd9262b`): **all checks pass, exit 0.** `real-slice.sh` likewise stops with the Nextflow exit code on a
-failed run and propagates output-check failures; it was not re-run (the fix touches only its exit
+`dd9262b`): **all checks pass, exit 0** (re-run again after review round 2). `real-slice.sh` likewise stops with the Nextflow exit code on a
+failed run and propagates trace/output-check failures, and `fetch-inputs.sh` stops on a failed slice
+and checks each slice (quickcheck, mapped reads); it was not re-run (the fix touches only its exit
 handling, and the slice numbers below are from the original run).
 
 BCFTOOLS_SPLIT and every other germline process script are byte-identical to the base, so

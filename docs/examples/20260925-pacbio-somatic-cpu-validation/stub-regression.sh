@@ -87,6 +87,9 @@ d=$(ds_dir ckpt)
 run savedmodel $NEW --somatic_input som.csv --deepsomatic_customized_model $R/in/ckpt
 model_flag savedmodel "--customized_model=ckpt"
 model_flag somonly ""
+
+# germline-only settings must not block a somatic-only run (PR #57 Codex review round 2)
+run somskip $NEW --somatic_input som.csv --skip_deepvariant true
 grep -A3 'Submitted process > DEEPSOMATIC' somonly.nflog | head -0
 for d in work_somonly/*/*; do [ -f $d/.command.sh ] && grep -q run_deepsomatic $d/.command.sh 2>/dev/null && { ls $d/tumor $d/normal; }; done 2>/dev/null | head
 
@@ -109,4 +112,5 @@ neg badlabel "must match" --input germ.csv --run_label 'a/b'
 awk -F, 'BEGIN{OFS=","} NR==2{$5="TUM"} {print}' som.csv > samename.csv
 neg samename "are both" --somatic_input samename.csv
 neg badmodel "neither a directory nor a checkpoint prefix" --somatic_input som.csv --deepsomatic_customized_model $R/in/nope.ckpt
+neg phaseconflict "conflicts with --skip_deepvariant" --input germ.csv --skip_deepvariant true
 if [ "$FAIL" = 0 ]; then echo STUB_DONE; else echo "STUB_FAILED ($FAIL check(s))"; exit 1; fi

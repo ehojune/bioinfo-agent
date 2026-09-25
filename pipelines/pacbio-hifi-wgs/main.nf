@@ -195,12 +195,16 @@ workflow {
     if (params.deepsomatic_model.toString().toUpperCase().contains('TUMOR_ONLY'))
         error "--deepsomatic_model ${params.deepsomatic_model}: tumor-only models are not wired " +
               "into this pipeline — every --somatic_input row has a normal, use a tumor-normal model"
-    if (!(params.phase_vcf in ['deepvariant', 'clair3']))
-        error "--phase_vcf must be 'deepvariant' or 'clair3'"
-    if (!params.skip_phasing && params.phase_vcf == 'deepvariant' && params.skip_deepvariant)
-        error "--phase_vcf deepvariant conflicts with --skip_deepvariant (use --phase_vcf clair3 or --skip_phasing)"
-    if (!params.skip_phasing && params.phase_vcf == 'clair3' && params.skip_clair3)
-        error "--phase_vcf clair3 conflicts with --skip_clair3 (use --phase_vcf deepvariant or --skip_phasing)"
+    // Germline-only settings are checked only when there is germline input to apply them to: a
+    // somatic-only launch must not trip over a site config's skip_deepvariant / skip_clair3.
+    if (params.input) {
+        if (!(params.phase_vcf in ['deepvariant', 'clair3']))
+            error "--phase_vcf must be 'deepvariant' or 'clair3'"
+        if (!params.skip_phasing && params.phase_vcf == 'deepvariant' && params.skip_deepvariant)
+            error "--phase_vcf deepvariant conflicts with --skip_deepvariant (use --phase_vcf clair3 or --skip_phasing)"
+        if (!params.skip_phasing && params.phase_vcf == 'clair3' && params.skip_clair3)
+            error "--phase_vcf clair3 conflicts with --skip_clair3 (use --phase_vcf deepvariant or --skip_phasing)"
+    }
 
     def ref_name = params.ref_name ?: file(params.fasta).getBaseName()
     // without --input every germline channel below is simply empty and its processes never fire

@@ -17,10 +17,25 @@ printf 'chr13\t82000000\t86000000\n' > test_region.bed
 for s in T_PacBio-HiFi-Revio_20240125_116x N-P_PacBio-HiFi-Revio_20240125_35x; do
   out=HG008-${s%%_*}.chr13_82-86Mb.bam
   [ -s $out.bai ] && continue
-  /usr/bin/time -v docker run --rm -v $D:/d -w /d quay.io/biocontainers/samtools:1.24--h9dcdb79_1 \
-    bash -c "samtools view -b -o $out $U/HG008-${s}_GRCh38-GIABv3.bam $REG && samtools index $out && rm -f *.bai.tmp" 2>&1 | grep -E "Elapsed|Maximum resident" || true
+  # A failed slice must stop the script (PR #57 Codex review): keep the time/samtools output in a log
+  # and test the exit status instead of piping it through grep || true.
+  if ! /usr/bin/time -v docker run --rm -v $D:/d -w /d quay.io/biocontainers/samtools:1.24--h9dcdb79_1 \
+      bash -c "samtools view -b -o $out $U/HG008-${s}_GRCh38-GIABv3.bam $REG && samtools index $out && rm -f *.bai.tmp" \
+      > $out.fetch.log 2>&1; then
+    echo "SLICE_FAILED: $out"; tail -20 $out.fetch.log; exit 1
+  fi
+  grep -E "Elapsed|Maximum resident" $out.fetch.log
 done
 rm -f HG008-*GIABv3.bam.bai
 ls -la
-docker run --rm -v $D:/d -w /d quay.io/biocontainers/samtools:1.24--h9dcdb79_1 bash -c 'for b in HG008-*.chr13_82-86Mb.bam; do echo $b; samtools idxstats $b | awk "\$3>0"; samtools view -H $b | grep -c "^@SQ"; samtools view -H $b | grep "^@RG" | head -2; done'
+# Each expected slice must exist, pass quickcheck and carry mapped reads — otherwise exit non-zero.
+docker run --rm -v $D:/d -w /d quay.io/biocontainers/samtools:1.24--h9dcdb79_1 bash -c 'set -euo pipefail
+for b in HG008-T.chr13_82-86Mb.bam HG008-N-P.chr13_82-86Mb.bam; do
+  [ -s $b ] && [ -s $b.bai ] || { echo "missing $b or its index"; exit 1; }
+  samtools quickcheck $b
+  n=$(samtools idxstats $b | awk "{s+=\$3} END{print s+0}")
+  [ "$n" -gt 0 ] || { echo "$b: no mapped reads"; exit 1; }
+  echo "$b mapped=$n SQ=$(samtools view -H $b | grep -c "^@SQ")"
+  samtools view -H $b | grep "^@RG" | head -2 || true
+done'
 echo SLICE_DONE
