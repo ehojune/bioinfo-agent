@@ -38,31 +38,32 @@ writes identical files — the new index path can at least appear in the BAM's `
 
 hap.py 0.3.12 (`jmcdani20/hap.py:v0.3.12`) vs GIAB NIST v4.2.1 benchmark VCF + BED
 (`_noinconsistent.bed` for HG002–HG004), raw pipeline VCF in (hap.py applies FILTER itself).
-DeepVariant 1.10.0 (one PACBIO model for all runs), Clair3 v1.2.0 (`hifi` / `hifi_sequel2` /
-`hifi_revio` by instrument). Instrument is read from the movie ID (m54 Sequel I, m64 Sequel II,
-m84 Revio), not from the dataset name.
+DeepVariant 1.10.0 (one PACBIO model for all runs), Clair3 v1.2.0 with one `--clair3_model` per
+run, listed per row — chosen from the movie IDs (m54 `hifi`, m64 `hifi_sequel2`, m84 `hifi_revio`);
+the mixed HG003 run and the two runs without movie IDs used `hifi_sequel2`. Instrument is read
+from the movie ID (m54 Sequel I, m64 Sequel II, m84 Revio), not from the dataset name.
 
-| dataset | instrument | INDEL F1 DV | INDEL F1 Clair3 | SNP F1 DV | SNP F1 Clair3 |
-|---|---|---:|---:|---:|---:|
-| HG002.PacBio_HiFi-Revio_20231031 | Revio | 0.9913 | 0.9747 | 0.9992 | 0.9990 |
-| HG003.PacBio_HiFi-Revio_20231031 | Revio | 0.9916 | 0.9785 | 0.9991 | 0.9990 |
-| HG004.PacBio_HiFi-Revio_20231031 | Revio | 0.9920 | 0.9862 | 0.9991 | 0.9987 |
-| HG001.HudsonAlpha_PacBio_CCS | Sequel II | 0.9762 | 0.9752 | 0.9991 | 0.9991 |
-| HG001.PacBio_SequelII_CCS_11kb | Sequel II | 0.9930 | 0.9939 | 0.9994 | 0.9992 |
-| HG002.PacBio_CCS_15kb_20kb_chemistry2 | Sequel II | 0.9973 | 0.9980 | 0.9993 | 0.9993 |
-| HG002.PacBio_SequelII_CCS_11kb | Sequel II | 0.9932 | 0.9951 | 0.9992 | 0.9990 |
-| HG003.PacBio_CCS_Google_15kb | Sequel I + II (1 + 2 movies) | 0.9855 | 0.9843 | 0.9987 | 0.9986 |
-| HG003.PacBio_CCS_HudsonAlpha_14kb_15kb_19kb | Sequel II | 0.9950 | 0.9959 | 0.9992 | 0.9991 |
-| HG004.PacBio_CCS_Google_15kb | Sequel II | 0.9860 | 0.9866 | 0.9986 | 0.9986 |
-| HG004.PacBio_CCS_HudsonAlpha_15kb_21kb | Sequel II | 0.9933 | 0.9949 | 0.9992 | 0.9991 |
-| HG005.HudsonAlpha_PacBio_CCS | Sequel II | 0.9963 | 0.9955 | 0.9993 | 0.9992 |
-| HG005.PacBio_SequelII_CCS_11kb | Sequel II | 0.9968 | 0.9969 | 0.9992 | 0.9991 |
-| HG006.PacBio_HiFi_Google | Sequel II | 0.9921 | 0.9930 | 0.9992 | 0.9989 |
-| HG007.PacBio_HiFi_Google | Sequel II | 0.9747 | 0.9749 | 0.9985 | 0.9984 |
-| HG002.PacBio_CCS_10kb | Sequel I | 0.9646 | 0.9640 | 0.9989 | 0.9988 |
-| HG002.PacBio_CCS_15kb | Sequel I | 0.9282 | 0.9130 | 0.9988 | 0.9988 |
-| HG006.PacBio_CCS_15kb_20kb_chemistry2 | (no movie ID) | 0.9967 | 0.9974 | 0.9993 | 0.9991 |
-| HG007.PacBio_CCS_15kb_20kb_chemistry2 | (no movie ID) | 0.9935 | 0.9936 | 0.9992 | 0.9992 |
+| dataset | instrument | Clair3 model | INDEL F1 DV | INDEL F1 Clair3 | SNP F1 DV | SNP F1 Clair3 |
+|---|---|---|---:|---:|---:|---:|
+| HG002.PacBio_HiFi-Revio_20231031 | Revio | `hifi_revio` | 0.9913 | 0.9747 | 0.9992 | 0.9990 |
+| HG003.PacBio_HiFi-Revio_20231031 | Revio | `hifi_revio` | 0.9916 | 0.9785 | 0.9991 | 0.9990 |
+| HG004.PacBio_HiFi-Revio_20231031 | Revio | `hifi_revio` | 0.9920 | 0.9862 | 0.9991 | 0.9987 |
+| HG001.HudsonAlpha_PacBio_CCS | Sequel II | `hifi_sequel2` | 0.9762 | 0.9752 | 0.9991 | 0.9991 |
+| HG001.PacBio_SequelII_CCS_11kb | Sequel II | `hifi_sequel2` | 0.9930 | 0.9939 | 0.9994 | 0.9992 |
+| HG002.PacBio_CCS_15kb_20kb_chemistry2 | Sequel II | `hifi_sequel2` | 0.9973 | 0.9980 | 0.9993 | 0.9993 |
+| HG002.PacBio_SequelII_CCS_11kb | Sequel II | `hifi_sequel2` | 0.9932 | 0.9951 | 0.9992 | 0.9990 |
+| HG003.PacBio_CCS_Google_15kb | Sequel I + II (1 + 2 movies) | `hifi_sequel2` | 0.9855 | 0.9843 | 0.9987 | 0.9986 |
+| HG003.PacBio_CCS_HudsonAlpha_14kb_15kb_19kb | Sequel II | `hifi_sequel2` | 0.9950 | 0.9959 | 0.9992 | 0.9991 |
+| HG004.PacBio_CCS_Google_15kb | Sequel II | `hifi_sequel2` | 0.9860 | 0.9866 | 0.9986 | 0.9986 |
+| HG004.PacBio_CCS_HudsonAlpha_15kb_21kb | Sequel II | `hifi_sequel2` | 0.9933 | 0.9949 | 0.9992 | 0.9991 |
+| HG005.HudsonAlpha_PacBio_CCS | Sequel II | `hifi_sequel2` | 0.9963 | 0.9955 | 0.9993 | 0.9992 |
+| HG005.PacBio_SequelII_CCS_11kb | Sequel II | `hifi_sequel2` | 0.9968 | 0.9969 | 0.9992 | 0.9991 |
+| HG006.PacBio_HiFi_Google | Sequel II | `hifi_sequel2` | 0.9921 | 0.9930 | 0.9992 | 0.9989 |
+| HG007.PacBio_HiFi_Google | Sequel II | `hifi_sequel2` | 0.9747 | 0.9749 | 0.9985 | 0.9984 |
+| HG002.PacBio_CCS_10kb | Sequel I | `hifi` | 0.9646 | 0.9640 | 0.9989 | 0.9988 |
+| HG002.PacBio_CCS_15kb | Sequel I | `hifi` | 0.9282 | 0.9130 | 0.9988 | 0.9988 |
+| HG006.PacBio_CCS_15kb_20kb_chemistry2 | (no movie ID) | `hifi_sequel2` | 0.9967 | 0.9974 | 0.9993 | 0.9991 |
+| HG007.PacBio_CCS_15kb_20kb_chemistry2 | (no movie ID) | `hifi_sequel2` | 0.9935 | 0.9936 | 0.9992 | 0.9992 |
 
 - `HG003.PacBio_CCS_Google_15kb` mixes one Sequel I movie (`m54262U`) with two Sequel II movies
   (`m64017`); it is not used for generation statements (the ranges below do not change without it).
