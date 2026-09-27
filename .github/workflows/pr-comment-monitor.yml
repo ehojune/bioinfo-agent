@@ -33,6 +33,23 @@ jobs:
               return;
             }
 
+            // This repo is public: anyone can comment on a PR. Counting every comment let a stranger
+            // post 20 comments and auto-merge any open PR, including one from a fork. Only the repo's
+            // own people and the Codex review bot count toward the limit.
+            const TRUSTED_ASSOCIATIONS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+            const TRUSTED_BOTS = ['chatgpt-codex-connector[bot]'];
+            const isTrusted = (c) => TRUSTED_ASSOCIATIONS.includes(c.author_association) || TRUSTED_BOTS.includes(c.user.login);
+
+            // The trusted count can already sit at 20 from an earlier run that skipped merging
+            // (fork, red CI, checks not yet reported). If CI later turns green, any untrusted
+            // comment re-triggers this workflow and would otherwise ride that stale count straight
+            // into a merge. Only a trusted comment (or the bot) may trigger a (re-)evaluation.
+            const triggerComment = context.payload.comment;
+            if (!triggerComment || !isTrusted(triggerComment)) {
+              console.log('Triggering comment is not from a trusted author, skipping');
+              return;
+            }
+
             const pr = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -64,14 +81,8 @@ jobs:
             // runs the moment its own dedupe check is skipped) could compound that further.
             // Filtering by author, not by body text, is what actually excludes them.
             const allComments = [...reviewComments, ...issueComments];
-            // This repo is public: anyone can comment on a PR. Counting every comment let a stranger
-            // post 20 comments and auto-merge any open PR, including one from a fork. Only the repo's
-            // own people and the Codex review bot count toward the limit.
-            const TRUSTED_ASSOCIATIONS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
-            const TRUSTED_BOTS = ['chatgpt-codex-connector[bot]'];
             const comments = allComments.filter(c =>
-              c.body && c.user.login !== 'github-actions[bot]' &&
-              (TRUSTED_ASSOCIATIONS.includes(c.author_association) || TRUSTED_BOTS.includes(c.user.login))
+              c.body && c.user.login !== 'github-actions[bot]' && isTrusted(c)
             );
             
             const commentCount = comments.length;
