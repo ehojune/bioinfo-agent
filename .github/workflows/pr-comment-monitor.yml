@@ -14,6 +14,7 @@ jobs:
       pull-requests: write
       issues: write
       contents: write
+      checks: read
     
     steps:
       - name: Analyze PR and Comments
@@ -165,21 +166,16 @@ jobs:
         with:
           script: |
             const prNumber = parseInt('${{ steps.analyze.outputs.pr_number }}');
-            
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              body: `🟢 **20 comments reached — Auto-merging now!**\n\n@claude: Time's up!\n\n*"Finish within 20 comments, or I merge."*`
-            });
-            
+
             const pr = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: prNumber,
             });
-            
+
             // Never auto-merge a PR whose head lives in another repository (a fork).
+            // Checked before the "Auto-merging now!" announcement below so a fork PR
+            // doesn't get told a merge is happening when it never will be.
             if (pr.data.head.repo?.full_name !== pr.data.base.repo.full_name) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner, repo: context.repo.repo, issue_number: prNumber,
@@ -189,6 +185,7 @@ jobs:
             }
 
             // Every check on the head commit must have passed; the comment limit is not a quality gate.
+            // Also checked before the announcement below, for the same reason.
             const checks = await github.paginate(github.rest.checks.listForRef, {
               owner: context.repo.owner, repo: context.repo.repo, ref: pr.data.head.sha, per_page: 100,
             });
@@ -204,6 +201,13 @@ jobs:
               });
               return;
             }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `🟢 **20 comments reached — Auto-merging now!**\n\n@claude: Time's up!\n\n*"Finish within 20 comments, or I merge."*`
+            });
 
             if (pr.data.state === 'open') {
               // This repo's convention (every PR merged so far, #4-#27) is a plain merge
