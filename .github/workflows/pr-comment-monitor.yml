@@ -60,8 +60,14 @@ jobs:
             // runs the moment its own dedupe check is skipped) could compound that further.
             // Filtering by author, not by body text, is what actually excludes them.
             const allComments = [...reviewComments.data, ...issueComments.data];
+            // This repo is public: anyone can comment on a PR. Counting every comment let a stranger
+            // post 20 comments and auto-merge any open PR, including one from a fork. Only the repo's
+            // own people and the Codex review bot count toward the limit.
+            const TRUSTED_ASSOCIATIONS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+            const TRUSTED_BOTS = ['chatgpt-codex-connector[bot]'];
             const comments = allComments.filter(c =>
-              c.body && c.user.login !== 'github-actions[bot]'
+              c.body && c.user.login !== 'github-actions[bot]' &&
+              (TRUSTED_ASSOCIATIONS.includes(c.author_association) || TRUSTED_BOTS.includes(c.user.login))
             );
             
             const commentCount = comments.length;
@@ -173,6 +179,32 @@ jobs:
               pull_number: prNumber,
             });
             
+            // Never auto-merge a PR whose head lives in another repository (a fork).
+            if (pr.data.head.repo?.full_name !== pr.data.base.repo.full_name) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo, issue_number: prNumber,
+                body: `⛔ Auto-merge skipped: this PR comes from a fork. Manual review and merge needed.`
+              });
+              return;
+            }
+
+            // Every check on the head commit must have passed; the comment limit is not a quality gate.
+            const checks = await github.paginate(github.rest.checks.listForRef, {
+              owner: context.repo.owner, repo: context.repo.repo, ref: pr.data.head.sha, per_page: 100,
+            });
+            // This workflow's own job can show up as an in-progress check; it is not a quality gate.
+            const SELF = 'Monitor PR Comments & Smart Actions';
+            const notGreen = checks.filter(c => c.name !== SELF &&
+              !(c.status === 'completed' && ['success', 'neutral', 'skipped'].includes(c.conclusion)));
+            if (notGreen.length) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo, issue_number: prNumber,
+                body: `⛔ Auto-merge skipped: checks not green on ${pr.data.head.sha.slice(0, 7)} (` +
+                      notGreen.map(c => `${c.name}: ${c.conclusion || c.status}`).join(', ') + `). Manual merge needed.`
+              });
+              return;
+            }
+
             if (pr.data.state === 'open') {
               // This repo's convention (every PR merged so far, #4-#27) is a plain merge
               // commit via `gh pr merge --merge`, not squash. Match it instead of rewriting
