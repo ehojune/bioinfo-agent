@@ -191,8 +191,20 @@ jobs:
             });
             // This workflow's own job can show up as an in-progress check; it is not a quality gate.
             const SELF = 'Monitor PR Comments & Smart Actions';
-            const notGreen = checks.filter(c => c.name !== SELF &&
+            const relevantChecks = checks.filter(c => c.name !== SELF);
+            const notGreen = relevantChecks.filter(c =>
               !(c.status === 'completed' && ['success', 'neutral', 'skipped'].includes(c.conclusion)));
+            // A push just before the 20th comment can win the race against GitHub registering
+            // that push's check runs, so `checks.listForRef` comes back with nothing to fail on.
+            // Treat "no other check has reported in yet" the same as "not green" instead of
+            // letting an unchecked head slip through.
+            if (relevantChecks.length === 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo, issue_number: prNumber,
+                body: `⛔ Auto-merge skipped: no checks have reported yet for ${pr.data.head.sha.slice(0, 7)}. Manual merge needed.`
+              });
+              return;
+            }
             if (notGreen.length) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner, repo: context.repo.repo, issue_number: prNumber,
