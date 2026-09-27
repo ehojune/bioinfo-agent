@@ -14,6 +14,7 @@ jobs:
       pull-requests: write
       issues: write
       contents: write
+      checks: read
     
     steps:
       - name: Analyze PR and Comments
@@ -32,6 +33,23 @@ jobs:
               return;
             }
 
+            // This repo is public: anyone can comment on a PR. Counting every comment let a stranger
+            // post 20 comments and auto-merge any open PR, including one from a fork. Only the repo's
+            // own people and the Codex review bot count toward the limit.
+            const TRUSTED_ASSOCIATIONS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+            const TRUSTED_BOTS = ['chatgpt-codex-connector[bot]'];
+            const isTrusted = (c) => TRUSTED_ASSOCIATIONS.includes(c.author_association) || TRUSTED_BOTS.includes(c.user.login);
+
+            // The trusted count can already sit at 20 from an earlier run that skipped merging
+            // (fork, red CI, checks not yet reported). If CI later turns green, any untrusted
+            // comment re-triggers this workflow and would otherwise ride that stale count straight
+            // into a merge. Only a trusted comment (or the bot) may trigger a (re-)evaluation.
+            const triggerComment = context.payload.comment;
+            if (!triggerComment || !isTrusted(triggerComment)) {
+              console.log('Triggering comment is not from a trusted author, skipping');
+              return;
+            }
+
             const pr = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -40,14 +58,17 @@ jobs:
 
             // Octokit names this `listReviewComments`; `pulls.listComments` does not exist
             // and threw `TypeError: ... is not a function` on every run before this fix.
-            const reviewComments = await github.rest.pulls.listReviewComments({
+            // Paginated: a single page of 100 would let 100 untrusted comments push every
+            // trusted comment after them off the fetched page, so the trust filter below
+            // would never see them and the count could never reach a threshold.
+            const reviewComments = await github.paginate(github.rest.pulls.listReviewComments, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: prNumber,
               per_page: 100,
             });
-            
-            const issueComments = await github.rest.issues.listComments({
+
+            const issueComments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNumber,
@@ -59,9 +80,9 @@ jobs:
             // real limit in by one, and repeated posts (the warn step is not idempotent across
             // runs the moment its own dedupe check is skipped) could compound that further.
             // Filtering by author, not by body text, is what actually excludes them.
-            const allComments = [...reviewComments.data, ...issueComments.data];
+            const allComments = [...reviewComments, ...issueComments];
             const comments = allComments.filter(c =>
-              c.body && c.user.login !== 'github-actions[bot]'
+              c.body && c.user.login !== 'github-actions[bot]' && isTrusted(c)
             );
             
             const commentCount = comments.length;
@@ -159,29 +180,74 @@ jobs:
         with:
           script: |
             const prNumber = parseInt('${{ steps.analyze.outputs.pr_number }}');
-            
+
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+
+            // Never auto-merge a PR whose head lives in another repository (a fork).
+            // Checked before the "Auto-merging now!" announcement below so a fork PR
+            // doesn't get told a merge is happening when it never will be.
+            if (pr.data.head.repo?.full_name !== pr.data.base.repo.full_name) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo, issue_number: prNumber,
+                body: `⛔ Auto-merge skipped: this PR comes from a fork. Manual review and merge needed.`
+              });
+              return;
+            }
+
+            // Every check on the head commit must have passed; the comment limit is not a quality gate.
+            // Also checked before the announcement below, for the same reason.
+            const checks = await github.paginate(github.rest.checks.listForRef, {
+              owner: context.repo.owner, repo: context.repo.repo, ref: pr.data.head.sha, per_page: 100,
+            });
+            // This workflow's own job can show up as an in-progress check; it is not a quality gate.
+            const SELF = 'Monitor PR Comments & Smart Actions';
+            const relevantChecks = checks.filter(c => c.name !== SELF);
+            const notGreen = relevantChecks.filter(c =>
+              !(c.status === 'completed' && ['success', 'neutral', 'skipped'].includes(c.conclusion)));
+            // A push just before the 20th comment can win the race against GitHub registering
+            // that push's check runs, so `checks.listForRef` comes back with nothing to fail on.
+            // Treat "no other check has reported in yet" the same as "not green" instead of
+            // letting an unchecked head slip through.
+            if (relevantChecks.length === 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo, issue_number: prNumber,
+                body: `⛔ Auto-merge skipped: no checks have reported yet for ${pr.data.head.sha.slice(0, 7)}. Manual merge needed.`
+              });
+              return;
+            }
+            if (notGreen.length) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo, issue_number: prNumber,
+                body: `⛔ Auto-merge skipped: checks not green on ${pr.data.head.sha.slice(0, 7)} (` +
+                      notGreen.map(c => `${c.name}: ${c.conclusion || c.status}`).join(', ') + `). Manual merge needed.`
+              });
+              return;
+            }
+
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNumber,
               body: `🟢 **20 comments reached — Auto-merging now!**\n\n@claude: Time's up!\n\n*"Finish within 20 comments, or I merge."*`
             });
-            
-            const pr = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: prNumber,
-            });
-            
+
             if (pr.data.state === 'open') {
               // This repo's convention (every PR merged so far, #4-#27) is a plain merge
               // commit via `gh pr merge --merge`, not squash. Match it instead of rewriting
               // history the bots and reviewers already reasoned about commit-by-commit.
               try {
+                // Pin to the SHA that was just checked for green CI: if a new commit lands
+                // between the checks.listForRef call above and this merge, GitHub rejects
+                // the merge instead of silently merging the unchecked new head.
                 await github.rest.pulls.merge({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   pull_number: prNumber,
+                  sha: pr.data.head.sha,
                   merge_method: 'merge',
                   commit_title: pr.data.title,
                   commit_message: `Auto-merged at 20 comments.\n\nPR: ${pr.data.html_url}`,
