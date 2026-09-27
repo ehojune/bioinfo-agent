@@ -214,10 +214,14 @@ jobs:
               // commit via `gh pr merge --merge`, not squash. Match it instead of rewriting
               // history the bots and reviewers already reasoned about commit-by-commit.
               try {
+                // Pin to the SHA that was just checked for green CI: if a new commit lands
+                // between the checks.listForRef call above and this merge, GitHub rejects
+                // the merge instead of silently merging the unchecked new head.
                 await github.rest.pulls.merge({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   pull_number: prNumber,
+                  sha: pr.data.head.sha,
                   merge_method: 'merge',
                   commit_title: pr.data.title,
                   commit_message: `Auto-merged at 20 comments.\n\nPR: ${pr.data.html_url}`,
