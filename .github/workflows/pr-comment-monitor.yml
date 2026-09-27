@@ -41,14 +41,17 @@ jobs:
 
             // Octokit names this `listReviewComments`; `pulls.listComments` does not exist
             // and threw `TypeError: ... is not a function` on every run before this fix.
-            const reviewComments = await github.rest.pulls.listReviewComments({
+            // Paginated: a single page of 100 would let 100 untrusted comments push every
+            // trusted comment after them off the fetched page, so the trust filter below
+            // would never see them and the count could never reach a threshold.
+            const reviewComments = await github.paginate(github.rest.pulls.listReviewComments, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: prNumber,
               per_page: 100,
             });
-            
-            const issueComments = await github.rest.issues.listComments({
+
+            const issueComments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNumber,
@@ -60,7 +63,7 @@ jobs:
             // real limit in by one, and repeated posts (the warn step is not idempotent across
             // runs the moment its own dedupe check is skipped) could compound that further.
             // Filtering by author, not by body text, is what actually excludes them.
-            const allComments = [...reviewComments.data, ...issueComments.data];
+            const allComments = [...reviewComments, ...issueComments];
             // This repo is public: anyone can comment on a PR. Counting every comment let a stranger
             // post 20 comments and auto-merge any open PR, including one from a fork. Only the repo's
             // own people and the Codex review bot count toward the limit.
