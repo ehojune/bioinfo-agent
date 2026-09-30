@@ -1,0 +1,2 @@
+name	status	exit
+SYNTHETIC_TASK (sample_A)	FAILED	137

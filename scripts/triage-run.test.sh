@@ -30,6 +30,78 @@ snapshot() {
 
 before="$(snapshot "$FIXTURES")"
 
+# An abrupt stop has neither a terminal marker nor a live head process.
+cp -R "$FIXTURES/hard-stopped" "$TMP/hard-stopped"
+stopped_before="$(snapshot "$TMP/hard-stopped")"
+output="$(bash "$SRC" "$TMP/hard-stopped" 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && contains "$output" 'status: unknown' \
+  && contains "$output" '멈춘 것으로 보이나 terminal 표식 없음' \
+  && contains "$output" 'last log time: Oct-01 10:15:30.123' \
+  && ok 'hard-stopped run is unknown with last log time' || bad 'hard-stopped run is unknown with last log time'
+json="$(bash "$SRC" --json "$TMP/hard-stopped" 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && contains "$json" '"status":"unknown"' \
+  && contains "$json" '"last_log_time":"Oct-01 10:15:30.123"' \
+  && ok 'hard-stopped JSON agrees' || bad 'hard-stopped JSON agrees'
+[[ "$stopped_before" == "$(snapshot "$TMP/hard-stopped")" ]] \
+  && ok 'hard-stopped input stays byte-identical' || bad 'hard-stopped input changed'
+
+# A failed attempt is not the final run state: this head is still alive.
+cp -R "$FIXTURES/live-head" "$TMP/live-head"
+printf '%s\n' "$$" > "$TMP/live-head/nextflow.pid"
+live_before="$(snapshot "$TMP/live-head")"
+output="$(bash "$SRC" "$TMP/live-head" 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && contains "$output" 'status: running' && contains "$output" 'failed tasks: 1' \
+  && ok 'live PID beats historical failed attempt' || bad 'live PID beats historical failed attempt'
+json="$(bash "$SRC" --json "$TMP/live-head" 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && contains "$json" '"status":"running"' && contains "$json" '"failed":1' \
+  && ok 'live PID JSON agrees' || bad 'live PID JSON agrees'
+[[ "$live_before" == "$(snapshot "$TMP/live-head")" ]] \
+  && ok 'live PID input stays byte-identical' || bad 'live PID input changed'
+
+for pid in 999999999 0 -1 invalid $'123\n456'; do
+  printf '%s\n' "$pid" > "$TMP/live-head/nextflow.pid"
+  json="$(bash "$SRC" --json "$TMP/live-head" 2>&1)"; rc=$?
+  [[ $rc -eq 0 ]] && contains "$json" '"status":"unknown"' && contains "$json" '"failed":1' \
+    && ok 'dead or malformed PID cannot prove running or failed' || bad 'dead or malformed PID cannot prove running or failed'
+done
+
+# Terminal evidence wins even if the PID file still names a living process.
+printf '%s\n' "$$" > "$TMP/live-head/nextflow.pid"
+for marker in 'Session aborted -- Cause: synthetic error' 'Session aborted -- Cause: SIGTERM' 'Pipeline completed successfully'; do
+  printf '%s\n' "$marker" >> "$TMP/live-head/.nextflow.log"
+  case "$marker" in *SIGTERM) expected=cancelled ;; *successfully) expected=succeeded ;; *) expected=failed ;; esac
+  json="$(bash "$SRC" --json "$TMP/live-head" 2>&1)"; rc=$?
+  [[ $rc -eq 0 ]] && contains "$json" "\"status\":\"$expected\"" \
+    && ok "terminal $expected wins over live PID" || bad "terminal $expected wins over live PID"
+done
+
+# Exercise the existing run-specific scan without launching Nextflow or a JVM.
+mkdir -p "$TMP/scan.v2+test"
+cp "$FIXTURES/hard-stopped/.nextflow.log" "$TMP/scan.v2+test/.nextflow.log"
+SCAN_PID="$$"; SCAN_RUN="$(cd "$TMP/scan.v2+test" && pwd -P)"
+pgrep() {
+  [[ "$1" == -f ]] || return 1
+  printf '%s\n' "$SCAN_ARGV" | grep -Eq "$2" && printf '%s\n' "$SCAN_PID"
+}
+cat() {
+  if [[ "$1" == "/proc/$SCAN_PID/comm" ]]; then printf '%s\n' "$SCAN_COMM"; else command cat "$@"; fi
+}
+ps() {
+  if [[ "$*" == "-p $SCAN_PID -o comm=" ]]; then printf '%s\n' "$SCAN_COMM"; else command ps "$@"; fi
+}
+for scenario in head launcher sibling other-root; do
+  SCAN_ARGV="java nextflow -work-dir $SCAN_RUN/work"; SCAN_COMM=java; expected=running
+  case "$scenario" in
+    launcher) SCAN_COMM=tmux; expected=unknown ;;
+    sibling) SCAN_ARGV="java nextflow -work-dir $SCAN_RUN-rerun/work"; expected=unknown ;;
+    other-root) SCAN_ARGV="java nextflow -work-dir /elsewhere/scan.v2+test/work"; expected=unknown ;;
+  esac
+  json="$(export SCAN_PID SCAN_ARGV SCAN_COMM; export -f pgrep cat ps; bash "$SRC" --json "$SCAN_RUN" 2>&1)"; rc=$?
+  [[ $rc -eq 0 ]] && contains "$json" "\"status\":\"$expected\"" \
+    && ok "run-specific scan: $scenario" || bad "run-specific scan: $scenario"
+done
+unset -f pgrep cat ps
+
 output="$(bash "$SRC" "$FIXTURE" 2>&1)"; rc=$?
 [[ $rc -eq 0 ]] && ok 'failed run is a successful triage' || bad "failed run returned $rc"
 contains "$output" 'status: failed' && ok 'failed status' || bad 'failed status missing'
@@ -105,6 +177,14 @@ output="$(bash "$SRC" "$TMP/cancelled" 2>&1)"; rc=$?
 [[ $rc -eq 0 ]] && contains "$output" 'status: cancelled' \
   && ok 'cancelled run' || bad 'cancelled run classification failed'
 
+mkdir -p "$TMP/stale-stdout"
+printf '%s\n' 'Execution cancelled -- Finishing pending tasks before exit' > "$TMP/stale-stdout/.nextflow.log"
+printf '%s\n' 'Process `SYNTHETIC_TASK` terminated with an error exit status (137) -- Execution is retried (1)' \
+  > "$TMP/stale-stdout/nextflow.stdout.log"
+json="$(bash "$SRC" --json "$TMP/stale-stdout" 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && contains "$json" '"status":"cancelled"' \
+  && ok 'terminal marker is resolved within its own log' || bad 'terminal marker is resolved within its own log'
+
 for signal in SIGINT SIGTERM; do
   printf '%s\n' 'Process `SYNTHETIC_TASK` terminated with an error exit status (137) -- Execution is retried (1)' \
     "Session aborted -- Cause: $signal" 'Execution complete -- Goodbye' > "$TMP/cancelled/.nextflow.log"
@@ -149,6 +229,7 @@ fi
 
 mkdir -p "$TMP/running"
 printf '%s\n' 'Starting process > NFCORE_RNASEQ:RNASEQ:FASTQC (sample_A)' > "$TMP/running/.nextflow.log"
+printf '%s\n' "$$" > "$TMP/running/nextflow.pid"
 output="$(bash "$SRC" "$TMP/running" 2>&1)"; rc=$?
 [[ $rc -eq 0 ]] && contains "$output" 'status: running' \
   && ok 'running run' || bad 'running run classification failed'
@@ -170,14 +251,18 @@ printf 'status\texit\ttag\tprocess\tworkdir\nFAILED\t1\tsample_A\tPROCESS_ONE\t%
   "$TMP/multi/task-one" "$TMP/multi/task-two" > "$TMP/multi/reports/trace.multi.txt"
 output="$(bash "$SRC" "$TMP/multi" 2>&1)"; rc=$?
 [[ $rc -eq 0 ]] && contains "$output" 'failed tasks: 2' \
+  && contains "$output" 'status: unknown' \
   && contains "$output" 'process: PROCESS_ONE' && contains "$output" 'process: PROCESS_TWO' \
   && contains "$output" 'tag: sample_B (retry)' \
   && ok 'every failed task and header-named trace field' || bad 'multiple failed tasks were not reported'
 
 mkdir -p "$TMP/empty"
 output="$(bash "$SRC" "$TMP/empty" 2>&1)"; rc=$?
-[[ $rc -eq 0 ]] && contains "$output" 'status: running' \
+[[ $rc -eq 0 ]] && contains "$output" 'status: unknown' && contains "$output" 'last log time: (unavailable)' \
   && ok 'readable directory without terminal evidence stays zero' || bad 'empty readable directory failed'
+json="$(bash "$SRC" --json "$TMP/empty" 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && contains "$json" '"status":"unknown","last_log_time":null' \
+  && ok 'empty JSON has unknown state and unavailable time' || bad 'empty JSON has unknown state and unavailable time'
 
 bash "$SRC" "$TMP/does-not-exist" >/dev/null 2>&1; rc=$?
 [[ $rc -ne 0 ]] && ok 'unreadable run directory is non-zero' || bad 'missing directory returned zero'

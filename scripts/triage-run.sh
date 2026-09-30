@@ -204,7 +204,6 @@ TASK_TAG=()
 TASK_EXIT=()
 TASK_WORKDIR=()
 TASK_COMMAND=()
-NONCANCEL_FAILED=0
 
 resolve_workdir() {
   local stated="$1" hash="$2" candidate=""
@@ -252,7 +251,6 @@ add_task() {
   TASK_EXIT+=("$code")
   TASK_WORKDIR+=("$workdir")
   TASK_COMMAND+=("$command")
-  [[ "$code" == 130 || "$code" == 143 ]] || NONCANCEL_FAILED=1
 }
 
 if [[ -n "$SELECTED_TRACE" ]]; then
@@ -347,8 +345,10 @@ TERMINAL_STATUS=""
 if ((${#evidence_sources[@]})); then
   evidence="$(awk '
     # Prefer the selected Nextflow log; stdout is a fallback, not a later session.
-    function remember() { if (chosen == "" && terminal != "") chosen=terminal }
-    FNR == 1 { remember(); terminal="" }
+    function remember() {
+      if (chosen == "" && terminal != "") { chosen=terminal; chosen_failed=failed }
+    }
+    FNR == 1 { remember(); terminal=""; failed=0 }
     /Error executing process/ || /terminated with an error exit status/ { failed=1 }
     /Session aborted -- Cause:/ {
       if ($0 ~ /Session aborted -- Cause: SIG(INT|TERM)([^[:alnum:]_]|$)/)
@@ -370,21 +370,78 @@ if ((${#evidence_sources[@]})); then
     /Execution complete -- Goodbye/ || /Session complete/ {
       if (terminal == "") terminal="succeeded"
     }
-    END { remember(); printf "%s%c%d", chosen,31,failed+0 }
+    END { remember(); printf "%s%c%d", chosen,31,chosen_failed+0 }
   ' "${evidence_sources[@]}")"
   IFS=$'\037' read -r TERMINAL_STATUS FAILED_EVIDENCE <<< "$evidence"
 fi
 
+# Process checks never send a signal other than the read-only liveness probe.
+pid_is_live() {
+  local pid="$1" state
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  case "${OSTYPE:-}" in
+    msys*|cygwin*)
+      # Git Bash PIDs are not Windows PIDs; query its own process table.
+      ps -p "$pid" 2>/dev/null | awk -v pid="$pid" 'NR>1 && $1 == pid { found=1 } END { exit !found }'
+      return
+      ;;
+  esac
+  if [[ -r "/proc/$pid/stat" ]]; then
+    state="$(awk '{ sub(/^.*\) /, ""); print $1 }' "/proc/$pid/stat" 2>/dev/null)" || return 1
+    [[ -n "$state" && "$state" != Z && "$state" != X ]] || return 1
+    return 0
+  fi
+  kill -0 "$pid" 2>/dev/null
+}
+
+head_is_live() {
+  local pid run_pattern comm
+  if [[ -e "$RUN_ABS/nextflow.pid" ]]; then
+    [[ -f "$RUN_ABS/nextflow.pid" && -r "$RUN_ABS/nextflow.pid" ]] || return 1
+    pid="$(cat "$RUN_ABS/nextflow.pid" 2>/dev/null)" || return 1
+    pid="${pid%$'\r'}"
+    pid_is_live "$pid"
+    return
+  fi
+  # Same run-path-delimited scan and JVM filter as guard-workdir/runbook. No
+  # unfiltered fallback: a tmux server or launcher shell is not a head process.
+  command -v pgrep >/dev/null 2>&1 || return 1
+  run_pattern="$(printf '%s' "$RUN_ABS" | sed 's/[][\.*^$+?()|{}]/\\&/g')"
+  while IFS= read -r pid; do
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] || continue
+    if [[ -r "/proc/$pid/comm" ]]; then
+      comm="$(cat "/proc/$pid/comm" 2>/dev/null)" || continue
+    else
+      comm="$(ps -p "$pid" -o comm= 2>/dev/null)" || continue
+      comm="${comm##*/}"
+    fi
+    [[ "$comm" == java ]] && pid_is_live "$pid" && return 0
+  done < <(pgrep -f "nextflow.*$run_pattern/" 2>/dev/null || true)
+  return 1
+}
+
+# Task failures/counts describe attempts, never the final state of a run.
 if [[ -n "$TERMINAL_STATUS" && "$TERMINAL_STATUS" != stopping ]]; then
   STATUS="$TERMINAL_STATUS"
-elif ((FAILED_EVIDENCE == 1 || NONCANCEL_FAILED == 1)); then
-  STATUS=failed
 elif [[ "$TERMINAL_STATUS" == stopping ]]; then
-  STATUS=cancelled
-elif ((${#TASK_PROCESS[@]})); then
-  STATUS=failed
-else
+  if ((FAILED_EVIDENCE == 1)); then STATUS=failed; else STATUS=cancelled; fi
+elif head_is_live; then
   STATUS=running
+else
+  STATUS=unknown
+fi
+
+LAST_LOG_TIME=""
+last_log="${SELECTED_LOG:-$SELECTED_STDOUT}"
+if [[ -n "$last_log" ]]; then
+  LAST_LOG_TIME="$(awk '
+    /^[A-Z][a-z][a-z]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9]/ { stamp=$1 " " $2 }
+    match($0, /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9][T ][0-9][0-9]:[0-9][0-9]:[0-9][0-9]([.,][0-9]+)?(Z|[+-][0-9][0-9]:?[0-9][0-9])?/) { stamp=substr($0,RSTART,RLENGTH) }
+    END { print stamp }
+  ' "$last_log")"
+  if [[ -z "$LAST_LOG_TIME" ]]; then
+    LAST_LOG_TIME="$(stat -c '%y' "$last_log" 2>/dev/null || stat -f '%Sm' "$last_log" 2>/dev/null || true)"
+  fi
 fi
 
 display_count() { [[ -n "$1" ]] && printf '%s' "$1" || printf '?'; }
@@ -447,6 +504,7 @@ if ((JSON == 1)); then
   printf '{'
   printf '"run_dir":'; json_quote "$RUN_ABS"
   printf ',"status":'; json_quote "$STATUS"
+  printf ',"last_log_time":'; [[ -n "$LAST_LOG_TIME" ]] && json_quote "$LAST_LOG_TIME" || printf 'null'
   printf ',"counts":{"cached":'; json_count "$COUNT_CACHED"
   printf ',"completed":'; json_count "$COUNT_COMPLETED"
   printf ',"failed":'; json_count "$COUNT_FAILED"
@@ -473,6 +531,10 @@ fi
 
 printf 'run: %s\n' "$RUN_ABS"
 printf 'status: %s\n' "$STATUS"
+if [[ "$STATUS" == unknown ]]; then
+  printf '  멈춘 것으로 보이나 terminal 표식 없음\n'
+fi
+printf 'last log time: %s\n' "${LAST_LOG_TIME:-(unavailable)}"
 printf 'counts: cached=%s completed=%s failed=%s\n' \
   "$(display_count "$COUNT_CACHED")" "$(display_count "$COUNT_COMPLETED")" "$(display_count "$COUNT_FAILED")"
 
