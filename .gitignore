@@ -159,3 +159,7 @@ sync.md
 HARVEST.md
 # 이 머신에서만 적용되는 에이전트 지침. 공개 지침은 README와 docs/에 있다.
 CLAUDE.local.md
+
+# Synthetic, text-only run state used by scripts/triage-run.test.sh.
+!scripts/fixtures/triage-run/
+!scripts/fixtures/triage-run/**
