@@ -213,6 +213,8 @@ Do them in order. Do not skip step 3 or step 4.
    been killed by SIGTERM the instant the agent's turn ended, even with the session still open.
    `tmux`'s server process is the only thing proven to survive both. Treat this as mandatory even
    for a run you expect to finish in minutes.
+   If a run stops, start with `bash $BIOINFO_HOME/scripts/triage-run.sh "$NXFDIR"`; it reads the
+   logs, trace, and failed task files without changing the run or its resume cache.
    If a `bioinfo-tech` subagent is available and the estimate exceeds ~1 h, hand steps 5–6 to it and
    resume at step 7 from its handoff — Nextflow logs must not land in the main conversation.
 6. **QC verdict.** Read MultiQC and the pipeline's own metrics. Report PASS / PASS WITH CAVEATS /

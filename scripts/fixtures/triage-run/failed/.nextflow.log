@@ -1,0 +1,12 @@
+Oct-01 10:00:00.000 [Task monitor] ERROR nextflow.processor.TaskProcessor - Error executing process > 'NFCORE_RNASEQ:RNASEQ:FASTQC (sample_A)'
+
+Caused by:
+  Process `NFCORE_RNASEQ:RNASEQ:FASTQC (sample_A)` terminated with an error exit status (137)
+
+Command exit status:
+  137
+
+Work dir:
+  work/ab/cdef1234567890
+
+Execution cancelled -- Finishing pending tasks before exit

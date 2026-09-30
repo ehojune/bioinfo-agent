@@ -1021,6 +1021,8 @@ by waiting.
 
 ## 7. Failure taxonomy
 
+Start with `bash "$BIOINFO_HOME/scripts/triage-run.sh" "$NXFDIR"`; it reports status, counts, and failed-task evidence without modifying the run.
+
 Always start at the work dir named in the error block:
 
 ```bash
