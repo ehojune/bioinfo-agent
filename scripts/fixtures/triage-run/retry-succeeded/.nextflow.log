@@ -1,0 +1,2 @@
+Oct-01 10:00:00.000 [Task monitor] INFO nextflow.processor.TaskProcessor - NOTE: Process `SYNTHETIC_TASK (sample_A)` terminated with an error exit status (137) -- Execution is retried (1)
+Oct-01 10:00:01.000 [main] DEBUG nextflow.script.ScriptRunner - > Execution complete -- Goodbye

@@ -343,49 +343,83 @@ evidence_sources=()
 [[ -n "$SELECTED_LOG" ]] && evidence_sources+=("$SELECTED_LOG")
 [[ -n "$SELECTED_STDOUT" ]] && evidence_sources+=("$SELECTED_STDOUT")
 FAILED_EVIDENCE=0
-CANCELLED_EVIDENCE=0
-SUCCESS_EVIDENCE=0
+TERMINAL_STATUS=""
 if ((${#evidence_sources[@]})); then
   evidence="$(awk '
-    /Error executing process/ || /terminated with an error exit status/ ||
-      /Session aborted -- Cause: Process/ { failed=1 }
-    /Session aborted -- Cause: SIG(INT|TERM)/ || /Execution cancelled/ ||
-      /[Cc]ancelled by user/ || /Received SIG(INT|TERM)/ { cancelled=1 }
-    /Execution complete -- Goodbye/ || /Session complete/ ||
-      /Pipeline completed successfully/ { success=1 }
-    END { printf "%d%c%d%c%d", failed+0,31,cancelled+0,31,success+0 }
+    # Prefer the selected Nextflow log; stdout is a fallback, not a later session.
+    function remember() { if (chosen == "" && terminal != "") chosen=terminal }
+    FNR == 1 { remember(); terminal="" }
+    /Error executing process/ || /terminated with an error exit status/ { failed=1 }
+    /Session aborted -- Cause:/ {
+      if ($0 ~ /Session aborted -- Cause: SIG(INT|TERM)([^[:alnum:]_]|$)/)
+        terminal="cancelled"
+      else terminal="failed"
+      next
+    }
+    /[Cc]ancelled by user/ || /Received SIG(INT|TERM)([^[:alnum:]_]|$)/ {
+      terminal="cancelled"; next
+    }
+    # FINISH errorStrategy also emits this line. Resolve it against task failures below.
+    /Execution cancelled/ {
+      if (terminal != "failed" && terminal != "cancelled") terminal="stopping"
+      next
+    }
+    /Pipeline completed successfully/ { terminal="succeeded"; next }
+    # ScriptRunner.shutdown prints Goodbye even after abort/cancellation. It is only a
+    # successful completion when the session has no terminal abort/cancellation evidence.
+    /Execution complete -- Goodbye/ || /Session complete/ {
+      if (terminal == "") terminal="succeeded"
+    }
+    END { remember(); printf "%s%c%d", chosen,31,failed+0 }
   ' "${evidence_sources[@]}")"
-  IFS=$'\037' read -r FAILED_EVIDENCE CANCELLED_EVIDENCE SUCCESS_EVIDENCE <<< "$evidence"
+  IFS=$'\037' read -r TERMINAL_STATUS FAILED_EVIDENCE <<< "$evidence"
 fi
 
-if ((FAILED_EVIDENCE == 1 || NONCANCEL_FAILED == 1)); then
+if [[ -n "$TERMINAL_STATUS" && "$TERMINAL_STATUS" != stopping ]]; then
+  STATUS="$TERMINAL_STATUS"
+elif ((FAILED_EVIDENCE == 1 || NONCANCEL_FAILED == 1)); then
   STATUS=failed
-elif ((CANCELLED_EVIDENCE == 1)); then
+elif [[ "$TERMINAL_STATUS" == stopping ]]; then
   STATUS=cancelled
 elif ((${#TASK_PROCESS[@]})); then
   STATUS=failed
-elif ((SUCCESS_EVIDENCE == 1)); then
-  STATUS=succeeded
 else
   STATUS=running
 fi
 
 display_count() { [[ -n "$1" ]] && printf '%s' "$1" || printf '?'; }
 
-json_quote() {
-  local value="$1"
-  value=${value//\\/\\\\}
-  value=${value//\"/\\\"}
-  value=${value//$'\b'/\\b}
-  value=${value//$'\f'/\\f}
-  value=${value//$'\n'/\\n}
-  value=${value//$'\r'/\\r}
-  value=${value//$'\t'/\\t}
-  value=${value//$'\v'/\\u000b}
-  value=${value//$'\e'/\\u001b}
-  printf '"%s"' "$value"
+json_strings() {
+  LC_ALL=C awk -v mode="$1" '
+    function escape(value,    i,ch) {
+      for (i=1; i<=length(value); i++) {
+        ch=substr(value,i,1)
+        printf "%s", (ch in escapes) ? escapes[ch] : ch
+      }
+    }
+    BEGIN {
+      for (i=0; i<32; i++) escapes[sprintf("%c",i)]=sprintf("\\u%04x",i)
+      escapes["\\"]="\\\\"; escapes["\""]="\\\""
+      escapes["\b"]="\\b"; escapes["\f"]="\\f"; escapes["\r"]="\\r"; escapes["\t"]="\\t"
+      printf "%s", mode == "lines" ? "[" : "\""
+    }
+    {
+      if (mode == "lines") {
+        if (NR>1) printf ","
+        sub(/\r$/, "")
+        printf "\""; escape($0); printf "\""
+      }
+      else {
+        if (NR>1) printf "\\n"
+        escape($0)
+      }
+    }
+    END { printf "%s", mode == "lines" ? "]" : "\"" }
+  '
 }
 
+# The appended record separator lets awk preserve every newline in the scalar value.
+json_quote() { printf '%s\n' "$1" | json_strings string; }
 json_count() { [[ -n "$1" ]] && printf '%s' "$1" || printf 'null'; }
 
 json_paths() {
@@ -400,17 +434,13 @@ json_paths() {
 }
 
 json_stderr_tail() {
-  local workdir="$1" first=1 line
-  printf '['
+  local workdir="$1"
   if [[ -n "$workdir" && -f "$workdir/.command.err" && -r "$workdir/.command.err" ]]; then
-    while IFS= read -r line || [[ -n "$line" ]]; do
-      line=${line%$'\r'}
-      ((first == 1)) || printf ','
-      json_quote "$line"
-      first=0
-    done < <(tail -n "$TAIL_LINES" "$workdir/.command.err" 2>/dev/null || true)
+    # Stream bytes directly: Bash variables/read would silently discard embedded NUL.
+    { tail -n "$TAIL_LINES" "$workdir/.command.err" 2>/dev/null || true; } | json_strings lines
+  else
+    printf '[]'
   fi
-  printf ']'
 }
 
 if ((JSON == 1)); then

@@ -1,0 +1,3 @@
+task_id	hash	name	status	exit
+1	ab/cdef1234567890	SYNTHETIC_TASK (sample_A)	FAILED	137
+2	cd/abcdef12345678	SYNTHETIC_TASK (sample_A)	COMPLETED	0

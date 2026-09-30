@@ -1,0 +1,2 @@
+Oct-01 10:00:00.000 [Actor Thread 1] DEBUG nextflow.Session - Session aborted -- Cause: Invalid synthetic input
+Oct-01 10:00:01.000 [main] DEBUG nextflow.script.ScriptRunner - > Execution complete -- Goodbye

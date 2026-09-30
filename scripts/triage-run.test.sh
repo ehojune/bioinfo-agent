@@ -11,6 +11,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SRC="$HERE/triage-run.sh"
 FIXTURE="$HERE/fixtures/triage-run/failed"
+FIXTURES="$HERE/fixtures/triage-run"
 [[ -r "$SRC" && -d "$FIXTURE" ]] || { printf 'missing script or fixture\n' >&2; exit 1; }
 FIXTURE_ABS="$(cd "$FIXTURE" && pwd -P)"
 
@@ -27,7 +28,7 @@ snapshot() {
   find "$1" -type f -exec cksum {} \; | sort
 }
 
-before="$(snapshot "$FIXTURE")"
+before="$(snapshot "$FIXTURES")"
 
 output="$(bash "$SRC" "$FIXTURE" 2>&1)"; rc=$?
 [[ $rc -eq 0 ]] && ok 'failed run is a successful triage' || bad "failed run returned $rc"
@@ -65,6 +66,35 @@ output="$(bash "$SRC" "$TMP/succeeded" 2>&1)"; rc=$?
   && contains "$output" 'counts: cached=1 completed=2 failed=0' \
   && ok 'successful run and summary counts' || bad 'successful run classification failed'
 
+output="$(bash "$SRC" "$FIXTURES/validation-aborted" 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && contains "$output" 'status: failed' && contains "$output" 'failed tasks: 0' \
+  && ok 'validation error abort is failed without tasks' || bad 'validation error abort is failed without tasks'
+
+json="$(bash "$SRC" --json "$FIXTURES/retry-succeeded" 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && contains "$json" '"status":"succeeded"' \
+  && contains "$json" '"completed":1,"failed":1' && contains "$json" '"exit_status":137' \
+  && ok 'retry success retains failed attempt' || bad 'retry success retains failed attempt'
+
+mkdir -p "$TMP/ignored/reports"
+printf '%s\n' 'NOTE: Process `SYNTHETIC_TASK (sample_A)` terminated with an error exit status (1) -- Error is ignored' \
+  > "$TMP/ignored/.nextflow.log"
+printf 'name\tstatus\texit\nSYNTHETIC_TASK (sample_A)\tFAILED\t1\n' \
+  > "$TMP/ignored/reports/trace.ignored.txt"
+printf '%s\n' 'Pipeline completed successfully' > "$TMP/ignored/nextflow.stdout.log"
+output="$(bash "$SRC" "$TMP/ignored" 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && contains "$output" 'status: succeeded' && contains "$output" 'failed tasks: 1' \
+  && ok 'ignored failure stdout success retains attempt' || bad 'ignored failure stdout success retains attempt'
+
+# The authoritative session abort must beat both an earlier success and a stale stdout success.
+mkdir -p "$TMP/late-abort"
+printf '%s\n' 'Pipeline completed successfully' 'Session aborted -- Cause: Invalid synthetic input' \
+  'Execution complete -- Goodbye' > "$TMP/late-abort/.nextflow.log"
+printf '%s\n' 'Pipeline completed successfully' > "$TMP/late-abort/nextflow.stdout.log"
+output="$(bash "$SRC" "$TMP/late-abort" 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && contains "$output" 'status: failed' \
+  && ok 'latest session abort overrides earlier and stdout success' \
+  || bad 'latest session abort overrides earlier and stdout success'
+
 mkdir -p "$TMP/cancelled"
 printf '%s\n' 'Session aborted -- Cause: SIGINT' \
   'Execution cancelled -- Finishing pending tasks before exit' > "$TMP/cancelled/.nextflow.log"
@@ -74,6 +104,48 @@ printf 'name\tstatus\texit\nNFCORE_RNASEQ:CANCELLED_TASK (sample_A)\tFAILED\t143
 output="$(bash "$SRC" "$TMP/cancelled" 2>&1)"; rc=$?
 [[ $rc -eq 0 ]] && contains "$output" 'status: cancelled' \
   && ok 'cancelled run' || bad 'cancelled run classification failed'
+
+for signal in SIGINT SIGTERM; do
+  printf '%s\n' 'Process `SYNTHETIC_TASK` terminated with an error exit status (137) -- Execution is retried (1)' \
+    "Session aborted -- Cause: $signal" 'Execution complete -- Goodbye' > "$TMP/cancelled/.nextflow.log"
+  cp "$FIXTURES/retry-succeeded/reports/trace.retry.txt" "$TMP/cancelled/reports/trace.cancelled.txt"
+  output="$(bash "$SRC" "$TMP/cancelled" 2>&1)"; rc=$?
+  [[ $rc -eq 0 ]] && contains "$output" 'status: cancelled' \
+    && ok "$signal cancellation survives historical failure and shutdown" \
+    || bad "$signal cancellation survives historical failure and shutdown"
+done
+
+# Reuse a synthetic BEL stderr fixture, then sweep all control bytes in a disposable copy.
+cp -R "$FIXTURE" "$TMP/controls"
+cp "$FIXTURES/control-stderr/.command.err" "$TMP/controls/work/ab/cdef1234567890/.command.err"
+json="$(bash "$SRC" --json "$TMP/controls" 2>&1)"; rc=$?
+if [[ $rc -eq 0 ]] && printf '%s\n' "$json" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+assert data["failed_tasks"][0]["stderr_tail"] == ["stderr bell \x07"]
+'; then
+  ok 'BEL stderr JSON parses and round-trips'
+else
+  bad 'BEL stderr JSON parses and round-trips'
+fi
+
+for ((code=0; code<32; code++)); do
+  printf -v octal '%03o' "$code"
+  printf 'control %02d: ' "$code"
+  printf '%b' "\\$octal"
+  printf ' end\n'
+done > "$TMP/controls/work/ab/cdef1234567890/.command.err"
+json="$(bash "$SRC" --json --tail 40 "$TMP/controls" 2>&1)"; rc=$?
+if [[ $rc -eq 0 ]] && printf '%s\n' "$json" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+expected = "".join("control %02d: %s end\n" % (i, chr(i)) for i in range(32)).split("\n")[:-1]
+assert data["failed_tasks"][0]["stderr_tail"] == expected
+'; then
+  ok 'all U+0000 through U+001F stderr bytes round-trip in JSON'
+else
+  bad 'all U+0000 through U+001F stderr bytes round-trip in JSON'
+fi
 
 mkdir -p "$TMP/running"
 printf '%s\n' 'Starting process > NFCORE_RNASEQ:RNASEQ:FASTQC (sample_A)' > "$TMP/running/.nextflow.log"
@@ -116,7 +188,7 @@ else
   bad 'script contains CRLF'
 fi
 
-after="$(snapshot "$FIXTURE")"
+after="$(snapshot "$FIXTURES")"
 [[ "$before" == "$after" ]] && ok 'triage left the fixture byte-identical' || bad 'triage changed its input'
 
 printf '\ntriage-run: %d passed, %d failed\n' "$pass" "$fail"
