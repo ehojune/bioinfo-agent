@@ -1,0 +1,23 @@
+name: run triage regression
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/triage-run.sh'
+      - 'scripts/triage-run.test.sh'
+      - 'scripts/fixtures/triage-run/**'
+      - '.github/workflows/triage-run.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Bash syntax
+        run: bash -n scripts/triage-run.sh scripts/triage-run.test.sh
+      - name: Run synthetic read-only regression fixtures
+        run: bash scripts/triage-run.test.sh
