@@ -160,6 +160,7 @@ SV는 HG002만 검증됐고 somatic INDEL recall은 낮습니다. 전체 조건�
 설치는 `bootstrap/05-verify.sh`와 [설치 절차](docs/agent-setup.md), 실행은 다음 명령부터 확인하세요.
 
 ```bash
+NXFDIR=/path/to/run
 bash "$BIOINFO_HOME/scripts/triage-run.sh" --tail 20 "$NXFDIR"
 bash "$BIOINFO_HOME/scripts/triage-run.sh" --json "$NXFDIR"
 ```

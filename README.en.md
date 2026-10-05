@@ -158,6 +158,7 @@ For setup, use `bootstrap/05-verify.sh` and the [setup procedure](docs/agent-set
 For a run:
 
 ```bash
+NXFDIR=/path/to/run
 bash "$BIOINFO_HOME/scripts/triage-run.sh" --tail 20 "$NXFDIR"
 bash "$BIOINFO_HOME/scripts/triage-run.sh" --json "$NXFDIR"
 ```
