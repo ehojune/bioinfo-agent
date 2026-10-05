@@ -84,21 +84,41 @@ pgrep() {
   printf '%s\n' "$SCAN_ARGV" | grep -Eq "$2" && printf '%s\n' "$SCAN_PID"
 }
 cat() {
-  if [[ "$1" == "/proc/$SCAN_PID/comm" ]]; then printf '%s\n' "$SCAN_COMM"; else command cat "$@"; fi
+  if [[ "${SCAN_PID_READ_FAIL:-0}" == 1 && "$1" == "$SCAN_RUN/nextflow.pid" ]]; then
+    return 1
+  elif [[ "$1" == "/proc/$SCAN_PID/comm" ]]; then
+    printf '%s\n' "$SCAN_COMM"
+  else
+    command cat "$@"
+  fi
 }
 ps() {
   if [[ "$*" == "-p $SCAN_PID -o comm=" ]]; then printf '%s\n' "$SCAN_COMM"; else command ps "$@"; fi
 }
-for scenario in head launcher sibling other-root; do
-  SCAN_ARGV="java nextflow -work-dir $SCAN_RUN/work"; SCAN_COMM=java; expected=running
-  case "$scenario" in
-    launcher) SCAN_COMM=tmux; expected=unknown ;;
-    sibling) SCAN_ARGV="java nextflow -work-dir $SCAN_RUN-rerun/work"; expected=unknown ;;
-    other-root) SCAN_ARGV="java nextflow -work-dir /elsewhere/scan.v2+test/work"; expected=unknown ;;
+for pid_case in absent dead malformed multiline unreadable non-file dangling; do
+  rm -rf "$SCAN_RUN/nextflow.pid"
+  SCAN_PID_READ_FAIL=0
+  case "$pid_case" in
+    dead) printf '%s\n' 999999999 > "$SCAN_RUN/nextflow.pid" ;;
+    malformed) printf '%s\n' invalid > "$SCAN_RUN/nextflow.pid" ;;
+    multiline) printf '%s\n' 123 456 > "$SCAN_RUN/nextflow.pid" ;;
+    unreadable)
+      printf '%s\n' "$$" > "$SCAN_RUN/nextflow.pid"
+      SCAN_PID_READ_FAIL=1 ;;
+    non-file) mkdir "$SCAN_RUN/nextflow.pid" ;;
+    dangling) ln -s missing-pid "$SCAN_RUN/nextflow.pid" ;;
   esac
-  json="$(export SCAN_PID SCAN_ARGV SCAN_COMM; export -f pgrep cat ps; bash "$SRC" --json "$SCAN_RUN" 2>&1)"; rc=$?
-  [[ $rc -eq 0 ]] && contains "$json" "\"status\":\"$expected\"" \
-    && ok "run-specific scan: $scenario" || bad "run-specific scan: $scenario"
+  for scenario in head launcher sibling other-root; do
+    SCAN_ARGV="java nextflow -work-dir $SCAN_RUN/work"; SCAN_COMM=java; expected=running
+    case "$scenario" in
+      launcher) SCAN_COMM=tmux; expected=unknown ;;
+      sibling) SCAN_ARGV="java nextflow -work-dir $SCAN_RUN-rerun/work"; expected=unknown ;;
+      other-root) SCAN_ARGV="java nextflow -work-dir /elsewhere/scan.v2+test/work"; expected=unknown ;;
+    esac
+    json="$(export SCAN_PID SCAN_ARGV SCAN_COMM SCAN_PID_READ_FAIL SCAN_RUN; export -f pgrep cat ps; bash "$SRC" --json "$SCAN_RUN" 2>&1)"; rc=$?
+    [[ $rc -eq 0 ]] && contains "$json" "\"status\":\"$expected\"" \
+      && ok "run-specific scan ($pid_case PID): $scenario" || bad "run-specific scan ($pid_case PID): $scenario"
+  done
 done
 unset -f pgrep cat ps
 
@@ -256,12 +276,56 @@ output="$(bash "$SRC" "$TMP/multi" 2>&1)"; rc=$?
   && contains "$output" 'tag: sample_B (retry)' \
   && ok 'every failed task and header-named trace field' || bad 'multiple failed tasks were not reported'
 
+# A root failure and its collateral termination are different trace states.
+mkdir -p "$TMP/aborted/reports"
+printf '%s\n' 'Session aborted -- Cause: synthetic task failure' > "$TMP/aborted/.nextflow.log"
+printf 'name\tstatus\texit\nROOT (sample_A)\tFAILED\t1\nSIBLING (sample_A)\tABORTED\t143\n' \
+  > "$TMP/aborted/reports/trace.aborted.txt"
+output="$(bash "$SRC" "$TMP/aborted" 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && contains "$output" 'failed=1 aborted=1 non_clean=0' \
+  && contains "$output" 'failed tasks: 1' && contains "$output" 'process: ROOT' \
+  && not_contains "$output" 'process: SIBLING' \
+  && ok 'text separates root failure from aborted sibling' || bad 'text separates root failure from aborted sibling'
+json="$(bash "$SRC" --json "$TMP/aborted" 2>&1)"; rc=$?
+if [[ $rc -eq 0 ]] && printf '%s\n' "$json" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+assert data["counts"]["failed"] == 1
+assert data["counts"]["aborted"] == 1
+assert data["counts"]["non_clean"] == 0
+assert [task["process"] for task in data["failed_tasks"]] == ["ROOT"]
+'; then
+  ok 'JSON separates root failure from aborted sibling'
+else
+  bad 'JSON separates root failure from aborted sibling'
+fi
+
+# A non-clean exit with another status is diagnostic evidence, not a FAILED row.
+printf 'status\texit\texit_status\tname\r\nABORTED\t\t143\tSIBLING\r\nUNKNOWN\t\t-1\tNON_CLEAN\r\nRUNNING\t\t1\tLIVE\r\n' \
+  > "$TMP/aborted/reports/trace.aborted.txt"
+printf '%s\n' 'Session aborted -- Cause: SIGTERM' > "$TMP/aborted/.nextflow.log"
+json="$(bash "$SRC" --json "$TMP/aborted" 2>&1)"; rc=$?
+if [[ $rc -eq 0 ]] && printf '%s\n' "$json" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+assert data["status"] == "cancelled"
+assert data["counts"]["failed"] == 0
+assert data["counts"]["aborted"] == 1
+assert data["counts"]["non_clean"] == 1
+assert data["failed_tasks"] == []
+'; then
+  ok 'CRLF exit_status trace keeps non-clean and running rows out of failures'
+else
+  bad 'CRLF exit_status trace keeps non-clean and running rows out of failures'
+fi
+
 mkdir -p "$TMP/empty"
 output="$(bash "$SRC" "$TMP/empty" 2>&1)"; rc=$?
 [[ $rc -eq 0 ]] && contains "$output" 'status: unknown' && contains "$output" 'last log time: (unavailable)' \
   && ok 'readable directory without terminal evidence stays zero' || bad 'empty readable directory failed'
 json="$(bash "$SRC" --json "$TMP/empty" 2>&1)"; rc=$?
 [[ $rc -eq 0 ]] && contains "$json" '"status":"unknown","last_log_time":null' \
+  && contains "$json" '"aborted":null,"non_clean":null' \
   && ok 'empty JSON has unknown state and unavailable time' || bad 'empty JSON has unknown state and unavailable time'
 
 bash "$SRC" "$TMP/does-not-exist" >/dev/null 2>&1; rc=$?
