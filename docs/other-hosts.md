@@ -146,7 +146,8 @@ claude plugin marketplace add ehojune/bioinfo-agent
 claude plugin install bioinfo@bioinfo
 ```
 
-동작 확인된 경로다. 리포를 업데이트하면 `claude plugin marketplace update` 로 따라간다.
+설치 확인은 `claude plugin details bioinfo@bioinfo`, 업데이트는
+`claude plugin update bioinfo@bioinfo`를 사용한다. 설치된 플러그인은 버전별로 캐시된다.
 
 ### (b) 심링크 — 리포를 계속 고칠 때
 

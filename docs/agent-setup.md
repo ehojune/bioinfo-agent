@@ -172,10 +172,10 @@ which the symlink commands above do not; `-NoHook` skips that and `-UninstallHoo
 
 ---
 
-## Procuring a pipeline that is not one of the nine
+## Procuring a pipeline that is not stocked
 
-The skill documents nine pipelines in depth. nf-core has over a hundred. Do not pre-document the
-rest — a table nobody verifies rots into confident misinformation. Procure on demand:
+The stocked set is listed in `config/pipelines.tsv`. Procure other pipelines on demand rather than
+pre-documenting an unverified catalogue:
 
 ```bash
 nf-core pipelines list
@@ -190,11 +190,11 @@ this repo that states a revision — plus `pipeline-selection.md`, `samplesheets
 and any needed rows in `refs.manifest.tsv` so the next machine inherits it. Full procedure:
 [`new-pipeline.md`](../skills/bioinfo-analyze/references/new-pipeline.md).
 
-**When nf-core genuinely has no pipeline** — STR callers like ExpansionHunter, TRGT, HipSTR, and
-most long-read work — run the tool directly. Pin it to a container, record the exact invocation in
-the run log, and say in the handoff that this step was not an nf-core pipeline. This does not
-conflict with the rule against hand-rolling: that rule means *do not rebuild sarek out of bwa and
-samtools when sarek exists*.
+**When nf-core has no suitable pipeline**, propose the alternatives in the plan: an existing
+workflow, a directly run container-pinned tool, or an in-repository pipeline for a reusable tool
+chain. Ask before building one; follow `new-pipeline.md` §7. The stocked PacBio pipeline is an
+example, not a reason to rebuild a supported nf-core workflow. Record the chosen path and exact
+invocation in the run log.
 
 ---
 
