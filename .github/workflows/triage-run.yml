@@ -1,0 +1,20 @@
+name: run triage regression
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Bash syntax
+        run: bash -n scripts/triage-run.sh scripts/triage-run.test.sh
+      - name: Run synthetic read-only regression fixtures
+        run: bash scripts/triage-run.test.sh
+      - name: Check work-directory protection
+        run: bash hooks/guard-workdir.test.sh

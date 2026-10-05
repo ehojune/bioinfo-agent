@@ -145,6 +145,8 @@ SELECTED_REPORT="$(newest "${REPORTS[@]}")"
 COUNT_CACHED=""
 COUNT_COMPLETED=""
 COUNT_FAILED=""
+COUNT_ABORTED=""
+COUNT_NON_CLEAN=""
 if [[ -n "$SELECTED_TRACE" ]]; then
   counts="$(awk -F '\t' '
     NR == 1 {
@@ -161,15 +163,21 @@ if [[ -n "$SELECTED_TRACE" ]]; then
       if (s == "CACHED") cached++
       else if (s == "COMPLETED") completed++
       else if (s == "FAILED") failed++
+      else if (s == "ABORTED") aborted++
+      code = ("exit" in h) ? $(h["exit"]) : ""
+      if (code == "" && "exit_status" in h) code = $(h["exit_status"])
+      sub(/\r$/, "", code)
+      if (s != "FAILED" && s != "ABORTED" && s != "RUNNING" &&
+          code ~ /^-?[0-9]+$/ && code+0 != 0) non_clean++
     }
     END {
-      if (known) printf "%d%c%d%c%d%c1", cached+0, 31, completed+0, 31, failed+0, 31
-      else printf "%c%c%c0", 31, 31, 31
+      if (known) printf "%d%c%d%c%d%c%d%c%d%c1", cached+0,31,completed+0,31,failed+0,31,aborted+0,31,non_clean+0,31
+      else printf "%c%c%c%c%c0", 31,31,31,31,31
     }
   ' "$SELECTED_TRACE")"
-  IFS=$'\037' read -r COUNT_CACHED COUNT_COMPLETED COUNT_FAILED COUNTS_KNOWN <<< "$counts"
+  IFS=$'\037' read -r COUNT_CACHED COUNT_COMPLETED COUNT_FAILED COUNT_ABORTED COUNT_NON_CLEAN COUNTS_KNOWN <<< "$counts"
   if [[ "$COUNTS_KNOWN" != 1 ]]; then
-    COUNT_CACHED=""; COUNT_COMPLETED=""; COUNT_FAILED=""
+    COUNT_CACHED=""; COUNT_COMPLETED=""; COUNT_FAILED=""; COUNT_ABORTED=""; COUNT_NON_CLEAN=""
   fi
 fi
 
@@ -276,7 +284,8 @@ if [[ -n "$SELECTED_TRACE" ]]; then
     {
       status=toupper(value("status"))
       code=value("exit"); if (code == "") code=value("exit_status")
-      if (status != "FAILED" && !(code ~ /^[0-9]+$/ && code != "0" && status != "RUNNING")) next
+      # ABORTED and other non-clean exits are counted separately, never as root failures.
+      if (status != "FAILED") next
       process=value("process")
       tag=value("tag")
       if (process == "") {
@@ -396,13 +405,13 @@ pid_is_live() {
 
 head_is_live() {
   local pid run_pattern comm
-  if [[ -e "$RUN_ABS/nextflow.pid" ]]; then
-    [[ -f "$RUN_ABS/nextflow.pid" && -r "$RUN_ABS/nextflow.pid" ]] || return 1
-    pid="$(cat "$RUN_ABS/nextflow.pid" 2>/dev/null)" || return 1
-    pid="${pid%$'\r'}"
-    pid_is_live "$pid"
-    return
+  if [[ -f "$RUN_ABS/nextflow.pid" && -r "$RUN_ABS/nextflow.pid" ]]; then
+    if pid="$(cat "$RUN_ABS/nextflow.pid" 2>/dev/null)"; then
+      pid="${pid%$'\r'}"
+      if pid_is_live "$pid"; then return 0; fi
+    fi
   fi
+  # A missing, unreadable, malformed or stale PID is no evidence; keep scanning.
   # Same run-path-delimited scan and JVM filter as guard-workdir/runbook. No
   # unfiltered fallback: a tmux server or launcher shell is not a head process.
   command -v pgrep >/dev/null 2>&1 || return 1
@@ -508,6 +517,8 @@ if ((JSON == 1)); then
   printf ',"counts":{"cached":'; json_count "$COUNT_CACHED"
   printf ',"completed":'; json_count "$COUNT_COMPLETED"
   printf ',"failed":'; json_count "$COUNT_FAILED"
+  printf ',"aborted":'; json_count "$COUNT_ABORTED"
+  printf ',"non_clean":'; json_count "$COUNT_NON_CLEAN"
   printf '},"tail":%s' "$TAIL_LINES"
   printf ',"nextflow_logs":'; json_paths "${NEXTFLOW_LOGS[@]}"
   printf ',"stdout_logs":'; json_paths "${STDOUT_LOGS[@]}"
@@ -535,8 +546,9 @@ if [[ "$STATUS" == unknown ]]; then
   printf '  멈춘 것으로 보이나 terminal 표식 없음\n'
 fi
 printf 'last log time: %s\n' "${LAST_LOG_TIME:-(unavailable)}"
-printf 'counts: cached=%s completed=%s failed=%s\n' \
-  "$(display_count "$COUNT_CACHED")" "$(display_count "$COUNT_COMPLETED")" "$(display_count "$COUNT_FAILED")"
+printf 'counts: cached=%s completed=%s failed=%s aborted=%s non_clean=%s\n' \
+  "$(display_count "$COUNT_CACHED")" "$(display_count "$COUNT_COMPLETED")" "$(display_count "$COUNT_FAILED")" \
+  "$(display_count "$COUNT_ABORTED")" "$(display_count "$COUNT_NON_CLEAN")"
 
 printf 'nextflow logs:'
 if ((${#NEXTFLOW_LOGS[@]})); then
