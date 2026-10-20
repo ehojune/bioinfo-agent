@@ -1,0 +1,23 @@
+name: run contract
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require detached-gate test dependency
+        run: command -v tmux
+      - name: Run metadata, patch and detached-gate fixtures
+        run: python3 scripts/run-contract.test.py
+      - name: Check launcher syntax
+        run: bash -n scripts/stub-gate.sh
+      - name: Check workdir guard
+        run: bash hooks/guard-workdir.test.sh

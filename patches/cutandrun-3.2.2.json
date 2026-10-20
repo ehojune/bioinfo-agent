@@ -1,0 +1,11 @@
+{
+  "id": "cutandrun-3.2.2-optional-output",
+  "repository": "https://github.com/nf-core/cutandrun",
+  "revision": "6e1125d4fee4ea7c8b70ed836bb0e92a89e3305f",
+  "path": "modules/local/for_patch/trimgalore/main.nf",
+  "before_sha256": "b5e96bdd70e3d853354316db072bf25bfd1c3691236830db3476bdf280370f7e",
+  "after_sha256": "8974162fedd318ef9e6edd4de910cf724fe5fefe14c07384b5ba8a5ccf2334de",
+  "old": " optional true",
+  "new": ", optional: true",
+  "occurrences": 2
+}
