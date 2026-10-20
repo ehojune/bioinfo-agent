@@ -2,6 +2,8 @@
   <img src="docs/logo.svg" alt="bioinfo-agent" width="440">
 </p>
 
+[![Changelog](https://img.shields.io/badge/patch_notes-changelog-5B5BD6)](patch_notes/README.md)
+
 <p align="center">
   <img src="https://img.shields.io/badge/Claude_Code-skill_%2B_agent-D97757" alt="Claude Code">
   <img src="https://img.shields.io/badge/Nextflow-workflows-0DC09D" alt="Nextflow">
@@ -170,6 +172,6 @@ The agent uses `triage-run.sh` to distinguish run status from failed task attemp
 
 Execution completion, QC and truth-set accuracy are distinct. Examples include GIAB germline, HG008 tumor–normal and real inputs that failed QC. Results apply to the tested revision and inputs.
 
-Researchers can start with the examples above. Reviewers can inspect [evidence and public runs](docs/reference/README.md); operators use [architecture](docs/agent-architecture.md) and [setup](docs/agent-setup.md). AI agents follow the [execution contract](skills/bioinfo-analyze/SKILL.md) and [runbook](skills/bioinfo-analyze/references/runbook.md).
+Researchers can start with the examples above. Reviewers can use the [five-minute check](docs/reviewer-guide.md) and [evidence tables](docs/reference/evidence-tables.md); operators use [architecture](docs/agent-architecture.md) and [setup](docs/agent-setup.md). AI agents follow the [execution contract](skills/bioinfo-analyze/SKILL.md). Detailed sources are in the [reference index](docs/reference/README.md).
 
-[MIT License](LICENSE)
+[Next steps](docs/priorities.md) · [Cite](CITATION.cff) · [MIT License](LICENSE)
