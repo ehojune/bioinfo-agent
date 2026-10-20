@@ -3,14 +3,10 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Claude_Code-skill_%2B_agent-D97757?style=flat-square&logo=anthropic&logoColor=white" alt="Claude Code">
-  <img src="https://img.shields.io/badge/Nextflow-workflow_engine-0DC09D?style=flat-square&logo=nextflow&logoColor=white" alt="Nextflow">
-  <img src="https://img.shields.io/badge/nf--core-9_pipelines-24B064?style=flat-square" alt="nf-core">
-  <img src="https://img.shields.io/badge/Docker_%7C_Apptainer-containers-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Containers">
-  <br>
-  <img src="https://img.shields.io/badge/Linux_%7C_WSL2_%7C_HPC-supported-333333?style=flat-square&logo=linux&logoColor=white" alt="Platforms">
-  <img src="https://img.shields.io/badge/Java-17%2B-ED8B00?style=flat-square&logo=openjdk&logoColor=white" alt="Java 17+">
-  <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT">
+  <img src="https://img.shields.io/badge/Claude_Code-skill_%2B_agent-D97757" alt="Claude Code">
+  <img src="https://img.shields.io/badge/Nextflow-workflows-0DC09D" alt="Nextflow">
+  <img src="https://img.shields.io/badge/nf--core-19_pipelines-24B064" alt="19 nf-core pipelines">
+  <img src="https://img.shields.io/badge/Linux_%7C_WSL2_%7C_HPC-supported-333333" alt="Platforms">
 </p>
 
 <p align="center">
@@ -18,35 +14,17 @@
   <a href="README.en.md">English</a>
 </p>
 
-<p align="center">
-  <a href="#왜-bioinfo-agent인가">특장점</a> ·
-  <a href="#빠른-시작">빠른 시작</a> ·
-  <a href="#실제-세션">실제 세션</a> ·
-  <a href="#직접-설치">직접 설치</a> ·
-  <a href="#사용법">사용법</a> ·
-  <a href="#설계">설계</a> ·
-  <a href="#지원-파이프라인">파이프라인</a>
-</p>
-
 ---
 
-**말로 시킨 bioinformatics 분석을 nf-core Nextflow 파이프라인으로 대신 돌려주는 Claude Code 기반
-에이전트.**
+**데이터 경로와 분석 목적을 말하면 Nextflow 파이프라인을 골라 실행하고 QC 결과를 보고하는 Claude Code 스킬·에이전트다.**
 
-데이터 경로와 하고 싶은 분석을 말하면 된다. 파이프라인을 고르고 샘플시트를 짜서, 예상 시간과
-디스크를 계산한 계획서를 먼저 내놓는다. 승인이 떨어지면 실행하고 지켜보다가, MultiQC를 읽어 QC
-판정까지 돌려준다. **개인 워크스테이션에서 돌고, 공용 서버나 HPC 클러스터에서도 돈다** — 달라지는
-건 컨테이너 엔진과 executor 설정뿐이다.
+샘플시트와 예상 시간·디스크를 `plan.md`에 적고 승인을 기다린다. 승인 후 실행해 QC 판정과 산출물을 `handoff.md`로 인계한다. 개인 PC·WSL2·공용 서버·HPC에 맞춰 환경을 설정한다.
 
-**하지 않는 것**: 생물학적 해석. `NF1 gene isoform NF1-202의 발현 percentage는 18%` 까지가 이 에이전트의 일이고,
-그게 연구에 무슨 의미인지는 사람의 일이다.
+**The Line — 생물학적 해석은 연구자의 몫이다.** 발현량·변이·QC 지표는 보고하지만 그 결과가 연구 가설을 뒷받침하는지는 판단하지 않는다.
 
 <p align="center">
-  <img src="docs/how-it-works.svg" width="664"
-       alt="7단계 절차. 승인 전에 1 접수, 2 파이프라인 선정, 3 계획서. 여기서 사람이 승인한다. 승인 후에 4 사전점검, 5 실행 및 모니터링, 6 QC 판정, 7 인계.">
+  <img src="docs/how-it-works.svg" width="664" alt="접수, 파이프라인 선정, 계획서 뒤 사람이 승인한다. 이후 사전점검, 실행, QC, 인계로 이어진다.">
 </p>
-
----
 
 ## 왜 bioinfo-agent인가
 
@@ -56,20 +34,16 @@
 <tr>
 <td width="50%" valign="top">
 
-<img src="docs/why/card-1.svg" width="100%" alt="계획부터 승인까지: 시간과 디스크까지 먼저 적고, 사람이 승인한 뒤 실행한다">
+<img src="docs/why/card-1.svg" width="100%" alt="계획부터 승인까지: 시간과 디스크를 먼저 적고 사람이 승인한 뒤 실행한다">
 
-**계획부터 승인까지**
-
-파이프라인·샘플시트·시간·디스크를 `plan.md`에 적고 승인 뒤 실행한다. [실행 계약](skills/bioinfo-analyze/SKILL.md) · [추정 기준](skills/bioinfo-analyze/references/estimates.md) · [입력 검사](scripts/check-samplesheet.sh)
+[계획부터 승인까지](#사용법)
 
 </td>
 <td width="50%" valign="top">
 
-<img src="docs/why/card-2.svg" width="100%" alt="어디서나 같은 절차: 워크스테이션부터 HPC까지 engine과 executor만 바꾼다">
+<img src="docs/why/card-2.svg" width="100%" alt="어디서나 같은 절차: 워크스테이션부터 HPC까지 engine과 executor를 맞춘다">
 
-**어디서나 같은 절차**
-
-개인 PC·공용 서버·HPC에서도 같은 흐름을 쓰고 컨테이너 엔진과 executor만 맞춘다. [호스트 설정](docs/agent-setup.md) · [공용 서버·HPC](docs/other-hosts.md)
+[어디서나 같은 절차](docs/agent-setup.md)
 
 </td>
 </tr>
@@ -78,230 +52,124 @@
 
 <img src="docs/why/card-3.svg" width="100%" alt="실패를 읽고 이어간다: 원인을 찾고 resume으로 이은 뒤 MultiQC 지표로 판정한다">
 
-**실패를 읽고 이어간다**
-
-실패 로그를 읽기 전용으로 진단하고 `-resume`으로 잇는다. 끝나면 MultiQC 지표로 QC를 판정한다. [진단 스크립트](scripts/triage-run.sh) · [실행 runbook](skills/bioinfo-analyze/references/runbook.md) · [QC 기준](skills/bioinfo-analyze/references/qc-interpretation.md)
+[실패를 읽고 이어간다](#문제가-생기면)
 
 </td>
 <td width="50%" valign="top">
 
 <img src="docs/why/card-4.svg" width="100%" alt="이미 한 일은 건너뛴다: BAM header와 reference를 맞춰 안전한 시작 단계를 제안한다">
 
-**이미 한 일은 건너뛴다**
-
-기존 BAM의 header와 reference를 대조한 뒤 재사용 가능한 파이프라인 시작 단계를 제안한다. [재사용 규칙](skills/bioinfo-analyze/SKILL.md) · [실제 세션](docs/example-session.svg)
+[이미 한 일은 건너뛴다](#실제-세션)
 
 </td>
 </tr>
 </table>
 
----
-
 ## 빠른 시작
 
-### 스킬만 먼저 써보기 — clone 불필요
+### 스킬과 에이전트 설치 — clone 불필요
+
+[Claude Code](https://code.claude.com/docs/en/setup)가 설치된 터미널에서 두 줄을 실행한다.
 
 ```bash
 claude plugin marketplace add ehojune/bioinfo-agent
 claude plugin install bioinfo@bioinfo
 ```
 
-끝이다. 데이터 경로와 하고 싶은 분석을 말하면 파이프라인 선정, 샘플시트, 소요 추정, 계획서까지
-바로 나온다. `claude` CLI가 없으면 먼저 `curl -fsSL https://claude.ai/install.sh | bash`.
+데이터 경로와 분석 목적을 말하면 파이프라인 선정과 계획서 작성부터 시작한다. 업데이트는 `claude plugin update bioinfo@bioinfo`다. **플러그인과 `install.ps1`·심링크 설치 중 한 경로만 쓴다.**
 
-> **설치 경로는 둘 중 하나만.** 위의 `claude plugin` 과 Windows용 `install.ps1` 은 같은 일을 하는
-> 두 방법이다. 둘 다 쓰면 스킬과 에이전트가 두 번 등록된다.
+### 실제 실행 환경 준비
 
-> **업데이트는 `claude plugin update bioinfo@bioinfo`.** 설치된 플러그인은
-> `~/.claude/plugins/cache/bioinfo/bioinfo/<version>/` 처럼 **버전 이름 디렉터리**에 캐시된다.
-> repo에 머지된 스킬 수정은 버전이 올라가야 이미 설치된 쪽에 도달한다 — 2026-08-10에 실제로
-> 캐시된 0.1.0의 `runbook.md`가 repo보다 117줄 뒤처져 있었고, 그 상태로 실행 중이던 에이전트가
-> 머지된 수정 이전의 절차를 그대로 따랐다. `scripts/check-plugin-version.sh` 가 이 드리프트를
-> PR 단계에서 막는다.
+Nextflow·컨테이너·레퍼런스가 필요하다. 직접 세팅하지 않아도 된다. Claude Code에 다음처럼 요청한다.
 
-### 실제로 파이프라인을 돌리려면
-
-Nextflow, 컨테이너 엔진, 레퍼런스가 필요하다. **직접 세팅하지 말고 Claude Code에게 시키면 된다.**
-
-```
+```text
 https://github.com/ehojune/bioinfo-agent
-이거 clone 하고 내 환경에서 쓸 수 있게 설정해줘.
+이거 clone 하고 내 환경에서 파이프라인을 돌릴 수 있게 설정해줘.
 ```
 
-Claude가 [docs/agent-setup.md](docs/agent-setup.md)를 따라 호스트 종류(개인 PC / 공용 서버 /
-클러스터)를 판별하고 필요한 스크립트만 골라 돌린 뒤, 무엇이 준비됐고 무엇이 빠졌는지 보고한다.
-손으로 하려면 [직접 설치](#직접-설치)로.
+에이전트가 호스트와 권한을 확인해 설치 절차를 제안한다. 대용량 분석은 홈 쿼터 밖에 작업 공간을 잡고 필요한 용량은 계획서에서 계산한다.
 
-> 어느 쪽이든 **디스크가 필요하다.** 작업 공간 500GB 이상을 `$HOME` 이 아닌 큰 디스크에 잡는다.
-> 사람 게놈 레퍼런스만 30GB대, 중간 산출물은 최종 결과의 몇 배로 부푼다.
-
----
+직접 설치·권한·다운로드 범위는 [설치 가이드](docs/agent-setup.md)와 [다른 호스트](docs/other-hosts.md)를 따른다.
 
 ## 실제 세션
 
 <p align="center">
-  <img src="docs/example-session.svg" width="880"
-       alt="Claude Code 세션 예시. 한 줄 요청으로 시작해 에이전트가 디렉토리와 BAM 헤더를 직접 확인하고, 기존 정렬 결과를 재사용해 수십~수백 시간을 절약할 수 있다고 판단한 뒤, 산출물 범위를 사람에게 물어본다.">
+  <img src="docs/example-session.svg" width="880" alt="한 줄 요청에서 시작해 디렉터리와 BAM header를 확인하고 기존 정렬 결과의 재사용을 제안한 실제 세션. 재정렬 시간은 추정치다.">
 </p>
 
-Y-STR 프로젝트에서 실제로 오간 세션이다. 눈여겨볼 곳은 **묻지 않은 것을 먼저 확인했다는 점**이다.
-`fastq로 WGRS 분석해줘` 한 줄에서 출발했는데, 예전에 손으로 돌려둔 `sorted.bam` 의 헤더를 열어 정렬
-기준까지 대조한 끝에 90~270시간짜리 재정렬을 건너뛰고 `--step markduplicates` 로 재진입하는 안이
-나왔다. **그리고 거기서 멈추고 물어본다.**
+Y-STR 프로젝트에서 실제로 오간 세션이다. **묻지 않은 것을 먼저 확인했다는 점**을 보자. `fastq로 WGRS 분석해줘`라는 요청에서 출발했는데, 예전에 만든 `sorted.bam`의 header와 정렬 reference를 대조하고 중복 마킹 단계부터 재진입하는 안을 냈다. **그리고 멈춰서 산출물 범위를 물었다.**
 
----
+90–270시간은 재정렬 **예상 시간**이며 실측 절감량은 아니다.
 
 ## Nextflow와 nf-core
 
-**[Nextflow](https://www.nextflow.io/)** ([문서](https://docs.seqera.io/nextflow/)) 는 각 단계를
-컨테이너에서 돌리고 중간 결과를 캐시한다. 그래서 재현되고, `-resume` 으로 재개되고, 어디서든 돈다.
-**[nf-core](https://nf-co.re/)** ([목록](https://nf-co.re/pipelines)) 는 그 위에서 규약을 통일한
-커뮤니티 표준 파이프라인 150여 개다.
+**[Nextflow](https://www.nextflow.io/)**는 분석 단계를 연결하고 컨테이너 실행과 중간 결과 캐시를 관리하는 워크플로 엔진이다. 실패 뒤 `-resume`으로 캐시를 재사용한다. **[nf-core](https://nf-co.re/pipelines)**는 Nextflow 위에 공통 규약으로 만든 생물정보학 파이프라인 모음이다.
 
 ```bash
 nextflow run nf-core/rnaseq -r 3.18.0 -profile docker --input samplesheet.csv --outdir results
 ```
 
-이 한 줄이 QC → 트리밍 → 정렬 → 정량 → 리포트를 전부 처리한다. **이 에이전트는 그 한 줄을 대신
-조립하고, 돌리고, 결과를 읽어준다.** 파이프라인 버전은 [`config/pipelines.tsv`](config/pipelines.tsv)
-가 정하고, 실행 전에 대조한다. 위 예시처럼 문서에 적힌 리비전은 복사본이다.
-
----
-
-## 직접 설치
-
-빠른 시작으로 충분하면 건너뛴다. 요구사항은 Linux 또는 WSL2, Docker **또는**
-Apptainer/Singularity, Java 17+, 그리고 `$HOME` 이 아닌 큰 디스크의 작업 공간 500GB 이상.
-
-아래는 root가 있는 개인 워크스테이션 기준이다. **root 없는 공용 서버나 HPC 클러스터는
-[docs/other-hosts.md](docs/other-hosts.md)** — Docker 대신 Apptainer, `$HOME` 밖 캐시, 스케줄러
-설정, 낮춘 상한. 클러스터 헤드노드에서 `local` 로 돌리는 건 대부분 금지 사항이니 확인하고 시작한다.
-
-### 1. 기반 구축
-
-```bash
-git clone https://github.com/ehojune/bioinfo-agent.git ~/bioinfo-agent
-cd ~/bioinfo-agent
-cp config/host.env.example config/host.env   # 배포판 이름, 경로, 자원 상한을 이 머신 값으로
-set -a; . config/host.env; set +a
-
-sudo -E bash bootstrap/01-wsl-base.sh   # Windows라면 00-windows-wsl.ps1 이 먼저
-sudo -E bash bootstrap/02-docker.sh
-bash bootstrap/03-nextflow.sh    # ~/.config/bioinfo/env.sh 를 쓴다. root로 돌리면 거부한다
-bash bootstrap/06-tls-trust.sh   # 04보다 먼저. 레퍼런스를 받으려면 TLS가 살아 있어야 한다
-bash bootstrap/04-refs.sh
-bash bootstrap/05-verify.sh      # READY 를 찍기 전엔 설치가 끝난 게 아니다
-```
-
-전부 멱등이라 다시 돌려도 안전하다. **01·02는 root, 03·04·05·06은 파이프라인 사용자**로 돈다 —
-01은 root가 아니면, 03은 root면 거부한다. 어느 스크립트를 누구로 돌리고 어느 호스트에서 무엇을
-건너뛰는지는 [docs/agent-setup.md](docs/agent-setup.md) 의 표에 있다.
-
-> **WSL 사용자 필독** — `.wslconfig` 를 반드시 설정한다(`config/wslconfig.example` 참고). 없으면
-> WSL2가 호스트 RAM의 50%만 잡는데 사람 STAR 인덱스 빌드는 ~38GB를 요구한다. 경고 없이 OOM으로
-> 죽고 `exit 137` 만 남는다. 값 뒤 인라인 주석을 못 받으니 주석은 별도 줄로.
-
-### bootstrap이 가져가는 권한
-
-`01-wsl-base.sh` 는 파이프라인 사용자에게 배포판 안에서 **암호 없는 sudo**를 준다
-(`/etc/sudoers.d/90-bioinfo-nopasswd`). `02-docker.sh` 는 그 사용자를 **docker 그룹**에 넣는데,
-데몬이 root로 도는 이상 docker 그룹은 실질적으로 root 권한이다. 무인 설치와 컨테이너 실행을 위한
-것이고, 파이프라인 전용 WSL 배포판 안에서만 유효하다. 사람이 여럿 쓰는 머신이라면 01·02를 돌리지
-말고 관리자에게 맡긴다.
-
-### 2. 스킬·에이전트 등록
-
-Claude Code의 스킬과 에이전트는 **로컬 파일**이라 Anthropic 계정을 따라다니지 않는다. [빠른
-시작](#빠른-시작)의 `claude plugin` 두 줄이 설치의 전부고, `claude plugin details bioinfo@bioinfo`
-로 확인한다. 리포를 직접 고칠 거라면 대신 `~/.claude/skills`, `~/.claude/agents` 에 심링크를 건다
-(Windows는 심링크에 관리자 권한이 필요해 `install.ps1` 이 정션을 쓴다). **두 방식을 겹치지 말 것.**
-
----
+이 한 줄이 QC → 트리밍 → 정렬 → 정량 → 리포트를 처리한다. **에이전트는 내 입력과 환경에 맞는 명령을 조립하고 실행한 뒤 결과를 읽어준다.** 버전 기준은 [`config/pipelines.tsv`](config/pipelines.tsv)이며 실행 전에 대조한다.
 
 ## 사용법
 
-스킬이 트리거로 자동 발동한다. 별도 명령이 없다.
+별도 명령 대신 분석 목적을 말한다. 예를 들면:
 
+```text
+~/data/rnaseq에 마우스 간조직 paired-end FASTQ가 있어. 대조군 4샘플, 처리군 4샘플이야.
+발현 차이를 보고 싶어. 입력을 확인하고 예상 시간과 디스크를 포함한 계획서를 먼저 보여줘.
 ```
-~/data/rnaseq 에 FASTQ 8개 있어. 마우스 간조직, 대조군 4 처리군 4.
-발현 차이 보고 싶어.
+
+```text
+기존 정렬 BAM이 /data/wgs에 있어. germline 변이를 찾고 싶어.
+정렬을 재사용해도 되는지 확인하고 bioinfo-tech 에이전트에게 실행을 맡겨줘.
 ```
 
-긴 실행은 에이전트에 위임한다 — `bioinfo-tech 에이전트한테 sarek 돌리라고 해줘`. `nextflow run`
-은 로그를 수만 줄 뱉는데, 서브에이전트 안에서 돌면 그게 거기서 소화되고 결론만 돌아온다.
+| 내가 확인할 것 | 받는 결과 |
+|---|---|
+| 분석 질문·입력 경로·종·게놈 빌드·실험 설계 | 입력 확인과 파이프라인 제안 |
+| `plan.md`의 분석 범위·재사용 여부·자원 추정치 | 승인 후 사전점검과 실행 |
+| QC 판정과 미해결 항목 | `handoff.md`, 결과 위치, 재현 명령과 로그 |
 
-> **긴 실행은 반드시 `tmux`로 띄운다 — 창을 열어두는 것만으로는 부족하다.** WSL은 마지막 세션이
-> 닫히면 배포판을 내려버려서 `nohup … &`로 띄운 작업이 로그 한 줄 없이 사라지고, 별개로 에이전트가
-> 자기 안에서 백그라운드로 띄운 뒤 따로 기다리는 방식도 — 세션이 안 닫혀도 — 에이전트 턴이 끝나는
-> 순간 죽는 게 이 저장소에서 실제로 두 번 확인됐다. `tmux` 서버 프로세스만 둘 다에서 살아남는다.
-> 자세한 건 [runbook.md](skills/bioinfo-analyze/references/runbook.md) 5절.
-
-주면 좋은 것: 데이터 절대경로, 샘플 수·형식, 종·게놈 빌드, **실제 질문**("희귀변이 찾기" 인지
-"발현 차이" 인지에서 파이프라인이 갈린다), 설계, 시간 허용치, 기존 산출물. 경로만 줘도 시작한다 —
-직접 세어보고 나머지를 추정한다. **요청이 모호하면 되묻고 멈춘다.**
-
----
-
-## 설계
+긴 실행은 에이전트가 `tmux`에서 관리한다. 직접 조작할 필요는 없지만 재부팅·WSL 종료를 견디지는 못한다. 끊긴 실행은 보관된 캐시에서 재개를 검토한다.
 
 ### 왜 시키지 않은 조사를 먼저 하는가
 
-실제 분석 환경의 변수, 주로 human error를 통제하려는 것이다. **실행 환경**(Docker가 떠 있나,
-디스크가 추정치의 1.5배 있나, 레퍼런스 경로가 풀리나)과 **입력 파일**(샘플 수, 페어링, 압축 여부,
-리드 길이)을 설명이 아니라 실물에서 확인한다. "12샘플 paired-end"라고 들었는데 실제로는 9개인 일이
-흔하고, 그건 12시간 뒤가 아니라 지금 알아야 한다.
+설명과 실제 파일이 다르면 분석도 달라진다. “12샘플 paired-end”라고 했는데 파일은 9샘플뿐이라면 실행 전에 알아야 한다. 에이전트는 파일 수·페어링·압축 상태와 컨테이너·디스크·레퍼런스 경로를 먼저 확인한다.
 
-그 일은 **에이전트 루프**가 맡는다. 자기 컨텍스트 창과 도구 권한이 따로 있는 인스턴스가 관찰 →
-판단 → 실행을 반복한다. 단 **1~3단계는 읽기 전용**이라 `ls`, `du`, `file`, FASTQ 헤더 몇 줄까지다.
-50GB BAM은 열지 않고 존재만 기록하며, 검증은 `plan.md` 항목이 된다.
-
-3층 구조(기반·스킬·에이전트)를 나눈 이유, 레퍼런스 매니페스트, 가드레일 전체 목록은
-**[docs/agent-architecture.md](docs/agent-architecture.md)** 에 있다. 처음 쓸 때 몰라도 되고,
-나중에 확인해도 늦지 않다.
-
----
+**승인 전에는 읽기 전용 확인만 한다.** BAM header와 기존 index는 재사용 가능성을 판단하는 데 쓰지만 전체 파일을 훑는 통계 계산이나 분석은 승인 뒤에 한다. 요청이 모호하거나 근거가 부족하면 질문하고 멈춘다.
 
 ## 지원 파이프라인
 
-문서화된 9개. 고정 리비전은 [`config/pipelines.tsv`](config/pipelines.tsv), 샘플시트 컬럼은
-[samplesheets.md](skills/bioinfo-analyze/references/samplesheets.md), 자원 추정과 QC 기준과 실패
-유형은 [`skills/bioinfo-analyze/references/`](skills/bioinfo-analyze/references/) 에 있다.
+**nf-core 19개와 자체 파이프라인 1개**를 준비했다. 모든 옵션·규모를 검증했다는 뜻은 아니다. 고정 버전은 [`config/pipelines.tsv`](config/pipelines.tsv), 검증 범위는 [참고 자료](docs/reference/README.md)에서 확인한다.
 
-| 파이프라인 | 용도 | 주 산출물 |
+| 분석 목적 | nf-core 파이프라인 | 주 결과·준비 범위 |
 |---|---|---|
-| **rnaseq** | bulk RNA-seq 정량 | `salmon.merged.gene_counts.tsv` |
-| **differentialabundance** | 발현 차이 (DESeq2) | HTML 리포트, DE 결과표 |
-| **fetchngs** | 공개 데이터 수집 (`SRR`, `PRJNA`, `GSE`) | FASTQ + 다음 단계용 샘플시트 |
-| **sarek** | germline / 체세포 변이 | VCF, 정렬 CRAM |
-| **methylseq** | 메틸화 (WGBS/RRBS/EM-seq) | CpG 메틸화율, 전환율 |
-| **atacseq** | 염색질 접근성 | consensus peak, bigWig |
-| **chipseq** | ChIP-seq | peak, FRiP |
-| **cutandrun** | CUT&RUN / CUT&Tag | peak (SEACR/MACS2) |
-| **scrnaseq** | 단일세포 RNA | count matrix, h5ad |
+| 전사체·스플라이싱 | **rnaseq** · **differentialabundance** · **rnasplice** | bulk RNA 정량, 발현 차이, SUPPA2 스플라이싱 |
+| 유전체·변이 | **sarek** · **raredisease** | germline·체세포 변이; raredisease는 정렬·QC·일부 변이 호출, 전체 임상 주석은 별도 준비 |
+| 후성유전체 | **methylseq** · **atacseq** · **chipseq** · **cutandrun** | 메틸화율, 접근성·결합 peak, CUT&RUN/CUT&Tag |
+| 단일세포·공간전사체 | **scrnaseq** · **spatialaxe** | count matrix; Xenium 좌표 기반 segmentation·QC |
+| 메타게놈·미생물·바이러스 | **ampliseq** · **mag** · **taxprofiler** · **bacass** · **viralrecon** | 16S/ITS, MAG, Kraken2 분류, short-read 세균 조립, Illumina amplicon consensus·변이 |
+| 롱리드 DNA·전사체 | **nanoseq** · **isoseq** | basecalled ONT DNA QC·정렬(메틸화 미준비), PacBio Iso-Seq gene/transcript 모델 |
+| 공공데이터 수집 | **fetchngs** | FASTQ와 다음 단계용 샘플시트 |
 
-나머지 nf-core 파이프라인도 요청하면 그때 조달한다. nf-core에 없는 ExpansionHunter, TRGT, HipSTR
-같은 도구는 직접 돌리되 버전을 컨테이너로 고정하고 실행 기록에 남긴다. PacBio HiFi 는 저장소 안 파이프라인
-[`pipelines/pacbio-hifi-wgs`](pipelines/pacbio-hifi-wgs/)가 맡는다 — germline 변이·위상·SV, 그리고
-0.2.0 부터 정렬된 BAM 에서의 tumor–normal somatic SNV/indel(DeepSomatic, CPU). **커버하지 않는 것**:
-ONT 롱리드 파이프라인, 그리고 생물학적 해석.
+**자체 [`pacbio-hifi-wgs`](pipelines/pacbio-hifi-wgs/)**는 PacBio subreads·HiFi BAM/FASTQ·정렬 BAM에서 germline SNV/indel·SV·phasing을 수행한다. 정렬된 tumor–normal BAM의 DeepSomatic 경로도 있다. CLR은 별도 입력 경로이며 small-variant 결과는 탐색용이다. 입력·caller별 한계는 해당 파이프라인 README를 따른다.
 
----
+목록 밖의 파이프라인은 요청 시 준비하고 검증한다. 생물학적 해석은 지원 범위에 포함하지 않는다.
 
 ## 문제가 생기면
 
-```bash
-bash bootstrap/05-verify.sh
+```text
+이 실행이 멈춘 것 같아. 로그와 trace를 읽기 전용으로 진단하고 재개 방안을 알려줘.
+/data/run-directory
 ```
 
-전 계층을 훑고 항목별 판정을 찍는다. 실행 중 실패는
-[runbook.md](skills/bioinfo-analyze/references/runbook.md), 설치 중 실패는 — 신뢰 저장소 셋을 다
-고쳐야 하는 사내망 TLS 검사를 포함해 — [docs/agent-setup.md](docs/agent-setup.md) 에 있다. 누구나
-한 번은 밟는 셋: 중간에 죽었으면 `-resume` 이고 **work 디렉토리는 절대 지우지 않는다**. 스킬이 두
-번 등록됐으면 플러그인과 `install.ps1`/심링크를 같이 쓴 것이다. 실행이 로그 한 줄 없이 사라졌으면
-`nohup` 으로 띄운 것이다.
+에이전트는 `triage-run.sh`로 종료 상태와 실패 task를 구분한다. **작업 디렉터리를 지우지 않는다.** 캐시가 남아 있어야 `-resume`으로 이어갈 수 있다. 설치 점검과 직접 진단 명령은 [운영 참고](docs/reference/maintenance.md)에 있다.
 
----
+## 검증과 문서
 
-## 라이선스
+실행 완료, QC 통과, truth-set 정확도는 서로 다른 근거다. 공개 예제에는 GIAB germline·HG008 tumor–normal 검증과 QC에 실패한 실제 입력도 포함한다. 특정 버전·입력에서 얻은 결과를 모든 데이터에 일반화하지 않는다.
 
-[MIT](LICENSE)
+연구자는 위 사용 예시부터 시작한다. 심사위원은 [검증 근거·공개 예제](docs/reference/README.md), 운영자는 [아키텍처](docs/agent-architecture.md)와 [설치](docs/agent-setup.md), AI는 [실행 계약](skills/bioinfo-analyze/SKILL.md)과 [runbook](skills/bioinfo-analyze/references/runbook.md)을 따른다.
+
+[MIT License](LICENSE)
