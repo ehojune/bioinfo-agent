@@ -26,10 +26,12 @@ the params file wins otherwise, so without the override this fails at the same p
 gets its own `$STUBDIR`, per runbook section 4:
 
 ```bash
-STUBDIR=$STUBROOT/concrete-strand          # NOT the same tree as the auto attempt
+STUBLABEL=concrete-strand                 # a NEW helper label, not main
+STUBDIR=$STUBROOT/$STUBLABEL               # NOT the same tree as the auto attempt
 mkdir -p "$STUBDIR"
 sed 's/,auto$/,reverse/' "$RUNDIR/samplesheet.csv" > "$STUBDIR/samplesheet.stub.csv"
-# ... then re-run the -stub-run invocation in runbook section 4 with the new $STUBDIR, plus:
+# ... then re-run the helper launch/status commands in runbook section 4 with
+# this $STUBLABEL and $STUBDIR (do not reset them to main), plus:
 #   --input "$STUBDIR/samplesheet.stub.csv"
 ```
 

@@ -12,7 +12,7 @@ indels, SVs, CNVs → annotated VCF. WGS and WES. Tumour–normal and tumour-onl
 germline genotyping.
 
 **Not for:** expression of any kind. Not for RNA variant calling (no STAR 2-pass / SplitNCigarReads
-path). Not for repeat expansions or STR genotyping — **see §6, this matters for this user.** Not
+path). Not for repeat expansions or STR genotyping — read [repeat-expansion scope](../repeat-expansion.md). Not
 for de novo assembly. Not for long reads. Not for methylation. Not a substitute for
 `nf-core/raredisease` (`references/pipelines/raredisease.md`) when the actual goal is a pedigree-ranked rare-disease candidate
 list — sarek has no HPO/pedigree-aware ranking layer at all; see `references/pipelines/raredisease.md`'s comparison table.
@@ -30,13 +30,13 @@ source of sarek failures. Columns for every step: `references/samplesheets.md`.
 
 | param | value | why |
 |---|---|---|
-| `--step` | `mapping` \| `markduplicates` \| `recalibrate` \| `variant_calling` \| `annotate` | restart point; see §5.3 |
+| `--step` | `mapping` \| `markduplicates` \| `recalibrate` \| `variant_calling` \| `annotate` | restart point; see [sarek restarts](../workflow-chains.md#53-sarek-step-restarts) |
 | `--tools` | `haplotypecaller` germline; `mutect2,strelka,manta` somatic; add `ascat`/`cnvkit` for CNV; `snpeff` or `vep` to annotate | **empty `--tools` = preprocessing only**, which is exactly what you want before an STR caller |
 | `--wes` + `--intervals <capture.bed>` | for exomes | without the capture BED, WES coverage QC and calling are both wrong |
 | `--joint_germline` | cohorts | GenomicsDBImport + joint genotyping; much heavier than per-sample |
 | `--skip_tools baserecalibrator` | **when the GATK bundle is absent** | BQSR needs dbsnp + known_indels; see below |
 | `--genome null` + explicit refs | always here | do **not** use `--genome GATK.GRCh38`; it triggers a large iGenomes download and bypasses the store |
-| `--save_output_as_bam` | when a downstream tool cannot read CRAM | HipSTR in particular — §6 |
+| `--save_output_as_bam` | when a downstream tool cannot read CRAM | HipSTR in particular — [repeat-expansion scope](../repeat-expansion.md) |
 
 **Reference-store paths:**
 

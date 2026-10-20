@@ -25,7 +25,7 @@ analysis. Not for single-cell ATAC.
 | `--aligner` | `bowtie2` | the ATAC convention. **Confirmed 2026-08-05 (atacseq 2.1.2): the pipeline's own default is `bwa`, not `bowtie2`** — this is a bounded choice you make explicitly, not the tool defaulting your way. `chromap` is much faster if you accept its filtering behaviour |
 | `--read_length` | actual read length | selects the matching index/mappability settings |
 | `--macs_gsize` | `2700000000` for human — **plain decimal, not `2.7e9`** | wrong gsize silently distorts every peak call. Confirmed 2026-08-05 (atacseq 2.1.2): nf-schema's number-type validation rejects scientific-notation CLI strings outright (`expected type: Number, found: String (2.7e9)`), which fails the run before anything executes — not a silent distortion this time, but still worth getting right on the first `-stub-run` rather than the second |
-| `--blacklist` | ENCODE hg38 blacklist v2 | confirmed bundled at `assets/blacklists/v2.0/hg38-blacklist.v2.bed` (atacseq 2.1.2); byte-identical to the store's own `genomes/GRCh38/bed/blacklist.bed` (added 2026-08-05, see §9) — not having one leaves a ring of artefact peaks |
+| `--blacklist` | ENCODE hg38 blacklist v2 | confirmed bundled at `assets/blacklists/v2.0/hg38-blacklist.v2.bed` (atacseq 2.1.2); byte-identical to the store's own `genomes/GRCh38/bed/blacklist.bed` (added 2026-08-05, see [reference history](evidence/reference-store-history.md)) — not having one leaves a ring of artefact peaks |
 | `--mito_name` | `chrM` | must match the FASTA. UCSC hg38 uses `chrM`. Getting this wrong means mito reads are never removed and the library looks far better than it is |
 | `--min_reps_consensus` | 1 or 2 | how many replicates a peak must appear in to enter the consensus set. **This is a bounded choice — state it in the handoff** |
 
@@ -35,7 +35,7 @@ analysis. Not for single-cell ATAC.
 $BIOINFO_REFS/genomes/GRCh38/fasta/genome.fa
 $BIOINFO_REFS/genomes/GRCh38/gtf/genes.gtf.gz
 $BIOINFO_REFS/genomes/GRCh38/index/bowtie2/      manifest row present (build mode) — index itself absent until a --save_reference run builds it
-$BIOINFO_REFS/genomes/GRCh38/bed/blacklist.bed   present — added 2026-08-05, see §9
+$BIOINFO_REFS/genomes/GRCh38/bed/blacklist.bed   recorded 2026-08-05; verify current manifest dry-run
 ```
 
 **Key outputs:** `<aligner>/merged_library/macs2/narrow_peak/` per-sample peaks, the consensus peak

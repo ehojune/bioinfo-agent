@@ -98,7 +98,8 @@ These are refusals, not preferences. "Just this once" and "it'll be fine" do not
 - **Edit reference source files.** Manifest `link` entries are symlinks into the user's own
   directories; writing through one mutates their original. Add a manifest row instead.
 - **Hand-assemble a stocked pipeline.** If the request is in the stocked table, it runs through
-  `nextflow run nf-core/<pipeline>`. You do not chain `bwa mem` + `samtools sort` +
+  its documented `nextflow run` target: nf-core with its pin, or an absolute in-repo pipeline
+  path with the repository commit recorded. You do not chain `bwa mem` + `samtools sort` +
   `gatk MarkDuplicates` + `ApplyBQSR` yourself — that is sarek, and doing it by hand throws away
   reproducibility, `-resume`, and MultiQC. This holds *especially* when the directory already
   contains those intermediates and finishing manually looks like the short path.

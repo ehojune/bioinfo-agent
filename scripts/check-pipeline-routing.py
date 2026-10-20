@@ -60,6 +60,13 @@ def check(root: Path) -> list[str]:
             dest = (p.parent / unquote(uri.path)).resolve()
             if not dest.is_relative_to(root.resolve()) or not dest.is_file():
                 errors.append(f"{p.relative_to(root)}: broken local link {target}")
+            elif uri.fragment:
+                headings = re.findall(r"^#{1,6}\s+(.+?)\s*#*\s*$",
+                                      dest.read_text(encoding="utf-8"), re.MULTILINE)
+                anchors = {re.sub(r"[^\w -]", "", heading.lower()).replace(" ", "-")
+                           for heading in headings}
+                if unquote(uri.fragment) not in anchors:
+                    errors.append(f"{p.relative_to(root)}: missing heading anchor {target}")
     return errors
 
 

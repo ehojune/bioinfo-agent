@@ -25,7 +25,7 @@ cells with no obvious error.
 |---|---|---|
 | `--aligner` | `star` (STARsolo) or `simpleaf`/`alevin` | avoids the Cell Ranger licensing/container problem <!-- UNVERIFIED: whether the current revision ships a usable cellranger container or requires the user to build one under the 10x EULA. Check the pipeline's usage docs before promising cellranger. --> |
 | `--protocol` | `10XV3` / `10XV2` / `auto` | wrong chemistry = wrong barcode whitelist = no cells |
-| `--star_feature` | `GeneFull` for **single-nucleus** | nuclei are intron-dominated; counting exons only discards most of the signal. This is the snRNA adjustment (§7) |
+| `--star_feature` | `GeneFull` for **single-nucleus** | nuclei are intron-dominated; counting exons only discards most of the signal. Read [selection boundaries](../selection-boundaries.md) |
 | `--expected_cells` | per sample | affects the emptyDrops/knee cutoff |
 | `--skip_emptydrops` | when you want the raw matrix and will filter yourself | |
 

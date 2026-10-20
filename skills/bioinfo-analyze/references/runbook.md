@@ -105,8 +105,8 @@ Two Windows-side settings that decide whether a long run survives. Run these fro
 from inside the distro — `appendWindowsPath=false` means `wsl.exe` and `powercfg.exe` are not on the
 distro's `PATH` (reach them at `/mnt/c/Windows/System32/…` if you must).
 
-- **WSL memory ceiling.** Compare the actual VM memory with the approved workload and configured pool. That is below
-  what a human STAR index build wants (~40 GB) and well below comfortable for sarek. Check inside
+- **WSL memory ceiling.** Compare the actual VM memory with the approved workload and configured pool.
+  If it cannot fit the planned task plus headroom, adjust the budget before launch. Check inside
   the distro with `free -g`; adapt `config/wslconfig.example` to the host before applying it to
   `%USERPROFILE%\.wslconfig` — it is the tested source for the VM budget — then `wsl --shutdown`
   from PowerShell and restart the distro. Leaving the balance to Windows is not optional; starving
@@ -232,18 +232,19 @@ separate stub work/output paths. It does not reduce task count or authorize skip
 ```bash
 NXFDIR=${NXF_WORKROOT:-$BIOINFO_WORK/nxf}/$RUNID
 STUBROOT=$BIOINFO_WORK/tmp/stub-$RUNID
-STUBDIR=$STUBROOT/main
+STUBLABEL=main                         # choose a fresh label for every attempt
+STUBDIR=$STUBROOT/$STUBLABEL
 mkdir -p "$NXFDIR" "$STUBDIR"
-bash "$BIOINFO_HOME/scripts/stub-gate.sh" launch "$NXFDIR" main -- \
+bash "$BIOINFO_HOME/scripts/stub-gate.sh" launch "$NXFDIR" "$STUBLABEL" -- \
   nextflow run nf-core/rnaseq -r 3.18.0 -profile docker \
   -params-file "$RUNDIR/params.yaml" \
   -c "$BIOINFO_HOME/config/local.config" \
   -work-dir "$STUBDIR/work" --outdir "$STUBDIR/results" \
   -stub-run -ansi-log false
-bash "$BIOINFO_HOME/scripts/stub-gate.sh" status "$NXFDIR" main
+bash "$BIOINFO_HOME/scripts/stub-gate.sh" status "$NXFDIR" "$STUBLABEL"
 ```
 
-Poll status until terminal, then inspect `.stub-gates/main/{console.log,nextflow.log,trace.txt,exit-code,state}`
+Poll status until terminal, then inspect `.stub-gates/<label>/{console.log,nextflow.log,trace.txt,exit-code,state}`
 under `$NXFDIR` and the output tree. A fresh label and directory are required on retry.
 `INTERRUPTED` or `UNKNOWN` is never a pass or a documented pipeline waiver. A zero exit is
 execution evidence; the card's predicates and output checks still decide whether Step 4 passed.

@@ -20,7 +20,7 @@ the plain aligned BAM; WhatsHap phases afterwards.
 **Not for:** tumour-only somatic calling (only tumour–normal is wired — `*_TUMOR_ONLY` models are
 rejected at launch), somatic SV/CNV, or ClairS. Not for ONT (nanoseq, `references/pipelines/nanoseq.md`). Not for Iso-Seq (isoseq, `references/pipelines/isoseq.md`). Not for short reads
 (sarek, `references/pipelines/sarek.md`). Not for assembly. Repeat genotyping is downstream: its haplotagged pbmm2 BAM is
-exactly what TRGT consumes (§6.2, which this pipeline un-blocks).
+exactly what TRGT consumes ([long-read repeat scope](../repeat-expansion.md#62-trgt-is-long-read-only)).
 
 **Minimum input:** `--input samplesheet.csv --fasta ref.fa`. Samplesheet columns
 `sample,dataset,input_type,file[,index]` — the `input_type` column (`subreads` | `hifi_bam` |

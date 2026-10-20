@@ -23,7 +23,7 @@ see the atacseq `references/pipelines/atacseq.md` note on why `2.7e9` fails sche
 `--aligner bwa|bowtie2`, `--min_reps_consensus`.
 
 **Reference-store paths:** same set as atacseq (`references/pipelines/atacseq.md`) — **including** the blacklist, which the
-store now carries at `genomes/GRCh38/bed/blacklist.bed` (§9). Not the same store asset as
+store records at `genomes/GRCh38/bed/blacklist.bed` ([reference history](evidence/reference-store-history.md)). Not the same store asset as
 cutandrun's blacklist below; see the note on `references/pipelines/cutandrun.md`'s row for why those two must not be conflated.
 
 **Do not use the compact `--genome <key>` form on this store — confirmed 2026-08-06 (chipseq

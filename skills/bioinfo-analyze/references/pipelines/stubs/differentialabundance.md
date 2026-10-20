@@ -23,7 +23,8 @@ else if (params.gtf) … GTF_TO_TABLE(...)` branch), and `--features` skips `GTF
 # non-empty feature table from the matrix itself (gene_id + gene_name columns are enough for the
 # stub to validate against); do not hand-write one, and do not point --gtf at anything but the
 # real reference.
-STUBDIR=$STUBROOT/features-substitute      # NOT $STUBROOT/main -- that is the failed --gtf attempt;
+STUBLABEL=features-substitute              # a NEW helper label, not main
+STUBDIR=$STUBROOT/$STUBLABEL               # NOT $STUBROOT/main -- that is the failed --gtf attempt;
 mkdir -p "$STUBDIR"                        # reusing it would union this pass's outputs with the
                                             # failed one's, same rule as the rnaseq case in its stub card
 MATRIX=$(grep -m1 '^matrix:' "$RUNDIR/params.yaml" | sed -E 's/^matrix:[[:space:]]*//; s/[[:space:]]+#.*$//' \
@@ -43,8 +44,9 @@ MATRIX=$(grep -m1 '^matrix:' "$RUNDIR/params.yaml" | sed -E 's/^matrix:[[:space:
 # the remote file locally first and point $MATRIX at the local copy.
 cut -f1,2 "$MATRIX" > "$STUBDIR/stub_features.tsv"
 sed "s#^gtf:.*#features: $STUBDIR/stub_features.tsv#" "$RUNDIR/params.yaml" > "$STUBDIR/stub_params.yaml"
-# ... then run the -stub-run invocation with -params-file "$STUBDIR/stub_params.yaml" instead of
-# $RUNDIR/params.yaml, and the usual --outdir/-work-dir pointed at $STUBDIR.
+# ... then run the helper launch/status commands with this $STUBLABEL (do not reset it to main),
+# -params-file "$STUBDIR/stub_params.yaml" instead of $RUNDIR/params.yaml,
+# and the usual --outdir/-work-dir pointed at $STUBDIR.
 ```
 
 **Partial gate, same as the strandedness case**: this substitution means the stub never exercises

@@ -13,7 +13,7 @@ dupRadar, Preseq, MultiQC).
 
 **Not for:** differential expression (it produces counts, not statistics — chain to
 differentialabundance). Not for single-cell. Not for 3'-tag/QuantSeq libraries without the caveats
-in §7. Not for RNA variant calling — it has no GATK RNA path. Not for de novo transcript
+in [selection boundaries](../selection-boundaries.md). Not for RNA variant calling — it has no GATK RNA path. Not for de novo transcript
 assembly; StringTie runs but the pipeline is reference-guided and quantifies against the supplied
 GTF.
 

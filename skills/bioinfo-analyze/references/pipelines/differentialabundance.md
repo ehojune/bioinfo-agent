@@ -11,7 +11,8 @@ Host paths and budgets come from [host-runtime.md](../host-runtime.md), never fr
 definition, and producing DESeq2 (or limma) results tables, normalised matrices, QC/exploratory
 plots, a self-contained HTML report, and optionally a ShinyNGS app bundle.
 
-**Not for:** producing counts. Not for anything with fewer than two replicates per group (§7).
+**Not for:** producing counts. Not for anything with fewer than two replicates per group
+([selection boundaries](../selection-boundaries.md)).
 Not for single-cell differential expression — the model is wrong for that data. Not for GSEA
 beyond the GSEA module it wraps; pathway interpretation is the user's job.
 
