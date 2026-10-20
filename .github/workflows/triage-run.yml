@@ -13,8 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Check Bash syntax
-        run: bash -n scripts/triage-run.sh scripts/triage-run.test.sh
+        run: bash -n scripts/triage-run.sh scripts/triage-run.test.sh bin/preflight.sh scripts/preflight.test.sh
       - name: Run synthetic read-only regression fixtures
         run: bash scripts/triage-run.test.sh
       - name: Check work-directory protection
         run: bash hooks/guard-workdir.test.sh
+      - name: Check preflight result destination and capacity
+        run: bash scripts/preflight.test.sh

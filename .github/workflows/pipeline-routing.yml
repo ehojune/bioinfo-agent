@@ -1,0 +1,16 @@
+name: pipeline reference routing
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  routing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify stocked pipelines and packaged reference links
+        run: python3 scripts/check-pipeline-routing.py

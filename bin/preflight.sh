@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
 # preflight.sh — read-only gate before any nf-core launch on this host. Safe to re-run.
-# usage: bash preflight.sh <windows-visible-run-dir> <estimated_work_GB>
+# usage: bash preflight.sh <run-record-dir> <estimated_work_GB> [estimated_output_MB]
+# Output MB are decimal (1,000,000 bytes); both disk gates reserve 1.5x the estimate.
 set -euo pipefail
 
 RUNDIR="${1:?usage: preflight.sh <rundir> <est_work_gb>}"
 EST_GB="${2:?usage: preflight.sh <rundir> <est_work_gb>}"
+EST_OUTPUT_MB="${3:-}"
+if ! [[ "$EST_GB" =~ ^(0|[1-9][0-9]{0,8})$ ]] ||
+   { [ -n "$EST_OUTPUT_MB" ] && ! [[ "$EST_OUTPUT_MB" =~ ^(0|[1-9][0-9]{0,8})$ ]]; }; then
+  printf 'estimates must be nonnegative integers of at most 9 digits\n' >&2
+  exit 2
+fi
 RUNID="$(basename "$RUNDIR")"
 WORKROOT="${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}"
 WORKDIR="$WORKROOT/$RUNID/work"
@@ -54,12 +61,25 @@ if [ "$avail_gb" -ge "$need_gb" ]; then
 else
   bad "ext4 free ${avail_gb} GB < 1.5x estimate (${need_gb} GB). DO NOT LAUNCH."
 fi
-WINMNT="$(printf '%s' "${BIOINFO_HOME:-/mnt/d/bioinfo-agent}" | grep -oE '^/mnt/[a-z]+' || true)"
-if [ -n "$WINMNT" ] && mountpoint -q "$WINMNT" 2>/dev/null; then
-  d_gb="$(df -BG --output=avail "$WINMNT" | tail -1 | tr -dc '0-9')"
-  ok "$WINMNT free ${d_gb} GB (rsync target for results)"
+# The run record is the copy-out destination. BIOINFO_HOME may live on a different
+# device, and truncating /mnt/<drive> misses nested mounts and Linux-only hosts.
+# df follows directory symlinks; upto also handles not-yet-created run records.
+RESULT_PROBE="$(upto "$RUNDIR")"
+if result_bytes="$(df -B1 --output=avail -- "$RESULT_PROBE" 2>/dev/null | tail -1 | tr -d '[:space:]')" &&
+   [[ "$result_bytes" =~ ^[0-9]+$ ]]; then
+  result_mb=$((result_bytes / 1000000))
+  if [ -n "$EST_OUTPUT_MB" ]; then
+    result_need=$((EST_OUTPUT_MB * 1500000))
+    if [ "$result_bytes" -ge "$result_need" ]; then
+      ok "results target $RUNDIR (measured at $RESULT_PROBE): free $result_mb MB >= 1.5x output estimate ($EST_OUTPUT_MB MB)"
+    else
+      bad "results target $RUNDIR (measured at $RESULT_PROBE): free $result_mb MB < 1.5x output estimate ($EST_OUTPUT_MB MB). DO NOT LAUNCH."
+    fi
+  else
+    note "results target $RUNDIR (measured at $RESULT_PROBE): free $result_mb MB; capacity unchecked against an estimate — pass estimated_output_MB as argument 3"
+  fi
 else
-  note "${WINMNT:-the BIOINFO_HOME mount} is not mounted — copy-out target for results unchecked"
+  bad "cannot measure results target $RUNDIR at $RESULT_PROBE. DO NOT LAUNCH."
 fi
 
 echo "== nextflow =="
@@ -506,7 +526,7 @@ if [ "${#refsrc[@]}" -gt 0 ]; then
            | grep -oE "(^|[^A-Za-z0-9_./-])${REFS_RE}[^\"' ]*" | sed -E 's#^[^/]*(/.*)#\1#' | sed 's/[,:]$//' | sort -u)
   if [ "$nref" -eq 0 ]; then
     if [ "$PIPE" = fetchngs ]; then
-      ok "fetchngs touches no genome — no $REFS path expected (references/pipeline-selection.md §4.3)"
+      ok "fetchngs touches no genome — no $REFS path expected (references/pipelines/fetchngs.md)"
     else
       note "no $REFS path appears in params.yaml/cmd.sh outside comments — this run references nothing from the store"
     fi
