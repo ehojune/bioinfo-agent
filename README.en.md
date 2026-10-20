@@ -19,6 +19,7 @@
 </p>
 
 <p align="center">
+  <a href="#why-bioinfo-agent">Why it stands out</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#a-real-session">A real session</a> ·
   <a href="#manual-setup">Manual setup</a> ·
@@ -45,6 +46,55 @@ is 18%` is where this agent's job ends; what that means for your research is you
   <img src="docs/how-it-works.en.svg" width="704"
        alt="The seven steps. Before approval: 1 intake, 2 pipeline choice, 3 run plan. A human approves here. After approval: 4 preflight, 5 run and monitor, 6 QC verdict, 7 handoff.">
 </p>
+
+---
+
+## Why bioinfo-agent
+
+It turns four easy-to-miss safeguards into one run procedure instead of leaving them to shell commands or a generic AI chat.
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+<img src="docs/why/en/card-1.svg" width="100%" alt="Plan, then approve: estimate time and disk first, and run only after human approval">
+
+**Plan, then approve**
+
+It records the pipeline, samplesheet, time and disk in `plan.md`, then waits for approval. [Execution contract](skills/bioinfo-analyze/SKILL.md) · [Estimation rules](skills/bioinfo-analyze/references/estimates.md) · [Input checks](scripts/check-samplesheet.sh)
+
+</td>
+<td width="50%" valign="top">
+
+<img src="docs/why/en/card-2.svg" width="100%" alt="Same workflow, any host: from a workstation to HPC, only the engine and executor change">
+
+**Same workflow, any host**
+
+The procedure stays the same across a workstation, shared server and HPC; the container engine and executor adapt. [Host setup](docs/agent-setup.md) · [Shared servers and HPC](docs/other-hosts.md)
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+<img src="docs/why/en/card-3.svg" width="100%" alt="Diagnose, resume, judge: find the failure, resume the run and judge QC from MultiQC metrics">
+
+**Diagnose, resume, judge**
+
+It diagnoses failure logs read-only, continues with `-resume`, then gives a QC verdict from MultiQC metrics. [Triage script](scripts/triage-run.sh) · [Runbook](skills/bioinfo-analyze/references/runbook.md) · [QC rules](skills/bioinfo-analyze/references/qc-interpretation.md)
+
+</td>
+<td width="50%" valign="top">
+
+<img src="docs/why/en/card-4.svg" width="100%" alt="Reuse before rerunning: match a BAM header to the reference and propose the safe entry step">
+
+**Reuse before rerunning**
+
+It compares an existing BAM header with the reference, then proposes the safe pipeline entry step. [Reuse rules](skills/bioinfo-analyze/SKILL.md) · [Real session](docs/example-session.svg)
+
+</td>
+</tr>
+</table>
 
 ---
 

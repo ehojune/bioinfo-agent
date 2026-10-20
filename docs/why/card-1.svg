@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="260" viewBox="0 0 480 260" role="img" aria-labelledby="t d">
+  <title id="t">계획부터 승인까지</title>
+  <desc id="d">파이프라인, 샘플시트, 예상 시간과 디스크를 계획서에 적고 사람이 승인한 뒤 실행한다. 그림: 체크 항목이 적힌 계획서가 화살표를 따라 사람의 승인 표시로 이어진다.</desc>
+  <style>
+    text { font-family: "Noto Sans KR", "Noto Sans CJK KR", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif; fill: #1F2328; }
+    .h { font-size: 22px; font-weight: 700; letter-spacing: -.3px; }
+    .l { font-size: 15px; fill: #57606A; }
+    .n { font-size: 14px; font-weight: 700; fill: #FFFFFF; }
+    .m { font-family: "Consolas", "Menlo", monospace; font-size: 10px; font-weight: 700; fill: #57606A; }
+    .ok { font-size: 11px; font-weight: 700; fill: #FFFFFF; }
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0l10 5-10 5z" fill="#D4A72C"/>
+    </marker>
+  </defs>
+  <rect x=".5" y=".5" width="479" height="259" rx="18" fill="#FFF9E8" stroke="#E3B341"/>
+  <circle cx="392" cy="130" r="86" fill="#FFF0BE"/>
+  <circle cx="42" cy="74" r="14" fill="#9A6700"/>
+  <text class="n" x="42" y="79" text-anchor="middle">1</text>
+  <text class="h" x="28" y="128">계획부터 승인까지</text>
+  <text class="l" x="28" y="164">시간·디스크까지 먼저 적고,</text>
+  <text class="l" x="28" y="188">사람이 승인한 뒤 실행한다</text>
+
+  <path d="M302 34h82l16 16v158h-98z" fill="#FFFFFF" stroke="#57606A" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M384 34v16h16" fill="none" stroke="#57606A" stroke-width="2" stroke-linejoin="round"/>
+  <rect x="314" y="50" width="46" height="6" rx="3" fill="#D4A72C"/>
+  <text class="m" x="314" y="76">PIPELINE</text>
+  <path d="M366 72h22" stroke="#4285F4" stroke-width="4" stroke-linecap="round"/>
+  <text class="m" x="314" y="99">SAMPLES</text>
+  <path d="M366 95h22" stroke="#34A853" stroke-width="4" stroke-linecap="round"/>
+  <text class="m" x="314" y="122">TIME</text>
+  <path d="M354 118h34" stroke="#8C959F" stroke-width="4" stroke-linecap="round"/>
+  <text class="m" x="314" y="145">DISK</text>
+  <path d="M354 141h34" stroke="#8C959F" stroke-width="4" stroke-linecap="round"/>
+  <path d="M314 166h64M314 178h50M314 190h58" stroke="#D0D7DE" stroke-width="3" stroke-linecap="round"/>
+  <path d="M397 125c20 0 28 9 34 24" fill="none" stroke="#D4A72C" stroke-width="2.5" marker-end="url(#a)"/>
+  <circle cx="438" cy="174" r="27" fill="#FFFFFF" stroke="#9A6700" stroke-width="2"/>
+  <circle cx="438" cy="164" r="8" fill="#FFE08A" stroke="#9A6700" stroke-width="2"/>
+  <path d="M424 187c3-12 25-12 28 0" fill="#FFE08A" stroke="#9A6700" stroke-width="2" stroke-linecap="round"/>
+  <rect x="414" y="198" width="48" height="20" rx="10" fill="#34A853"/>
+  <text class="ok" x="438" y="212" text-anchor="middle">승인</text>
+</svg>
