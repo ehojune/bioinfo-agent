@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ehojune/bioinfo-agent/raw/main/schemas/run-meta.schema.json",
+  "title": "bioinfo-agent run evidence snapshot v1",
+  "description": "Evidence index, not live execution state, scientific validation, or cleanup authorization.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "created_at", "run_id", "pipeline", "inputs", "execution", "qc", "resources"],
+  "properties": {
+    "schema_version": {"type": "integer", "enum": [1]},
+    "created_at": {"type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "pipeline": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "revision", "engine_version"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "revision": {"type": "string", "minLength": 1},
+        "engine_version": {"type": ["string", "null"], "minLength": 1}
+      }
+    },
+    "inputs": {
+      "type": "object", "additionalProperties": false,
+      "required": ["samplesheet", "params", "command", "approval"],
+      "properties": {
+        "samplesheet": {"$ref": "#/$defs/artifact"},
+        "params": {"$ref": "#/$defs/artifact"},
+        "command": {"$ref": "#/$defs/artifact"},
+        "approval": {"$ref": "#/$defs/artifact"}
+      }
+    },
+    "execution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "exit_code", "evidence"],
+      "properties": {
+        "status": {"type": "string", "enum": ["unknown", "running", "succeeded", "failed", "cancelled"]},
+        "exit_code": {"type": ["integer", "null"], "minimum": 0},
+        "evidence": {"type": "array", "items": {"$ref": "#/$defs/artifact"}}
+      }
+    },
+    "qc": {
+      "type": "object", "additionalProperties": false,
+      "required": ["verdict", "evidence"],
+      "properties": {
+        "verdict": {"type": "string", "enum": ["NOT_ASSESSED", "PASS", "WARN", "FAIL"]},
+        "evidence": {"type": "array", "items": {"$ref": "#/$defs/artifact"}}
+      }
+    },
+    "resources": {
+      "type": "object", "additionalProperties": false,
+      "required": ["predicted", "observed", "evidence"],
+      "properties": {
+        "predicted": {"$ref": "#/$defs/metrics"},
+        "observed": {"$ref": "#/$defs/metrics"},
+        "evidence": {"type": "array", "items": {"$ref": "#/$defs/artifact"}}
+      }
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[\\\\:\\u0000-\\u001f]).+$"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "metrics": {
+      "type": "object", "additionalProperties": false,
+      "required": ["wall_seconds", "work_peak_bytes", "memory_peak_bytes"],
+      "properties": {
+        "wall_seconds": {"type": ["number", "null"], "minimum": 0},
+        "work_peak_bytes": {"type": ["integer", "null"], "minimum": 0},
+        "memory_peak_bytes": {"type": ["integer", "null"], "minimum": 0}
+      }
+    }
+  }
+}
