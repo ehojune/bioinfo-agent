@@ -19,6 +19,7 @@
 </p>
 
 <p align="center">
+  <a href="#왜-bioinfo-agent인가">특장점</a> ·
   <a href="#빠른-시작">빠른 시작</a> ·
   <a href="#실제-세션">실제 세션</a> ·
   <a href="#직접-설치">직접 설치</a> ·
@@ -44,6 +45,55 @@
   <img src="docs/how-it-works.svg" width="664"
        alt="7단계 절차. 승인 전에 1 접수, 2 파이프라인 선정, 3 계획서. 여기서 사람이 승인한다. 승인 후에 4 사전점검, 5 실행 및 모니터링, 6 QC 판정, 7 인계.">
 </p>
+
+---
+
+## 왜 bioinfo-agent인가
+
+직접 명령을 조합하거나 범용 AI 대화만으로 돌릴 때 빠지기 쉬운 네 지점을 실행 절차로 묶었다.
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+<img src="docs/why/card-1.svg" width="100%" alt="계획부터 승인까지: 시간과 디스크까지 먼저 적고, 사람이 승인한 뒤 실행한다">
+
+**계획부터 승인까지**
+
+파이프라인·샘플시트·시간·디스크를 `plan.md`에 적고 승인 뒤 실행한다. [실행 계약](skills/bioinfo-analyze/SKILL.md) · [추정 기준](skills/bioinfo-analyze/references/estimates.md) · [입력 검사](scripts/check-samplesheet.sh)
+
+</td>
+<td width="50%" valign="top">
+
+<img src="docs/why/card-2.svg" width="100%" alt="어디서나 같은 절차: 워크스테이션부터 HPC까지 engine과 executor만 바꾼다">
+
+**어디서나 같은 절차**
+
+개인 PC·공용 서버·HPC에서도 같은 흐름을 쓰고 컨테이너 엔진과 executor만 맞춘다. [호스트 설정](docs/agent-setup.md) · [공용 서버·HPC](docs/other-hosts.md)
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+<img src="docs/why/card-3.svg" width="100%" alt="실패를 읽고 이어간다: 원인을 찾고 resume으로 이은 뒤 MultiQC 지표로 판정한다">
+
+**실패를 읽고 이어간다**
+
+실패 로그를 읽기 전용으로 진단하고 `-resume`으로 잇는다. 끝나면 MultiQC 지표로 QC를 판정한다. [진단 스크립트](scripts/triage-run.sh) · [실행 runbook](skills/bioinfo-analyze/references/runbook.md) · [QC 기준](skills/bioinfo-analyze/references/qc-interpretation.md)
+
+</td>
+<td width="50%" valign="top">
+
+<img src="docs/why/card-4.svg" width="100%" alt="이미 한 일은 건너뛴다: BAM header와 reference를 맞춰 안전한 시작 단계를 제안한다">
+
+**이미 한 일은 건너뛴다**
+
+기존 BAM의 header와 reference를 대조한 뒤 재사용 가능한 파이프라인 시작 단계를 제안한다. [재사용 규칙](skills/bioinfo-analyze/SKILL.md) · [실제 세션](docs/example-session.svg)
+
+</td>
+</tr>
+</table>
 
 ---
 

@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="260" viewBox="0 0 480 260" role="img" aria-labelledby="t d">
+  <title id="t">어디서나 같은 절차</title>
+  <desc id="d">워크스테이션, 공용 서버, HPC에서 같은 절차를 쓰고 컨테이너 엔진과 executor만 환경에 맞춘다. 그림: 세 종류의 컴퓨터가 하나의 Nextflow 흐름으로 모이고 Docker 또는 Apptainer와 local 또는 scheduler 설정으로 갈린다.</desc>
+  <style>
+    text { font-family: "Noto Sans KR", "Noto Sans CJK KR", "Apple SD Gothic Neo", "Malgun Gothic", "Segoe UI", sans-serif; fill: #1F2328; }
+    .h { font-size: 22px; font-weight: 700; letter-spacing: -.3px; }
+    .l { font-size: 15px; fill: #57606A; }
+    .n { font-size: 14px; font-weight: 700; fill: #FFFFFF; }
+    .m { font-size: 9px; font-weight: 700; fill: #57606A; }
+    .p { font-family: "Consolas", "Menlo", monospace; font-size: 9px; font-weight: 700; fill: #FFFFFF; }
+  </style>
+  <rect x=".5" y=".5" width="479" height="259" rx="18" fill="#F2F7FF" stroke="#6EA8FA"/>
+  <circle cx="392" cy="130" r="86" fill="#DCEBFF"/>
+  <circle cx="42" cy="74" r="14" fill="#1A63CF"/>
+  <text class="n" x="42" y="79" text-anchor="middle">2</text>
+  <text class="h" x="28" y="128">어디서나 같은 절차</text>
+  <text class="l" x="28" y="164">워크스테이션부터 HPC까지,</text>
+  <text class="l" x="28" y="188">engine과 executor만 바꾼다</text>
+
+  <g fill="#FFFFFF" stroke="#57606A" stroke-width="2">
+    <rect x="304" y="40" width="54" height="38" rx="5"/>
+    <path d="M314 85h34M331 78v7"/>
+    <rect x="373" y="38" width="44" height="43" rx="5"/>
+    <path d="M381 50h28M381 59h28M381 68h28"/>
+    <rect x="430" y="38" width="34" height="43" rx="5"/>
+    <path d="M437 50h20M437 59h20M437 68h20"/>
+  </g>
+  <text class="m" x="331" y="98" text-anchor="middle">PC</text>
+  <text class="m" x="395" y="98" text-anchor="middle">SERVER</text>
+  <text class="m" x="447" y="98" text-anchor="middle">HPC</text>
+  <path d="M331 104v20M395 104v20M447 104v20M331 124h116" fill="none" stroke="#4285F4" stroke-width="2.5" stroke-linecap="round"/>
+  <rect x="328" y="116" width="122" height="28" rx="14" fill="#4285F4"/>
+  <text class="p" x="389" y="134" text-anchor="middle">NEXTFLOW</text>
+  <path d="M389 144v18M389 162h-46M389 162h48" fill="none" stroke="#4285F4" stroke-width="2.5" stroke-linecap="round"/>
+  <rect x="304" y="171" width="82" height="25" rx="12.5" fill="#34A853"/>
+  <text class="p" x="345" y="187" text-anchor="middle">Docker · local</text>
+  <rect x="393" y="171" width="73" height="25" rx="12.5" fill="#1A63CF"/>
+  <text class="p" x="429.5" y="187" text-anchor="middle">Apptainer</text>
+  <rect x="393" y="202" width="73" height="20" rx="10" fill="#57606A"/>
+  <text class="p" x="429.5" y="215.5" text-anchor="middle">scheduler</text>
+</svg>
