@@ -107,7 +107,7 @@ trgt genotype \
 
 The HiFi BAM must be aligned with pbmm2 or minimap2 with HiFi presets, and TRGT expects the
 per-read tags HiFi alignments carry. sarek's bwa path will not do — but `pipelines/pacbio-hifi-wgs`
-(§4.20, added 2026-08-20) produces exactly this: a pbmm2 CCS-preset aligned (and optionally
+([pipeline card](pipelines/pacbio-hifi-wgs.md)) produces exactly this: a pbmm2 CCS-preset aligned (and optionally
 WhatsHap-haplotagged) BAM. Chain: pacbio-hifi-wgs → TRGT on `02_alignedBAM/haplotagged/*.bam`.
 
 ### 6.3 If a pipeline is wanted anyway

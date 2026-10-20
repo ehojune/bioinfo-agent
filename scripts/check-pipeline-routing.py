@@ -46,14 +46,22 @@ def check(root: Path) -> list[str]:
         elif (cards / p.name).is_file() and f"](stubs/{p.name})" not in (cards / p.name).read_text(encoding="utf-8"):
             errors.append(f"{p.name}: exact stub policy is not linked from its card")
     # Audit the modular pages, not historical run records or external links.
-    pages = [refs / "pipeline-selection.md", refs / "host-runtime.md", refs / "intake-reuse.md",
-             refs / "workflow-chains.md", refs / "repeat-expansion.md", refs / "selection-boundaries.md",
-             *cards.rglob("*.md")]
+    topic_pages = [refs / name for name in (
+        "host-runtime.md", "intake-reuse.md", "workflow-chains.md",
+        "repeat-expansion.md", "selection-boundaries.md")]
+    pages = [refs / "pipeline-selection.md", *topic_pages, *cards.rglob("*.md")]
     for p in pages:
         if not p.is_file():
             errors.append(f"missing reference: {p.relative_to(root)}")
             continue
-        for target in re.findall(r"\[[^\]\n]+\]\(([^)\s]+)\)", p.read_text(encoding="utf-8")):
+        content = p.read_text(encoding="utf-8")
+        # Extracted topics no longer share the monolith's section numbering.
+        # The router's explicit historical section map remains valid.
+        if p in topic_pages:
+            for lineno, line in enumerate(content.splitlines(), 1):
+                if re.search(r"§+\s*\d+(?:\.\d+)*", line):
+                    errors.append(f"{p.relative_to(root)}:{lineno}: replace numbered section reference with a direct link")
+        for target in re.findall(r"\[[^\]\n]+\]\(([^)\s]+)\)", content):
             uri = urlsplit(target)
             if uri.scheme or uri.netloc or not uri.path:
                 continue

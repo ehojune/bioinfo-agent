@@ -53,6 +53,9 @@ be on ext4. Sequential input/reference reads may use drvfs; measured throughput 
 device and access pattern. Check the actual mounts and free space, including an `NXF_WORKROOT`
 override, before applying the 1.5× disk gate. `$BIOINFO_RUNLOG` may be on a user-visible drive.
 Finished results are copied there once; preflight and execution must target the same live tree.
+Preflight's third argument estimates copied outputs in decimal MB. It checks the filesystem
+containing the run-record directory (or its nearest existing ancestor), independently of the
+repository mount. Omitting that estimate leaves a warning, not a result-capacity certification.
 
 The common commands and conditional stub gates are in [runbook.md](runbook.md).
 The selected pipeline card defines reference build and assay scope. Current manifest dry-run

@@ -177,14 +177,15 @@ against.
 ```bash
 RUNID=20260728-rnaseq-koges-pilot
 RUNDIR=$BIOINFO_RUNLOG/$RUNID
-bash "$BIOINFO_HOME/bin/preflight.sh" "$RUNDIR" 180      # 180 = estimated work-dir GB
+bash "$BIOINFO_HOME/bin/preflight.sh" "$RUNDIR" 180 20000  # work GB, copied output MB
 ```
 
-Exit 0 = clean, exit 1 = at least one FAIL.
+Exit 0 = no FAIL (read any WARN), exit 1 = at least one FAIL, exit 2 = invalid estimates.
 
 Any FAIL is a hard stop. The disk check is the 1.5× gate: with an estimate of 180 GB, preflight
-demands 270 GB free on ext4 and refuses otherwise. Do not talk yourself past it — an out-of-disk
-death at hour 18 costs more than the wait.
+demands 270 GB free on ext4. The example's 20,000 MB output estimate separately requires
+30,000 MB at `RUNDIR`'s filesystem (decimal MB). Missing directories use their nearest existing
+ancestor. Omitting the third argument warns that result capacity is unchecked against an estimate.
 
 ---
 

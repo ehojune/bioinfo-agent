@@ -44,7 +44,7 @@ nextflow run nf-core/differentialabundance -r 1.5.0 \
 ```
 
 `--transcript_length_matrix` is optional per the schema but is what the pipeline's own CI profile
-pairs with the raw matrix (§4.2 above) — include it rather than passing the raw matrix alone.
+pairs with the raw matrix — include both; see the [differentialabundance card](pipelines/differentialabundance.md).
 
 Three things break this chain, in order of frequency:
 
@@ -58,10 +58,11 @@ Validate all three before launching. It costs ten seconds and saves a failed run
 ### 5.3 sarek step restarts
 
 Sarek is designed to be re-entered. The pattern is: run a step, take the CSV it wrote, feed it to
-the next step with a **new `--outdir`**.
+the next step with a **new `--outdir`**. The preprocessing step also feeds
+[short-read STR preparation](repeat-expansion.md#61-the-working-pattern-for-short-read-strs-expansionhunter--hipstr).
 
 ```bash
-# preprocessing only — no callers. This is the STR-prep path (§6).
+# preprocessing only — no callers; also the STR preparation path linked above.
 nextflow run nf-core/sarek -r 3.5.1 ... \
   --step mapping --skip_tools baserecalibrator \
   --input samplesheet.csv --outdir "$OUT/sarek_map"

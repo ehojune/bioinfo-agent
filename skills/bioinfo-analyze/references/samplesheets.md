@@ -1039,7 +1039,7 @@ reports overwrite the other's.
 - A group that is a SINGLE `aligned_bam` row passes through in place: not re-merged, not
   re-published under `02_alignedBAM` (deliberate — GIAB aligned BAMs are 60–120 GB).
 - Repeated identical rows are not deduplicated; the same movie under two datasets is processed
-  twice (the GIAB HudsonAlpha-vs-chemistry2 duplicate warning in §4.20's survey applies).
+  twice (the GIAB HudsonAlpha-vs-chemistry2 duplicate warning in the [PacBio HiFi survey](pipelines/pacbio-hifi-wgs.md) applies).
 - `clr_subreads` is a Sequel CLR `.subreads.bam` that deliberately **skips ccs** (CLR is
   single-pass; ccs needs ~3 passes/ZMW). Index column must be empty. The full caller set runs
   on it by request, but only pbmm2 (`SUBREAD` preset) and pbsv (no `--hifi`) actually adapt —

@@ -82,7 +82,7 @@ Do them in order. Do not skip step 3 or step 4.
    clock, estimated peak disk, what is missing and must be built or downloaded, and every bounded
    choice you intend to make. Present it. Wait for a yes.
 4. **Preflight and stub run.** Run the shipped gates, do not restate them:
-   `bash $BIOINFO_HOME/bin/preflight.sh <rundir> <est_work_gb>` — refs, disk ≥ 1.5× estimate, Docker, pin.
+   `bash "$BIOINFO_HOME/bin/preflight.sh" <rundir> <est_work_gb> <est_output_mb>` — refs, work/result disk ≥ 1.5× each estimate, Docker, pin.
    `bash $BIOINFO_HOME/scripts/check-samplesheet.sh --deep --pipeline <pipeline> <samplesheet.csv>`
    — the input CSV. Without `--pipeline` the required-column gate is skipped.
    Then `-preview`, then `-stub-run` — both, in that order, on the real command with the real
