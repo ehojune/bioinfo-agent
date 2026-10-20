@@ -14,6 +14,20 @@ const footer = '🤖 Co-Authored-By: Codex (gpt-6.1-sol) <199175422+chatgpt-code
 const comment = (login = 'ehojune', association = 'OWNER', body = 'Review finding') =>
   ({ user: { login }, author_association: association, body });
 
+// The workflow group uses only property access, string comparisons and boolean operators,
+// whose values are identical in JS for these GitHub-provided strings and positive run IDs.
+const groupSource = workflow.match(/      group: >-\n([\s\S]*?)      cancel-in-progress:/)?.[1];
+assert.ok(groupSource, 'folded concurrency group must exist');
+const groupTemplate = groupSource.trim().replace(/\n\s*/g, ' ');
+function groupFor(trigger, runId, event = 'issue_comment') {
+  const github = {
+    event: { comment: trigger, issue: {}, pull_request: {} }, run_id: runId,
+  };
+  github.event[event === 'issue_comment' ? 'issue' : 'pull_request'].number = 42;
+  return groupTemplate.replace(/\$\{\{([\s\S]*?)\}\}/g, (_, expression) =>
+    new Function('github', `return (${expression});`)(github));
+}
+
 async function fixture({
   trigger = comment(), issueComments = [], reviewComments = [],
   state = 'open', head = 'ehojune/bioinfo-agent', base = 'ehojune/bioinfo-agent',
@@ -103,6 +117,37 @@ test('only a workflow-authored marker suppresses duplicate reminders, including 
   assert.equal(own.posts.length, 0);
   const spoofed = await fixture({ issueComments: [...discussion, comment('outsider', 'NONE', marker)] });
   assert.equal(spoofed.posts.length, 1);
+});
+
+test('all trusted authors and both comment event types share one serialized queue', () => {
+  const expected = groupFor(comment(), 100);
+  for (const event of ['issue_comment', 'pull_request_review_comment']) {
+    for (const trigger of [comment(), comment('member', 'MEMBER'),
+      comment('reviewer', 'COLLABORATOR'), comment('chatgpt-codex-connector[bot]', 'NONE')]) {
+      assert.equal(groupFor(trigger, 101, event), expected);
+    }
+  }
+  for (const trigger of [comment('outsider', 'NONE'), comment('github-actions[bot]', 'COLLABORATOR')]) {
+    assert.notEqual(groupFor(trigger, 102), expected);
+    assert.notEqual(groupFor(trigger, 102), groupFor(trigger, 103));
+  }
+});
+
+test('untrusted later event cannot replace the pending 16th trusted comment', async () => {
+  // GitHub keeps at most one running and one pending job per group. A new pending
+  // job replaces its predecessor even when cancel-in-progress is false.
+  const running = groupFor(comment(), 115); // observed only 15 comments
+  const pending = new Map();
+  const sixteenth = { trigger: comment('reviewer', 'COLLABORATOR'), runId: 116 };
+  const outsider = { trigger: comment('outsider', 'NONE'), runId: 117 };
+  for (const job of [sixteenth, outsider]) pending.set(groupFor(job.trigger, job.runId), job);
+  assert.equal(pending.get(running), sixteenth);
+  const result = await fixture({
+    trigger: pending.get(running).trigger,
+    issueComments: [...Array.from({ length: 16 }, () => comment()), outsider.trigger],
+  });
+  assert.equal(result.posts.length, 1);
+  assert.ok(result.posts[0].body.includes('16 trusted comments'));
 });
 
 test('workflow cannot write contents or pull requests; comment jobs never check out PR code', () => {
