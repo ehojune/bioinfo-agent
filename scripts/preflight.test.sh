@@ -8,13 +8,23 @@ mkdir -p "$TMP/bin" "$TMP/work" "$TMP/refs" "$TMP/repository" "$TMP/runlog"
 export BIOINFO_HOME="$TMP/repository" BIOINFO_RUNLOG="$TMP/runlog"
 export BIOINFO_REFS="$TMP/refs" NXF_WORKROOT="$TMP/work"
 export TEST_DF_LOG="$TMP/df.log" TEST_RESULT_BYTES=150000000 TEST_DF_MODE=normal
+export TEST_WORK_BYTES=4398046511104 TEST_WORK_DF_MODE=normal
 export PATH="$TMP/bin:$PATH"
 
 cat > "$TMP/bin/df" <<'MOCK'
 #!/usr/bin/env bash
 printf '%s\n' "${@: -1}" >> "$TEST_DF_LOG"
-if [ "$1" = -BG ]; then
-  printf 'Avail\n4096G\n'
+if [ "${@: -1}" = "$NXF_WORKROOT" ]; then
+  case "$TEST_WORK_DF_MODE" in
+    fail) exit 1 ;;
+    malformed) printf 'Avail\nunknown\n' ;;
+    *)
+      if [ "$1" = -BG ]; then
+        printf 'Avail\n%sG\n' "$(((TEST_WORK_BYTES + 1073741823) / 1073741824))"
+      else
+        printf 'Avail\n%s\n' "$TEST_WORK_BYTES"
+      fi ;;
+  esac
 elif [ "${@: -1}" = "$TEST_RESULT_PROBE" ]; then
   case "$TEST_DF_MODE" in
     fail) exit 1 ;;
@@ -142,5 +152,43 @@ export TEST_RESULT_BYTES=1500000000000000
 run_gate 0 "$RUNDIR" 1 999999999
 contains '1.5x output estimate (999999999 MB)'
 ok 'maximum accepted output estimate stays within integer arithmetic range'
+
+export TEST_WORK_BYTES=160095574426 TEST_RESULT_BYTES=150000000
+run_gate 1 "$RUNDIR" 100 100
+contains 'ext4 free 160095574426 bytes < 1.5x work estimate rounded up (150 GiB). DO NOT LAUNCH.'
+ok '149.1 GiB work space fails a 100 GiB estimate instead of rounding up to 150 GiB'
+
+export TEST_WORK_BYTES=161061273600
+run_gate 0 "$RUNDIR" 100 100
+contains 'ext4 free 161061273600 bytes >= 1.5x work estimate rounded up (150 GiB)'
+ok 'exactly 150 GiB work space passes a 100 GiB estimate'
+
+export TEST_WORK_BYTES=161061273599
+run_gate 1 "$RUNDIR" 100 100
+contains 'bytes < 1.5x work estimate rounded up (150 GiB)'
+ok 'one byte below the work threshold fails'
+
+export TEST_WORK_BYTES=4831838208
+run_gate 1 "$RUNDIR" 3 100
+contains 'bytes < 1.5x work estimate rounded up (5 GiB)'
+export TEST_WORK_BYTES=5368709120
+run_gate 0 "$RUNDIR" 3 100
+contains 'bytes >= 1.5x work estimate rounded up (5 GiB)'
+ok 'odd work estimates retain the whole-GiB ceiling: 3 GiB requires 5 GiB, not 4.5'
+
+export TEST_WORK_DF_MODE=fail
+run_gate 1 "$RUNDIR" 1 100
+contains 'cannot measure work target'
+ok 'unreadable work capacity refuses launch'
+
+export TEST_WORK_DF_MODE=malformed
+run_gate 1 "$RUNDIR" 1 100
+contains 'cannot measure work target'
+ok 'nonnumeric work capacity refuses launch'
+
+export TEST_WORK_DF_MODE=normal TEST_WORK_BYTES=1610612734926258176
+run_gate 0 "$RUNDIR" 999999999 100
+contains 'bytes >= 1.5x work estimate rounded up (1499999999 GiB)'
+ok 'maximum work estimate converts to exact bytes without overflow'
 
 printf 'PASS: %d preflight integration scenarios\n' "$passed"

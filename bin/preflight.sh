@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # preflight.sh — read-only gate before any nf-core launch on this host. Safe to re-run.
-# usage: bash preflight.sh <run-record-dir> <estimated_work_GB> [estimated_output_MB]
-# Output MB are decimal (1,000,000 bytes); both disk gates reserve 1.5x the estimate.
+# usage: bash preflight.sh <run-record-dir> <estimated_work_GiB> [estimated_output_MB]
+# Work GiB are binary (2^30 bytes); ceil(1.5x estimate) whole GiB are required.
+# Output MB are decimal (1,000,000 bytes); the output gate reserves 1.5x the estimate.
 set -euo pipefail
 
 RUNDIR="${1:?usage: preflight.sh <rundir> <est_work_gb>}"
@@ -54,12 +55,19 @@ case "$WORKDIR" in
   *)      ok "work dir on ext4: $WORKDIR" ;;
 esac
 [ -d "$WORKROOT" ] || note "$WORKROOT does not exist yet — free space measured on $(upto "$WORKDIR")"
-avail_gb="$(df -BG --output=avail "$(upto "$WORKDIR")" | tail -1 | tr -dc '0-9')"
+WORK_PROBE="$(upto "$WORKDIR")"
 need_gb=$(( (EST_GB * 3 + 1) / 2 ))
-if [ "$avail_gb" -ge "$need_gb" ]; then
-  ok "ext4 free ${avail_gb} GB >= 1.5x estimate (${need_gb} GB)"
+need_bytes=$((need_gb * 1073741824))
+# df -BG rounds available space up; compare bytes so 149.1 GiB cannot pass 150 GiB.
+if avail_bytes="$(df -B1 --output=avail -- "$WORK_PROBE" 2>/dev/null | tail -1 | tr -d '[:space:]')" &&
+   [[ "$avail_bytes" =~ ^[0-9]+$ ]]; then
+  if [ "$avail_bytes" -ge "$need_bytes" ]; then
+    ok "ext4 free ${avail_bytes} bytes >= 1.5x work estimate rounded up (${need_gb} GiB)"
+  else
+    bad "ext4 free ${avail_bytes} bytes < 1.5x work estimate rounded up (${need_gb} GiB). DO NOT LAUNCH."
+  fi
 else
-  bad "ext4 free ${avail_gb} GB < 1.5x estimate (${need_gb} GB). DO NOT LAUNCH."
+  bad "cannot measure work target $WORKDIR at $WORK_PROBE. DO NOT LAUNCH."
 fi
 # The run record is the copy-out destination. BIOINFO_HOME may live on a different
 # device, and truncating /mnt/<drive> misses nested mounts and Linux-only hosts.
