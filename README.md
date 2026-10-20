@@ -2,6 +2,8 @@
   <img src="docs/logo.svg" alt="bioinfo-agent" width="440">
 </p>
 
+[![패치노트](https://img.shields.io/badge/%ED%8C%A8%EC%B9%98%EB%85%B8%ED%8A%B8-changelog-5B5BD6)](patch_notes/README.md)
+
 <p align="center">
   <img src="https://img.shields.io/badge/Claude_Code-skill_%2B_agent-D97757" alt="Claude Code">
   <img src="https://img.shields.io/badge/Nextflow-workflows-0DC09D" alt="Nextflow">
@@ -170,6 +172,6 @@ nextflow run nf-core/rnaseq -r 3.18.0 -profile docker --input samplesheet.csv --
 
 실행 완료, QC 통과, truth-set 정확도는 서로 다른 근거다. 공개 예제에는 GIAB germline·HG008 tumor–normal 검증과 QC에 실패한 실제 입력도 포함한다. 특정 버전·입력에서 얻은 결과를 모든 데이터에 일반화하지 않는다.
 
-연구자는 위 사용 예시부터 시작한다. 심사위원은 [검증 근거·공개 예제](docs/reference/README.md), 운영자는 [아키텍처](docs/agent-architecture.md)와 [설치](docs/agent-setup.md), AI는 [실행 계약](skills/bioinfo-analyze/SKILL.md)과 [runbook](skills/bioinfo-analyze/references/runbook.md)을 따른다.
+연구자는 위 사용 예시부터 시작한다. 심사위원은 [5분 검증](docs/reviewer-guide.md)과 [실증표](docs/reference/evidence-tables.md), 운영자는 [아키텍처](docs/agent-architecture.md)와 [설치](docs/agent-setup.md), AI는 [실행 계약](skills/bioinfo-analyze/SKILL.md)을 따른다. 상세 근거는 [참고 자료](docs/reference/README.md)에 모았다.
 
-[MIT License](LICENSE)
+[다음 단계](docs/priorities.md) · [인용](CITATION.cff) · [MIT License](LICENSE)

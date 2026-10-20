@@ -1,71 +1,52 @@
-# Design notes — layering, references, guardrails
+# Architecture and control boundaries
 
-Background for maintainers, and for an AI working on this repo. None of it is needed to *use* the
-agent; the [README](../README.md) covers that. It sits here because a first-time user does not need
-it and loses nothing by reading it later.
+bioinfo-agent turns an approved analysis plan into a pinned Nextflow run and a
+technical QC handoff. The contribution to evaluate is reliable workflow operation,
+including reuse and recovery. Biological interpretation remains with the researcher.
 
-**This file summarises. It does not decide.** `skills/bioinfo-analyze/SKILL.md` is what the agent
-actually reads, and `hooks/guard-workdir.sh` is the only rule enforced mechanically. Where either
-disagrees with this file, they win.
+| Reader | Start here | Authoritative detail |
+|---|---|---|
+| Researcher | [README](../README.en.md) | Request, approval, outputs |
+| Reviewer/operator | [Five-minute review](reviewer-guide.md) | [Evidence tables](reference/evidence-tables.md), [control specification](reference/control-spec.md) |
+| Execution agent | [SKILL](../skills/bioinfo-analyze/SKILL.md) | Selected pipeline card and runbook, loaded when needed |
 
----
+The substrate (`bootstrap/`, `config/`) supplies paths, engines and limits. The skill
+defines the protocol; `agents/bioinfo-tech.md` isolates execution and logs. These are
+different layers from the **three reader audiences** above.
 
-## Why three layers
-
-- **Substrate** (`bootstrap/`, `config/`) — machine-specific and constantly changing; re-running
-  rebuilds it from scratch.
-- **Skill** (`skills/bioinfo-analyze/`) — just markdown. You edit it, diff it, read it. Knowledge
-  trapped in an agent prompt is knowledge you cannot grep.
-- **Agent** (`agents/`) — execution isolation. Logs stay in the subagent; only the conclusion
-  crosses over.
-
-A pipeline that dies gets diagnosed from the skill's failure-mode reference, and whatever you worked
-out gets written back into the skill. **The agent is disposable; the skill compounds.**
-
-## References travel as a manifest, not as bytes
-
-Pipeline commands name only the standard path
-`$BIOINFO_REFS/genomes/GRCh38/fasta/genome.fa`, never the original `hg38.fa`.
-`config/refs.manifest.tsv` connects the two, so moving to another machine means fixing one column —
-`source`. **What is portable is the manifest, not the bytes.**
-
-## Guardrails
-
-- Nothing estimated over **24 hours** starts without approval
-- No skipped **stub-run**; no deleted work directory (that kills `-resume`)
-- Refuses when free disk is under **1.5×** the estimate; warns before any download over **10 GB**
-- If it narrowed the scope, it says so out loud. QC verdicts only, no biological interpretation
-- **Does not hand-reproduce an existing pipeline** — wiring `bwa` + `samtools` + `gatk` together
-  yourself is rewriting sarek, and it costs you reproducibility, `-resume` and MultiQC
-- **Does not run binaries it found on disk** — tools come from containers
-
-Only the work-directory rule is machine-checked. `hooks/guard-workdir.sh` registers as a PreToolUse
-hook and refuses `-with-cleanup`, `cleanup = true`, `nextflow clean`, and any `rm -rf` on a work
-directory unless that run is finished, handed off, and past the hold (`BIOINFO_WORKDIR_HOLD_DAYS`,
-7 by default). It sees every Bash call in the session, not only the subagent's, and it fails open
-if it cannot parse its input — a guard that blocks everything when `jq` is missing is worse than
-no guard.
-
-**Editing that hook means running its tests.**
-
-```bash
-bash hooks/guard-workdir.test.sh
+```mermaid
+flowchart LR
+    I["Read-only intake"] --> P["Pinned plan + estimates"]
+    P --> A{"Researcher approves"}
+    A -->|yes| G["Input + reference + disk gates"]
+    A -->|no| P
+    G --> S["Preview + stub or narrow waiver"]
+    S --> X["Nextflow in detached session"]
+    X --> T["Read-only triage"]
+    T -->|repair approved| X
+    T --> Q["Technical QC + handoff"]
+    Q --> R["Retain work for resume"]
 ```
 
-Allow/deny only, hermetic — the suite prints its own case count. The hook is ~300 lines of regex whose whole output is one
-bit, which makes it the easiest thing here to break without noticing: six consecutive rounds of
-review on PR #18 each found a real hole, and three of those were introduced by the fix before
-them. The suite is that history kept. It asserts exit codes and never message wording, because
-the wording gets rewritten and a test that fails on rephrasing is a test people delete.
+Approval is an agent protocol, not a cryptographically enforced authorization.
+Nextflow completion and scientific QC are separate states: a completed run can have
+a FAIL QC verdict.
 
-Both install routes register it: the plugin from `hooks/hooks.json`, `install.ps1` by merging one
-entry into the config dir's `settings.json`. Hand-made symlinks do not, so on that route every rule
-above is a sentence in a prompt.
+| Mechanism | Inputs → decision → output | Enforcement boundary |
+|---|---|---|
+| Re-entry | BAM/CRAM header, reference manifest, index and requested outputs → compatible starting step → approved command | Agent reads headers in a pinned container; preflight validates selected paths. A header alone does not prove identity or complete data integrity. |
+| Work retention | Tool command, work roots, PID/process evidence, handoff age → allow/deny cleanup | `PreToolUse` hook returns block status before a recognized tool call. It is not a kernel sandbox and does not cover arbitrary shell programs. |
+| Storage and recovery | Work path, free space, logs, trace, JVM state → reject placement or classify failure → bounded diagnostic report | Preflight and triage scripts. Current `/mnt/*` detection is a path heuristic, not filesystem attestation. |
+| Resource and QC limits | Host/VM capacity, JVM reserve, task requests, QC metrics → configured caps and verdict → run/handoff | Nextflow limits constrain declared requests; QC bands and interpretation boundary remain agent instructions. No claim of universal OOM prevention. |
 
-Both use **shell form** — a `command` string, no `args` array — and on Windows that is load-bearing.
-`args` would make it exec form: no shell, `command` resolved against PATH, and the first `bash.exe`
-on a Windows PATH is `System32\bash.exe`, the WSL launcher (Git's own lives in `Git\usr\bin`, which
-is on PATH only inside a Git Bash session). WSL cannot open the path, exits 127, and Claude Code
-treats any code but 0 or 2 as non-blocking — so the guard would fail open silently. `install.ps1`
-therefore probes the command against a must-block and a must-allow payload before registering it,
-and refuses rather than leave an entry that does nothing.
+Exact predicates, error paths and test links are in the
+[control specification](reference/control-spec.md). The
+[related-work comparison](reference/related-work.md) separates verified sources
+from hypotheses about this design. No head-to-head superiority has been measured.
+
+Host settings belong in parsed `config/host.env` and generated
+`~/.config/bioinfo/env.sh`; specifications must use the active host's values.
+Runtime state, declared configuration and observed measurements must not be conflated.
+
+For the submission and filing sequence, see the [one-month plan](priorities.md).
+This document describes implemented behavior; it makes no patentability determination.
