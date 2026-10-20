@@ -20,15 +20,18 @@ bash "$BIOINFO_HOME/scripts/stub-gate.sh" status "$RUN" auto
 | Separate stub work/output paths | Set them in the approved command/params. A module without `stub:` may execute real tools. |
 | New label per attempt | Records under `.stub-gates/<label>/` are never overwritten by a retry. |
 | Helper-owned log/trace | `nextflow.log`, `trace.txt`, `console.log`, `head.pid`, `exit-code`, `state`. |
+| Runtime environment | Forward current contract/TLS/proxy settings; remove stale contract variables in the new session only. |
 | `PASS` | Stub command exited 0; does not establish scientific validity or full-run success. |
 | `INTERRUPTED` / `UNKNOWN` | Not a pipeline-specific stub waiver. Diagnose and rerun. |
 
 Detachment protects against a caller disconnect; it does **not** reduce task count or
 survive an OS/VM shutdown. Full-sheet stub cost remains O(N). Each required auto/concrete
-strandedness gate keeps its own label. An `active/` lock refuses concurrent gates in one
-run directory. After a VM shutdown or SIGKILL, confirm the old process is gone before
-manually removing that empty lock directory; never clear it merely because metadata says
-the run completed.
+strandedness gate keeps its own label. An owner-tagged `active/` lock refuses concurrent
+gates in one run directory. The runner acknowledges readiness before launch is confirmed;
+a disconnected launcher cannot release its lock. After a VM shutdown or SIGKILL, confirm
+the old process is gone before manually removing that lock and its `owner` file; never
+clear it merely because metadata says the run completed.
+Preview/help/version flags are refused: their zero exit does not execute the stub gate.
 
 ## Pinned upstream repair
 

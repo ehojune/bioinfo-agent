@@ -117,6 +117,16 @@ class MetadataTests(unittest.TestCase):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 meta.validate(record)
 
+    def test_anchored_fields_reject_trailing_newline_without_file_checks(self):
+        for field in ("run_id", "sha256"):
+            record = copy.deepcopy(self.record)
+            if field == "run_id":
+                record["run_id"] += "\n"
+            else:
+                record["inputs"]["command"]["sha256"] += "\n"
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, "invalid format"):
+                meta.validate(record)
+
     def test_symlink_escape_rejected(self):
         with tempfile.TemporaryDirectory() as outside:
             target = Path(outside) / "private"
@@ -214,6 +224,12 @@ class StubTests(unittest.TestCase):
         fake.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$@\"\nsleep \"${BIOINFO_TEST_SLEEP:-0.15}\"\nexit \"${BIOINFO_TEST_EXIT:-0}\"\n")
         fake.chmod(0o755)
         self.env = dict(os.environ, PATH=f"{self.bin}:{os.environ['PATH']}")
+        socket_dir = self.root / "tmux"
+        socket_dir.mkdir()
+        self.env["TMUX_TMPDIR"] = str(socket_dir)
+        self.env.pop("TMUX", None)
+        self.addCleanup(lambda: subprocess.run(
+            ["tmux", "kill-server"], env=self.env, capture_output=True))
         self.helper = HERE / "stub-gate.sh"
 
     def call(self, *args):
@@ -255,7 +271,10 @@ class StubTests(unittest.TestCase):
     def test_invalid_launch_does_not_create_gate(self):
         for args in [("nextflow", "run", "nf-core/rnaseq"),
                      ("bash", "-c", "nextflow run nf-core/rnaseq -stub-run"),
-                     ("nextflow", "run", "nf-core/rnaseq", "-stub-run", "-log", "other")]:
+                     ("nextflow", "run", "nf-core/rnaseq", "-stub-run", "-log", "other"),
+                     ("nextflow", "run", "nf-core/rnaseq", "-stub-run", "-preview"),
+                     ("nextflow", "run", "nf-core/rnaseq", "-stub-run", "--help"),
+                     ("nextflow", "run", "nf-core/rnaseq", "-stub-run", "false")]:
             result = self.call("launch", self.run, "invalid", "--", *args)
             self.assertEqual(result.returncode, 2)
             self.assertFalse((self.run / ".stub-gates/invalid").exists())
@@ -272,6 +291,63 @@ class StubTests(unittest.TestCase):
         self.assertIn("another gate", result.stderr)
         self.assertFalse((self.run / ".stub-gates/second").exists())
         self.assertEqual(self.wait_state("first"), "PASS")
+
+    def test_launcher_termination_does_not_release_runner_lock(self):
+        self.env["BIOINFO_TEST_SLEEP"] = "1.2"
+        real_tmux = shutil.which("tmux")
+        wrapper = self.bin / "tmux"
+        wrapper.write_text(
+            f"#!/usr/bin/env bash\n{real_tmux} \"$@\"\nrc=$?\n"
+            'if [[ $1 == new-session && $rc == 0 ]]; then kill -TERM "$PPID"; fi\nexit "$rc"\n')
+        wrapper.chmod(0o755)
+        result = self.call("launch", self.run, "interrupted-launcher", "--", "nextflow", "run",
+                           "nf-core/rnaseq", "-stub-run")
+        wrapper.unlink()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue((self.run / ".stub-gates/active/owner").exists())
+        result = self.call("launch", self.run, "second", "--", "nextflow", "run",
+                           "nf-core/rnaseq", "-stub-run")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertEqual(self.wait_state("interrupted-launcher"), "PASS")
+
+    def test_runner_never_releases_a_different_lock_owner(self):
+        self.env["BIOINFO_TEST_SLEEP"] = "0.5"
+        result = self.call("launch", self.run, "owner-check", "--", "nextflow", "run",
+                           "nf-core/rnaseq", "-stub-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        owner = self.run / ".stub-gates/active/owner"
+        owner.write_text("different-owner\n")
+        state = self.run / ".stub-gates/owner-check/state"
+        for _ in range(100):
+            if state.exists():
+                break
+            time.sleep(.05)
+        self.assertTrue(state.exists())
+        time.sleep(.05)
+        self.assertEqual(owner.read_text(), "different-owner\n")
+
+    def test_stale_server_contract_is_unset_only_in_new_session(self):
+        server_env = dict(self.env, NXF_OFFLINE="true", NXF_WORKROOT="/stale/root",
+                          BIOINFO_MAX_MEMORY="999 GB")
+        subprocess.run(["tmux", "new-session", "-d", "-s", "keepalive", "sleep 20"],
+                       env=server_env, check=True)
+        for key in ("NXF_OFFLINE", "NXF_WORKROOT", "BIOINFO_MAX_MEMORY"):
+            self.env.pop(key, None)
+        self.env["SSL_CERT_FILE"] = "/current/ca.pem"
+        (self.bin / "nextflow").write_text(
+            "#!/usr/bin/env bash\n"
+            "printf '%s\\n' \"${NXF_OFFLINE-unset}\" \"${NXF_WORKROOT-unset}\" "
+            "\"${BIOINFO_MAX_MEMORY-unset}\" \"${SSL_CERT_FILE-unset}\"\n")
+        result = self.call("launch", self.run, "fresh-env", "--", "nextflow", "run",
+                           "nf-core/rnaseq", "-stub-run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.wait_state("fresh-env"), "PASS")
+        self.assertEqual((self.run / ".stub-gates/fresh-env/console.log").read_text(),
+                         "unset\nunset\nunset\n/current/ca.pem\n")
+        # Existing server/session policy is not changed by starting this gate.
+        original = subprocess.check_output(
+            ["tmux", "show-environment", "-g", "NXF_OFFLINE"], env=self.env, text=True)
+        self.assertEqual(original.strip(), "NXF_OFFLINE=true")
 
 
 if __name__ == "__main__":

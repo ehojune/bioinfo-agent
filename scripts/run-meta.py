@@ -81,8 +81,11 @@ def check_schema(value, schema, root, location="$"):
     if isinstance(value, str):
         if len(value) < schema.get("minLength", 0):
             raise ValueError(f"{location}: empty string")
-        if "pattern" in schema and not re.search(schema["pattern"], value):
-            raise ValueError(f"{location}: invalid format")
+        if "pattern" in schema:
+            pattern = schema["pattern"]
+            match = re.fullmatch if pattern.startswith("^") and pattern.endswith("$") else re.search
+            if not match(pattern, value):
+                raise ValueError(f"{location}: invalid format")
         if schema.get("format") == "date-time":
             try:
                 parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))

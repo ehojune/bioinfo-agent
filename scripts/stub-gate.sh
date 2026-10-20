@@ -3,6 +3,17 @@
 set -euo pipefail
 
 die() { printf 'stub-gate: %s\n' "$*" >&2; exit 2; }
+contract_key() {
+    case "$1" in
+        PATH|HOME|JAVA_HOME|JAVA_TOOL_OPTIONS|JDK_JAVA_OPTIONS|TMPDIR|NXF_*|BIOINFO_*|APPTAINER_*|SINGULARITY_*|DOCKER_*|SSL_CERT_FILE|SSL_CERT_DIR|REQUESTS_CA_BUNDLE|CURL_CA_BUNDLE|HTTP_PROXY|HTTPS_PROXY|ALL_PROXY|NO_PROXY|http_proxy|https_proxy|all_proxy|no_proxy) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+release_lock() {
+    [[ -r $lock/owner && $(cat -- "$lock/owner") == "$owner" ]] || return 0
+    rm -- "$lock/owner"
+    rmdir -- "$lock"
+}
 usage() {
     printf '%s\n' \
         'Usage: stub-gate.sh launch RUN_DIR LABEL -- nextflow run PIPELINE ... -stub-run' \
@@ -36,11 +47,18 @@ fi
 shift
 [[ $# -ge 4 && ${1##*/} == nextflow && $2 == run ]] || die "pass direct nextflow run argv"
 found=0
+previous=
 for arg in "$@"; do
+    case "$arg" in
+        -preview|-preview=*|--help|--help=*|-help|-h|-version|--version)
+            die "preview/help/version flags do not execute a stub gate" ;;
+    esac
+    [[ $previous != -stub-run || ( $arg != false && $arg != true ) ]] || die "use the bare -stub-run flag"
     [[ $arg != -log && $arg != -log=* ]] || die "helper owns -log"
     [[ $arg != -with-trace && $arg != -with-trace=* ]] || die "helper owns -with-trace"
     [[ $arg != -stub && $arg != -stub-run=* ]] || die "use the exact -stub-run flag"
     [[ $arg != -stub-run ]] || found=$((found+1))
+    previous=$arg
 done
 [[ $found -eq 1 ]] || die "exactly one -stub-run is required"
 command -v tmux >/dev/null || die "tmux is required"
@@ -48,14 +66,37 @@ command -v "$1" >/dev/null || die "Nextflow executable not found"
 mkdir -p "$run/.stub-gates"
 lock="$run/.stub-gates/active"
 mkdir "$lock" 2>/dev/null || die "another gate is active or left an interrupted lock; inspect before clearing"
-trap 'rmdir -- "$lock" 2>/dev/null || true' EXIT
+owner="$session:$$"
+printf '%s\n' "$owner" > "$lock/owner"
+phase=prepare
+trap '[[ $phase != prepare ]] || release_lock' EXIT
 # An existing attempt is immutable; a retry needs a new label.
 mkdir "$gate" 2>/dev/null || die "label already exists; use a new attempt label"
+# Snapshot names as well as values. The server may still export a variable the
+# caller deliberately unset (especially NXF_OFFLINE or an old NXF_WORKROOT).
+env_args=()
+env_keys=()
+while IFS= read -r key; do
+    if contract_key "$key"; then
+        env_args+=(-e "$key=${!key}")
+        env_keys+=("$key")
+    fi
+done < <(compgen -e)
 runner="$gate/runner.sh"
 {
     printf '#!/usr/bin/env bash\nset -uo pipefail\n'
-    printf 'gate=%q\ncd -- %q\n' "$gate" "$run"
-    printf 'trap '\''rmdir -- "$gate/../active" 2>/dev/null || true'\'' EXIT\n'
+    printf 'gate=%q\nlock=%q\nowner=%q\n' "$gate" "$lock" "$owner"
+    declare -f release_lock
+    printf 'trap '\''release_lock'\'' EXIT\n'
+    printf 'cd -- %q || exit 2\n' "$run"
+    declare -f contract_key
+    printf 'declare -A keep_env=('
+    for key in "${env_keys[@]}"; do printf '[%q]=1 ' "$key"; done
+    printf ')\n'
+    printf 'while IFS= read -r key; do\n'
+    printf '  if contract_key "$key" && [[ -z ${keep_env[$key]+present} ]]; then unset "$key"; fi\n'
+    printf 'done < <(compgen -e)\n'
+    printf 'printf "ready\\n" > "$gate/ready"\n'
     printf 'record() {\n  printf "%%s\\n" "$1" > "$gate/exit-code.tmp"\n'
     printf '  mv -- "$gate/exit-code.tmp" "$gate/exit-code"\n'
     printf '  case "$1" in 0) state=PASS;; 129|130|137|143) state=INTERRUPTED;; *) state=FAILED;; esac\n'
@@ -68,20 +109,21 @@ runner="$gate/runner.sh"
     printf 'trap "interrupted 129" HUP\ntrap "interrupted 130" INT\ntrap "interrupted 143" TERM\n'
     printf 'wait "$child"\nrc=$?\nrecord "$rc"\nexit "$rc"\n'
 } > "$runner"
-# Refresh the known execution contract even if the tmux server predates this shell.
-# Do not write the caller's complete environment (which may contain credentials) to disk.
-env_args=()
-while IFS= read -r key; do
-    case "$key" in
-        PATH|HOME|JAVA_HOME|TMPDIR|NXF_*|BIOINFO_*|APPTAINER_*|SINGULARITY_*|DOCKER_*)
-            env_args+=(-e "$key=${!key}") ;;
-    esac
-done < <(compgen -e)
+# Values are sent to tmux, not persisted in runner.sh. Absent names are unset in
+# this new session only, without changing other sessions or the global server.
 printf -v launch 'bash %q' "$runner"
+# From here onward a disconnected launcher must leave the lock intact: tmux may
+# already have created the session even when the client has not returned.
+phase=launching
 if ! tmux new-session -d -s "$session" -c "$run" "${env_args[@]}" "$launch"; then
     printf 'LAUNCH_FAILED\n' > "$gate/state"
     die "tmux launch failed; inspect $gate"
 fi
-# The detached runner now owns the lock, including cleanup on ordinary signals.
+# Acknowledge that the detached runner installed its owner-checked cleanup trap.
+for _ in {1..100}; do
+    [[ ! -r $gate/ready ]] || break
+    sleep 0.05
+done
+[[ -r $gate/ready ]] || die "runner readiness unconfirmed; retain the lock and inspect $gate"
 trap - EXIT
 printf 'session: %s\nrecord: %s\n' "$session" "$gate"
