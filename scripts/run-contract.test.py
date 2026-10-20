@@ -326,6 +326,35 @@ class StubTests(unittest.TestCase):
         time.sleep(.05)
         self.assertEqual(owner.read_text(), "different-owner\n")
 
+    def test_runner_signal_during_child_handoff_reaps_child_before_unlock(self):
+        # Force the previously unhandled spawn/PID-assignment window, then the
+        # known-PID/pre-readiness window. The injected signal uses only a builtin
+        # so $! still refers to the actual child.
+        real_tmux = shutil.which("tmux")
+        (self.bin / "nextflow").write_text("#!/usr/bin/env bash\nexec sleep 5\n")
+        for label, target in [
+            ("before-pid", "child=$!\n"),
+            ("before-ready", 'printf "ready\\n" > "$gate/ready"\n'),
+        ]:
+            gate = self.run / ".stub-gates" / label
+            wrapper = self.bin / "tmux"
+            injection = 'printf "%s\\n" "$!" > "$gate/test-child.pid"\nkill -TERM "$$"\n'
+            wrapper.write_text(
+                "#!/usr/bin/env python3\nimport os, sys\nfrom pathlib import Path\n"
+                "if sys.argv[1] == 'new-session':\n"
+                f"    p = Path({str(gate / 'runner.sh')!r})\n"
+                f"    p.write_text(p.read_text().replace({target!r}, {injection + target!r}, 1))\n"
+                f"os.execv({real_tmux!r}, [{real_tmux!r}] + sys.argv[1:])\n")
+            wrapper.chmod(0o755)
+            result = self.call("launch", self.run, label, "--", "nextflow", "run",
+                               "nf-core/rnaseq", "-stub-run")
+            wrapper.unlink()
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(self.wait_state(label), "INTERRUPTED")
+            self.assertFalse((gate / "ready").exists())
+            with self.assertRaises(ProcessLookupError):
+                os.kill(int((gate / "test-child.pid").read_text()), 0)
+
     def test_stale_server_contract_is_unset_only_in_new_session(self):
         server_env = dict(self.env, NXF_OFFLINE="true", NXF_WORKROOT="/stale/root",
                           BIOINFO_MAX_MEMORY="999 GB")

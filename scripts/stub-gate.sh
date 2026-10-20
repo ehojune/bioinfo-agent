@@ -96,17 +96,23 @@ runner="$gate/runner.sh"
     printf 'while IFS= read -r key; do\n'
     printf '  if contract_key "$key" && [[ -z ${keep_env[$key]+present} ]]; then unset "$key"; fi\n'
     printf 'done < <(compgen -e)\n'
-    printf 'printf "ready\\n" > "$gate/ready"\n'
     printf 'record() {\n  printf "%%s\\n" "$1" > "$gate/exit-code.tmp"\n'
     printf '  mv -- "$gate/exit-code.tmp" "$gate/exit-code"\n'
     printf '  case "$1" in 0) state=PASS;; 129|130|137|143) state=INTERRUPTED;; *) state=FAILED;; esac\n'
     printf '  printf "%%s\\n" "$state" > "$gate/state.tmp"\n  mv -- "$gate/state.tmp" "$gate/state"\n}\n'
-    printf 'interrupted() { trap "" HUP INT TERM; kill -TERM "$child" 2>/dev/null || true; wait "$child" 2>/dev/null; record "$1"; exit "$1"; }\n'
+    # A signal can arrive between spawning the child and assigning $!. Buffer it
+    # until the PID is known; never release the lock while that child can run.
+    printf 'child=\npending_signal=\n'
+    printf 'interrupted() {\n  if [[ -z $child ]]; then pending_signal=$1; return; fi\n'
+    printf '  trap "" HUP INT TERM\n  kill -TERM "$child" 2>/dev/null || true\n'
+    printf '  wait "$child" 2>/dev/null\n  record "$1"\n  exit "$1"\n}\n'
+    printf 'trap "interrupted 129" HUP\ntrap "interrupted 130" INT\ntrap "interrupted 143" TERM\n'
     printf 'command=('
     printf '%q ' "$1" -log "$gate/nextflow.log" "${@:2}" -with-trace "$gate/trace.txt"
     printf ')\n'
-    printf '"${command[@]}" > "$gate/console.log" 2>&1 &\nchild=$!\nprintf "%%s\\n" "$child" > "$gate/head.pid"\n'
-    printf 'trap "interrupted 129" HUP\ntrap "interrupted 130" INT\ntrap "interrupted 143" TERM\n'
+    printf '"${command[@]}" > "$gate/console.log" 2>&1 &\nchild=$!\n'
+    printf '[[ -z $pending_signal ]] || interrupted "$pending_signal"\n'
+    printf 'printf "%%s\\n" "$child" > "$gate/head.pid"\nprintf "ready\\n" > "$gate/ready"\n'
     printf 'wait "$child"\nrc=$?\nrecord "$rc"\nexit "$rc"\n'
 } > "$runner"
 # Values are sent to tmux, not persisted in runner.sh. Absent names are unset in
@@ -119,7 +125,7 @@ if ! tmux new-session -d -s "$session" -c "$run" "${env_args[@]}" "$launch"; the
     printf 'LAUNCH_FAILED\n' > "$gate/state"
     die "tmux launch failed; inspect $gate"
 fi
-# Acknowledge that the detached runner installed its owner-checked cleanup trap.
+# Acknowledge that the runner owns the child and installed its signal handlers.
 for _ in {1..100}; do
     [[ ! -r $gate/ready ]] || break
     sleep 0.05
