@@ -1023,7 +1023,9 @@ by waiting.
 
 Start with `bash "$BIOINFO_HOME/scripts/triage-run.sh" "$NXFDIR"`; it reports status, counts, and failed-task evidence without modifying the run.
 
-`failed`, `cancelled`, and `succeeded` require terminal log markers; failed tasks alone describe attempts. `running` requires a live `nextflow.pid` PID, or, if the file is absent, a run-path-matched Java head process. Otherwise text and `--json` report `unknown` ("멈춘 것으로 보이나 terminal 표식 없음") with the last log timestamp (file modification time if no timestamp exists; unavailable/null if no log exists). PID checks are read-only; Git Bash uses `ps`, and inconclusive checks remain `unknown`.
+`failed`, `cancelled`, and `succeeded` require terminal log markers; failed tasks alone describe attempts. `running` requires a live `nextflow.pid` PID, or a run-path-matched Java head process when the PID is missing, dead, invalid or unreadable. Otherwise text and `--json` report `unknown` ("멈춘 것으로 보이나 terminal 표식 없음") with the last log timestamp (file modification time if no timestamp exists; unavailable/null if no log exists). PID checks are read-only; Git Bash uses `ps`, and inconclusive checks remain `unknown`.
+
+Trace counts distinguish `failed` (`FAILED` only), `aborted` (`ABORTED`), and `non_clean` (other nonzero exits, excluding `RUNNING`). Aborted/non-clean rows never enter `failed_tasks`; counts for unavailable evidence remain unknown/null.
 
 Always start at the work dir named in the error block:
 
