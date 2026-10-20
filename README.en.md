@@ -145,12 +145,12 @@ If “12 paired-end samples” turns out to be nine, that matters before launch.
 
 | Analysis goal | nf-core pipelines | Main outputs / prepared scope |
 |---|---|---|
-| Transcriptomics and splicing | **rnaseq**, **differentialabundance**, **rnasplice** | Bulk RNA quantification, differential expression, alternative splicing |
+| Transcriptomics and splicing | **rnaseq**, **differentialabundance**, **rnasplice** | Bulk RNA quantification, differential expression, SUPPA2 splicing |
 | Genomics and variants | **sarek**, **raredisease** | Germline/somatic variants; raredisease covers alignment, QC and selected callers, with full clinical annotation requiring preparation |
 | Epigenomics | **methylseq**, **atacseq**, **chipseq**, **cutandrun** | Methylation rates, accessibility/binding peaks, CUT&RUN/CUT&Tag |
 | Single-cell and spatial | **scrnaseq**, **spatialaxe** | Count matrices; Xenium coordinate-based segmentation and QC |
-| Metagenomes, microbes and viruses | **ampliseq**, **mag**, **taxprofiler**, **bacass**, **viralrecon** | 16S/ITS, metagenome assembly/profiling, bacterial assembly, viral consensus/variants |
-| Long-read transcriptomics and methylation | **nanoseq**, **isoseq** | ONT alignment/methylation, PacBio Iso-Seq gene/transcript models |
+| Metagenomes, microbes and viruses | **ampliseq**, **mag**, **taxprofiler**, **bacass**, **viralrecon** | 16S/ITS, MAGs, Kraken2 profiling, short-read bacterial assembly, Illumina amplicon consensus/variants |
+| Long-read DNA and transcriptomics | **nanoseq**, **isoseq** | Basecalled ONT DNA QC/alignment (methylation unprepared), PacBio Iso-Seq gene/transcript models |
 | Public data acquisition | **fetchngs** | FASTQs and a downstream samplesheet |
 
 The in-repository **[`pacbio-hifi-wgs`](pipelines/pacbio-hifi-wgs/)** accepts PacBio subreads, HiFi BAM/FASTQ and aligned BAM for germline SNVs/indels, SVs and phasing. It also has a DeepSomatic path for aligned tumor–normal BAMs. CLR uses a separate input path; its small-variant results are exploratory. See the pipeline README for input and caller limits.

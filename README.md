@@ -145,12 +145,12 @@ nextflow run nf-core/rnaseq -r 3.18.0 -profile docker --input samplesheet.csv --
 
 | 분석 목적 | nf-core 파이프라인 | 주 결과·준비 범위 |
 |---|---|---|
-| 전사체·스플라이싱 | **rnaseq** · **differentialabundance** · **rnasplice** | bulk RNA 정량, 발현 차이, alternative splicing |
+| 전사체·스플라이싱 | **rnaseq** · **differentialabundance** · **rnasplice** | bulk RNA 정량, 발현 차이, SUPPA2 스플라이싱 |
 | 유전체·변이 | **sarek** · **raredisease** | germline·체세포 변이; raredisease는 정렬·QC·일부 변이 호출, 전체 임상 주석은 별도 준비 |
 | 후성유전체 | **methylseq** · **atacseq** · **chipseq** · **cutandrun** | 메틸화율, 접근성·결합 peak, CUT&RUN/CUT&Tag |
 | 단일세포·공간전사체 | **scrnaseq** · **spatialaxe** | count matrix; Xenium 좌표 기반 segmentation·QC |
-| 메타게놈·미생물·바이러스 | **ampliseq** · **mag** · **taxprofiler** · **bacass** · **viralrecon** | 16S/ITS, metagenome 조립·분류, 세균 조립, 바이러스 consensus·변이 |
-| 롱리드 전사체·메틸화 | **nanoseq** · **isoseq** | ONT 정렬·메틸화, PacBio Iso-Seq gene/transcript 모델 |
+| 메타게놈·미생물·바이러스 | **ampliseq** · **mag** · **taxprofiler** · **bacass** · **viralrecon** | 16S/ITS, MAG, Kraken2 분류, short-read 세균 조립, Illumina amplicon consensus·변이 |
+| 롱리드 DNA·전사체 | **nanoseq** · **isoseq** | basecalled ONT DNA QC·정렬(메틸화 미준비), PacBio Iso-Seq gene/transcript 모델 |
 | 공공데이터 수집 | **fetchngs** | FASTQ와 다음 단계용 샘플시트 |
 
 **자체 [`pacbio-hifi-wgs`](pipelines/pacbio-hifi-wgs/)**는 PacBio subreads·HiFi BAM/FASTQ·정렬 BAM에서 germline SNV/indel·SV·phasing을 수행한다. 정렬된 tumor–normal BAM의 DeepSomatic 경로도 있다. CLR은 별도 입력 경로이며 small-variant 결과는 탐색용이다. 입력·caller별 한계는 해당 파이프라인 README를 따른다.
