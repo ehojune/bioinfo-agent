@@ -3,14 +3,10 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Claude_Code-skill_%2B_agent-D97757?style=flat-square&logo=anthropic&logoColor=white" alt="Claude Code">
-  <img src="https://img.shields.io/badge/Nextflow-workflow_engine-0DC09D?style=flat-square&logo=nextflow&logoColor=white" alt="Nextflow">
-  <img src="https://img.shields.io/badge/nf--core-9_pipelines-24B064?style=flat-square" alt="nf-core">
-  <img src="https://img.shields.io/badge/Docker_%7C_Apptainer-containers-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Containers">
-  <br>
-  <img src="https://img.shields.io/badge/Linux_%7C_WSL2_%7C_HPC-supported-333333?style=flat-square&logo=linux&logoColor=white" alt="Platforms">
-  <img src="https://img.shields.io/badge/Java-17%2B-ED8B00?style=flat-square&logo=openjdk&logoColor=white" alt="Java 17+">
-  <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT">
+  <img src="https://img.shields.io/badge/Claude_Code-skill_%2B_agent-D97757" alt="Claude Code">
+  <img src="https://img.shields.io/badge/Nextflow-workflows-0DC09D" alt="Nextflow">
+  <img src="https://img.shields.io/badge/nf--core-19_pipelines-24B064" alt="19 nf-core pipelines">
+  <img src="https://img.shields.io/badge/Linux_%7C_WSL2_%7C_HPC-supported-333333" alt="Platforms">
 </p>
 
 <p align="center">
@@ -18,308 +14,162 @@
   <b>English</b>
 </p>
 
-<p align="center">
-  <a href="#why-bioinfo-agent">Why it stands out</a> ·
-  <a href="#quick-start">Quick start</a> ·
-  <a href="#a-real-session">A real session</a> ·
-  <a href="#manual-setup">Manual setup</a> ·
-  <a href="#usage">Usage</a> ·
-  <a href="#design">Design</a> ·
-  <a href="#supported-pipelines">Pipelines</a>
-</p>
-
 ---
 
-**A Claude Code skill and agent that runs the bioinformatics analysis you asked for out loud, as an
-nf-core Nextflow pipeline.**
+**A Claude Code skill and agent that turns a data path and an analysis question into a Nextflow run and a QC report.**
 
-Tell it where the data is and what you want to know. It picks a pipeline, writes the samplesheet,
-and hands you a run plan with time and disk estimated first. Once you approve, it runs the thing,
-watches it, and reads MultiQC to give you a QC verdict. **It runs on a personal workstation, and on
-a shared server or an HPC cluster too** — the only things that change are the container engine and
-the executor setting.
+It prepares a samplesheet and estimates time and disk in `plan.md`, then waits for approval. After execution it delivers QC and outputs in `handoff.md`, using the workstation, WSL2, shared server or HPC environment.
 
-**What it will not do**: interpret biology. `the expression percentage of NF1 gene isoform NF1-202
-is 18%` is where this agent's job ends; what that means for your research is yours.
+**The Line — biological interpretation belongs to the researcher.** The agent reports expression, variants and QC metrics; it does not decide whether they support a biological hypothesis.
 
 <p align="center">
-  <img src="docs/how-it-works.en.svg" width="704"
-       alt="The seven steps. Before approval: 1 intake, 2 pipeline choice, 3 run plan. A human approves here. After approval: 4 preflight, 5 run and monitor, 6 QC verdict, 7 handoff.">
+  <img src="docs/how-it-works.svg" width="664" alt="Intake, pipeline selection and a plan precede human approval. Preflight, execution, QC and handoff follow.">
 </p>
-
----
 
 ## Why bioinfo-agent
 
-It turns four easy-to-miss safeguards into one run procedure instead of leaving them to shell commands or a generic AI chat.
+Four checks make the path from a request to a reviewed result explicit.
 
 <table>
 <tr>
 <td width="50%" valign="top">
 
-<img src="docs/why/en/card-1.svg" width="100%" alt="Plan, then approve: estimate time and disk first, and run only after human approval">
+<img src="docs/why/en/card-1.svg" width="100%" alt="Plan before approval: estimate time and disk, then wait for the user before execution">
 
-**Plan, then approve**
-
-It records the pipeline, samplesheet, time and disk in `plan.md`, then waits for approval. [Execution contract](skills/bioinfo-analyze/SKILL.md) · [Estimation rules](skills/bioinfo-analyze/references/estimates.md) · [Input checks](scripts/check-samplesheet.sh)
+[Plan before approval](#usage)
 
 </td>
 <td width="50%" valign="top">
 
-<img src="docs/why/en/card-2.svg" width="100%" alt="Same workflow, any host: from a workstation to HPC, only the engine and executor change">
+<img src="docs/why/en/card-2.svg" width="100%" alt="One procedure across hosts: configure the engine and executor for workstations or HPC">
 
-**Same workflow, any host**
-
-The procedure stays the same across a workstation, shared server and HPC; the container engine and executor adapt. [Host setup](docs/agent-setup.md) · [Shared servers and HPC](docs/other-hosts.md)
+[One procedure across hosts](docs/agent-setup.md)
 
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 
-<img src="docs/why/en/card-3.svg" width="100%" alt="Diagnose, resume, judge: find the failure, resume the run and judge QC from MultiQC metrics">
+<img src="docs/why/en/card-3.svg" width="100%" alt="Read failures and resume: diagnose, resume and report MultiQC metrics">
 
-**Diagnose, resume, judge**
-
-It diagnoses failure logs read-only, continues with `-resume`, then gives a QC verdict from MultiQC metrics. [Triage script](scripts/triage-run.sh) · [Runbook](skills/bioinfo-analyze/references/runbook.md) · [QC rules](skills/bioinfo-analyze/references/qc-interpretation.md)
+[Read failures and resume](#when-something-breaks)
 
 </td>
 <td width="50%" valign="top">
 
-<img src="docs/why/en/card-4.svg" width="100%" alt="Reuse before rerunning: match a BAM header to the reference and propose the safe entry step">
+<img src="docs/why/en/card-4.svg" width="100%" alt="Reuse existing work: compare BAM headers and references before proposing a re-entry point">
 
-**Reuse before rerunning**
-
-It compares an existing BAM header with the reference, then proposes the safe pipeline entry step. [Reuse rules](skills/bioinfo-analyze/SKILL.md) · [Real session](docs/example-session.svg)
+[Reuse existing work](#a-real-session)
 
 </td>
 </tr>
 </table>
 
----
-
 ## Quick start
 
-### Try the skill first — no clone needed
+### Install the skill and agent — no clone needed
+
+Run these two lines in a terminal with [Claude Code](https://code.claude.com/docs/en/setup) installed.
 
 ```bash
 claude plugin marketplace add ehojune/bioinfo-agent
 claude plugin install bioinfo@bioinfo
 ```
 
-That is all. Tell it where the data is and what analysis you want, and pipeline choice, samplesheet,
-estimates and a run plan come straight out. No `claude` CLI yet?
-`curl -fsSL https://claude.ai/install.sh | bash`.
+Give it the data path and analysis question to start selecting a pipeline and preparing a plan. Update with `claude plugin update bioinfo@bioinfo`. **Choose one installation route: plugin, or `install.ps1`/symlinks.**
 
-> **Pick one install route.** The `claude plugin` commands above and the Windows `install.ps1` are
-> two ways of doing the same thing. Use both and the skill and agent get registered twice.
+### Prepare the execution environment
 
-> **Update with `claude plugin update bioinfo@bioinfo`.** An installed plugin is cached in a
-> **version-named** directory (`~/.claude/plugins/cache/bioinfo/bioinfo/<version>/`), so a skill
-> fix merged here only reaches an existing install once the version is bumped. Measured
-> 2026-08-10: the cached 0.1.0 `runbook.md` was 117 lines behind this repo's, and a running agent
-> loading the skill from that cache followed the pre-fix procedure.
-> `scripts/check-plugin-version.sh` catches that drift at PR time.
+Ask Claude Code to prepare Nextflow, containers and references:
 
-### To actually run pipelines
-
-You need Nextflow, a container engine, and references. **Do not set that up by hand — have Claude
-Code do it.**
-
-```
+```text
 https://github.com/ehojune/bioinfo-agent
-Clone this and set it up so I can use it in my environment.
+Clone this and set it up so I can run pipelines in my environment.
 ```
 
-Claude then follows [docs/agent-setup.md](docs/agent-setup.md): it works out which kind of host you
-are on (personal PC / shared server / cluster), runs only the scripts that apply, and reports what
-is ready and what is missing. To do it yourself, see [Manual setup](#manual-setup).
+The agent checks the host and permissions before setup. The plan estimates disk; large runs need space outside a limited home quota.
 
-> Either way, **you need disk.** Put 500 GB or more of working space on a big disk, not on `$HOME`.
-> The human genome references alone are in the 30 GB range, and pipeline intermediates balloon to
-> several times the size of the final results.
-
----
+For manual setup, privileges and download scope, see [installation](docs/agent-setup.md) and [other hosts](docs/other-hosts.md).
 
 ## A real session
 
 <p align="center">
-  <img src="docs/example-session.svg" width="880"
-       alt="A Claude Code session: it starts from a one-line request, checks the directory and a BAM header itself, works out that the existing alignment can be reused to save tens to hundreds of hours, and then asks the user how far to take the outputs.">
+  <img src="docs/example-session.svg" width="880" alt="A real session starts with one request, checks directories and a BAM header, then proposes reusing an alignment. Re-alignment time is an estimate.">
 </p>
 
-A Y-STR project, in Korean — the agent answers in whatever language you write in. Worth noticing:
-**nobody asked it to check the BAM header.** It went from `run a WGRS analysis on this fastq` to
-spotting a `sorted.bam` someone had aligned by hand, comparing reference builds, and proposing
-re-entry at `--step markduplicates` instead of a 90–270 hour re-alignment. **Then it stopped and
-asked** how far to take the outputs.
+This Y-STR session is in Korean; the agent uses your language. **Nobody asked it to check the BAM header.** Starting from `run a WGRS analysis on this fastq`, it found an existing `sorted.bam`, compared the header and alignment reference, and proposed re-entry at duplicate marking. **Then it stopped to ask how far to take the outputs.**
 
----
+The 90–270 hours was an **estimate for re-alignment**, not a measured saving.
 
 ## Nextflow and nf-core
 
-**[Nextflow](https://www.nextflow.io/)** ([docs](https://docs.seqera.io/nextflow/)) runs each step
-in a container and caches results, which buys reproducibility, `-resume`, and portability.
-**[nf-core](https://nf-co.re/)** ([list](https://nf-co.re/pipelines)) is 150+ pipelines built to the
-same conventions on top of it.
+**[Nextflow](https://www.nextflow.io/)** connects analysis steps and manages container execution and intermediate caches. Its `-resume` option reuses cached work after a failure. **[nf-core](https://nf-co.re/pipelines)** is a collection of bioinformatics pipelines built on Nextflow with shared conventions.
 
 ```bash
 nextflow run nf-core/rnaseq -r 3.18.0 -profile docker --input samplesheet.csv --outdir results
 ```
 
-That one line handles QC → trimming → alignment → quantification → report. **This agent assembles
-it, runs it, and reads the results.** Pipeline versions are set by
-[`config/pipelines.tsv`](config/pipelines.tsv) and checked before a run starts. Any revision printed
-in the docs, the one above included, is a copy of that table.
-
----
-
-## Manual setup
-
-Skip this if the quick start was enough. Requirements: Linux or WSL2, Docker **or**
-Apptainer/Singularity, Java 17+, and 500 GB or more of working space on a big disk rather than
-`$HOME`.
-
-What follows is case A, a personal workstation with root. **A shared server without root, or an HPC
-cluster, has its own guide in [docs/other-hosts.md](docs/other-hosts.md)** — Apptainer instead of
-Docker, caches out of `$HOME`, scheduler settings, lowered caps. Running `local` on a cluster head
-node is forbidden at most sites, so check before you start.
-
-### 1. Build the substrate
-
-```bash
-git clone https://github.com/ehojune/bioinfo-agent.git ~/bioinfo-agent
-cd ~/bioinfo-agent
-cp config/host.env.example config/host.env   # set the distro name, paths and caps for this machine
-set -a; . config/host.env; set +a
-
-sudo -E bash bootstrap/01-wsl-base.sh   # 00-windows-wsl.ps1 first, on Windows
-sudo -E bash bootstrap/02-docker.sh
-bash bootstrap/03-nextflow.sh    # writes ~/.config/bioinfo/env.sh; refuses to run as root
-bash bootstrap/06-tls-trust.sh   # before 04: fetching references needs working TLS
-bash bootstrap/04-refs.sh
-bash bootstrap/05-verify.sh      # until this prints READY, the install is not done
-```
-
-All of them are idempotent, so re-running is safe. **01 and 02 run as root; 03, 04, 05 and 06 run as
-the pipeline user** — 01 refuses to run without root, and 03 refuses to run with it. Which script
-runs as whom, and which to skip on which host, is in the table in
-[docs/agent-setup.md](docs/agent-setup.md).
-
-> **WSL users, read this** — you must configure `.wslconfig` (see `config/wslconfig.example`).
-> Without it WSL2 takes only 50% of host RAM, while a human STAR index wants ~38 GB: it dies of OOM
-> with no warning and leaves you nothing but `exit 137`. Trailing inline comments are not parsed, so
-> put comments on their own lines.
-
-### What the bootstrap grants itself
-
-`01-wsl-base.sh` gives the pipeline user **passwordless sudo** inside the distro
-(`/etc/sudoers.d/90-bioinfo-nopasswd`). `02-docker.sh` adds that user to the **docker group**, which
-is root-equivalent because the daemon runs as root. Both exist so the install runs unattended and so
-pipelines can start containers, and both apply only inside the WSL distro dedicated to pipelines. On
-a machine other people use, skip 01 and 02 and let the administrator do it.
-
-### 2. Register the skill and agent
-
-Claude Code skills and agents are **local files**; they do not follow your Anthropic account. The
-two `claude plugin` commands from the [quick start](#quick-start) are the whole install — confirm
-with `claude plugin details bioinfo@bioinfo`. If you will be editing the repo, symlink into
-`~/.claude/skills` and `~/.claude/agents` instead (`install.ps1` uses junctions on Windows, where
-symlinks need admin rights). **Do not combine the two.**
-
----
+That line handles QC → trimming → alignment → quantification → report. **The agent assembles a command for your inputs and host, runs it and reads the results.** [`config/pipelines.tsv`](config/pipelines.tsv) defines the pinned versions, checked before launch.
 
 ## Usage
 
-The skill fires on its own triggers. There is no command to type.
+Describe your analysis instead of learning a new command:
 
+```text
+I have paired-end FASTQs from mouse liver in ~/data/rnaseq: 4 control and 4 treated samples.
+I want expression differences. Check the inputs and show a plan with estimated time and disk first.
 ```
-I have 8 FASTQ files in ~/data/rnaseq. Mouse liver tissue, 4 control and 4 treated.
-I want to see the expression differences.
+
+```text
+My existing aligned BAMs are in /data/wgs. I want germline variants.
+Check whether the alignments can be reused, then delegate execution to the bioinfo-tech agent.
 ```
 
-Hand long runs to the agent — `Tell the bioinfo-tech agent to run sarek`. `nextflow run` emits tens
-of thousands of log lines; run inside a subagent, that traffic is digested there and only the
-conclusion comes back.
+| What you review | What you receive |
+|---|---|
+| Question, paths, species, genome build and study design | Input checks and a proposed pipeline |
+| Scope, reuse and resource estimates in `plan.md` | Preflight and execution after approval |
+| QC decisions and unresolved items | `handoff.md`, output locations, reproducible commands and logs |
 
-> **A long run must always launch under `tmux` — leaving the window open is not enough on its
-> own.** WSL shuts the distro down when the last session closes, so a job pushed into the
-> background (`nohup … &`) disappears without writing a single log line; separately, an agent that
-> backgrounds Nextflow inside its own turn and waits for it has been measured losing the run the
-> moment its turn ends, even with the session still open. Only `tmux`'s own server process survives
-> both. Details in [runbook.md](skills/bioinfo-analyze/references/runbook.md) section 5.
-
-Useful to give it: the absolute data path, sample count and format, species and genome build, **the
-actual question** ("find rare variants" vs "expression differences" is what decides the pipeline),
-the design, your time tolerance, and any existing outputs. A path alone is enough to start — it
-counts the files itself and infers the rest. **If the request is ambiguous it asks and stops.**
-
----
-
-## Design
+The agent manages long runs in `tmux` for you. This cannot survive a reboot or WSL shutdown; the agent checks the preserved cache before resuming.
 
 ### Why it investigates before being asked
 
-To control the variables in a real analysis environment, mostly human error. It checks the
-**execution environment** (is Docker up, is there 1.5× the estimated disk, do the reference paths
-resolve) and the **input files** (count, pairing, compression, read length) against reality rather
-than against your description — you are told "12 samples, paired-end" and there are actually nine
-often enough that you need to know now, not twelve hours from now.
+If “12 paired-end samples” turns out to be nine, that matters before launch. The agent checks counts, pairing, compression, containers, disk and reference paths.
 
-That work is an **agent loop**: a separate instance with its own context window and tool
-permissions, repeating observe → decide → act. But **steps 1–3 are read-only** — `ls`, `du`,
-`file`, a few FASTQ header lines. A 50 GB BAM is recorded, not opened; verifying it becomes a line
-in `plan.md`.
-
-Why the three layers (substrate, skill, agent) are split, how references travel as a manifest, and
-the full guardrail list are in **[docs/agent-architecture.md](docs/agent-architecture.md)**. None of
-it is needed on first use, and nothing is lost by reading it later.
-
----
+**Checks before approval are read-only.** BAM headers and indexes help assess reuse; full-file statistics and analysis wait for approval. Ambiguous requests or missing evidence prompt a question and a stop.
 
 ## Supported pipelines
 
-Nine documented. Pinned revisions live in [`config/pipelines.tsv`](config/pipelines.tsv),
-samplesheet columns in [samplesheets.md](skills/bioinfo-analyze/references/samplesheets.md), and
-estimates, QC thresholds and failure modes in
-[`skills/bioinfo-analyze/references/`](skills/bioinfo-analyze/references/).
+**19 nf-core pipelines and one in-repository pipeline** are prepared, within a tested scope. Pins live in [`config/pipelines.tsv`](config/pipelines.tsv); tested scope is in the [reference index](docs/reference/README.md).
 
-| Pipeline | For | Main output |
+| Analysis goal | nf-core pipelines | Main outputs / prepared scope |
 |---|---|---|
-| **rnaseq** | bulk RNA-seq quantification | `salmon.merged.gene_counts.tsv` |
-| **differentialabundance** | differential expression (DESeq2) | HTML report, DE tables |
-| **fetchngs** | public data (`SRR`, `PRJNA`, `GSE`) | FASTQ + a samplesheet for the next step |
-| **sarek** | germline / somatic variants | VCF, aligned CRAM |
-| **methylseq** | methylation (WGBS/RRBS/EM-seq) | CpG methylation rates, conversion rate |
-| **atacseq** | chromatin accessibility | consensus peaks, bigWig |
-| **chipseq** | ChIP-seq | peaks, FRiP |
-| **cutandrun** | CUT&RUN / CUT&Tag | peaks (SEACR/MACS2) |
-| **scrnaseq** | single-cell RNA | count matrix, h5ad |
+| Transcriptomics and splicing | **rnaseq**, **differentialabundance**, **rnasplice** | Bulk RNA quantification, differential expression, alternative splicing |
+| Genomics and variants | **sarek**, **raredisease** | Germline/somatic variants; raredisease covers alignment, QC and selected callers, with full clinical annotation requiring preparation |
+| Epigenomics | **methylseq**, **atacseq**, **chipseq**, **cutandrun** | Methylation rates, accessibility/binding peaks, CUT&RUN/CUT&Tag |
+| Single-cell and spatial | **scrnaseq**, **spatialaxe** | Count matrices; Xenium coordinate-based segmentation and QC |
+| Metagenomes, microbes and viruses | **ampliseq**, **mag**, **taxprofiler**, **bacass**, **viralrecon** | 16S/ITS, metagenome assembly/profiling, bacterial assembly, viral consensus/variants |
+| Long-read transcriptomics and methylation | **nanoseq**, **isoseq** | ONT alignment/methylation, PacBio Iso-Seq gene/transcript models |
+| Public data acquisition | **fetchngs** | FASTQs and a downstream samplesheet |
 
-Anything else in nf-core gets procured on request. Tools nf-core does not have — ExpansionHunter,
-TRGT, HipSTR — get run directly, version pinned in a container and recorded in the run log. PacBio HiFi is covered
-by the in-repo [`pipelines/pacbio-hifi-wgs`](pipelines/pacbio-hifi-wgs/) — germline variants, phasing and SV, and
-since 0.2.0 tumour–normal somatic SNV/indel (DeepSomatic, CPU) from aligned BAMs. **Not covered**:
-ONT long-read pipelines, and biological interpretation.
+The in-repository **[`pacbio-hifi-wgs`](pipelines/pacbio-hifi-wgs/)** accepts PacBio subreads, HiFi BAM/FASTQ and aligned BAM for germline SNVs/indels, SVs and phasing. It also has a DeepSomatic path for aligned tumor–normal BAMs. CLR uses a separate input path; its small-variant results are exploratory. See the pipeline README for input and caller limits.
 
----
+Other pipelines are prepared and validated on request. Biological interpretation remains outside the agent's scope.
 
 ## When something breaks
 
-```bash
-bash bootstrap/05-verify.sh
+```text
+This run seems to have stopped. Diagnose its logs and trace read-only, then propose how to resume.
+/data/run-directory
 ```
 
-It sweeps every layer and prints a verdict per item. Run-time failures are covered in
-[runbook.md](skills/bioinfo-analyze/references/runbook.md), install-time ones — including corporate
-TLS interception, which needs all three trust stores fixed and not just the system one — in
-[docs/agent-setup.md](docs/agent-setup.md). Three that catch everyone: a run that died partway wants
-`-resume` and **never** a deleted work directory, a skill registered twice means the plugin and
-`install.ps1`/symlinks were both used, and a run that vanished without writing a single log line was
-started with `nohup`.
+The agent uses `triage-run.sh` to distinguish run status from failed task attempts. **Keep the work directory:** `-resume` needs the cache. Installation checks and direct diagnostic commands are in the [operations reference](docs/reference/maintenance.md).
 
----
+## Evidence and documentation
 
-## License
+Execution completion, QC and truth-set accuracy are distinct. Examples include GIAB germline, HG008 tumor–normal and real inputs that failed QC. Results apply to the tested revision and inputs.
 
-[MIT](LICENSE)
+Researchers can start with the examples above. Reviewers can inspect [evidence and public runs](docs/reference/README.md); operators use [architecture](docs/agent-architecture.md) and [setup](docs/agent-setup.md). AI agents follow the [execution contract](skills/bioinfo-analyze/SKILL.md) and [runbook](skills/bioinfo-analyze/references/runbook.md).
+
+[MIT License](LICENSE)

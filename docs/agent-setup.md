@@ -1,9 +1,8 @@
-# Setup guide for the AI doing the install
+# Setup guide for operators and installation agents
 
-You are an AI assistant. A user has handed you this repository URL and asked you to make it usable.
-This file is the whole procedure. The human-facing README is not the instruction set — this is.
-
-Everything here is written for you. Do not paste it at the user.
+Use this procedure when preparing an execution host. Researchers can ask an agent to follow it
+from the [README](../README.md). Runtime analysis rules live in the
+[execution contract](../skills/bioinfo-analyze/SKILL.md).
 
 ---
 
@@ -12,14 +11,14 @@ Everything here is written for you. Do not paste it at the user.
 Two very different requests hide behind "set this up".
 
 **(1) They only want the skill and agent available in Claude Code.** No pipelines yet. This is one
-command and no clone:
+two commands and no clone:
 
 ```bash
 claude plugin marketplace add ehojune/bioinfo-agent
 claude plugin install bioinfo@bioinfo
 ```
 
-Verify with `claude plugin details bioinfo@bioinfo`. Report the always-on token cost. Stop here.
+Verify with `claude plugin details bioinfo@bioinfo`. Stop here.
 Do not install Docker, Nextflow, or references — the user has not asked to run anything yet, and
 the substrate is tens of GB.
 
@@ -48,7 +47,7 @@ Three host classes, and the branch matters more than anything else here:
 |---|---|---|---|
 | container | Docker engine | **Apptainer/Singularity** | Apptainer |
 | executor | `local` | `local`, ceilings well below the box | **`slurm`/`pbs`/`lsf`** |
-| bootstrap | `00`→`06` | `03 04 05 06` only | `03 04 05 06` only |
+| bootstrap | ordered list below | `03 → 06 → 04 → 05` | `03 → 06 → 04 → 05` |
 | references | build from manifest | **usually already present — ask first** | usually already present |
 
 On B and C you do not have root. Do not attempt `02-docker.sh`. Do not `sudo apt install`. If Java
@@ -67,7 +66,9 @@ cp config/host.env.example config/host.env
 
 Read the copy top to bottom and set every value to something real on this host — the active roots
 (`BIOINFO_HOME`, `BIOINFO_REFS`, `BIOINFO_WORK`, `BIOINFO_RUNLOG`), legacy `BIOINFO_RUNS` reserve,
-the identity block, and the ceilings. Bootstrap sources this file when it exists.
+the identity block, and the ceilings. Bootstrap reads this file when it exists.
+After `03-nextflow.sh`, the runtime contract is `~/.config/bioinfo/env.sh`; compare it with
+`bash bootstrap/05-verify.sh --facts` instead of copying another host's CPU, memory or distro.
 
 ```bash
 set -a; . config/host.env; set +a
@@ -148,8 +149,10 @@ Rows reported `NOT BUILT` and `MISSING` on a fresh host are expected, not failur
 bash bootstrap/05-verify.sh
 ```
 
-It must print `READY`. On Apptainer hosts the Docker checks fail — that is correct, note it and
-move on. Then:
+On the supported WSL/Docker setup it must print `READY`. The verifier still includes
+WSL/Docker-specific checks: on native Linux or Apptainer, record those failures as
+inapplicable and verify the chosen engine, mounts and scheduler separately. Do not turn
+that partial check into a `READY` claim. Plugin registration is independent of host readiness:
 
 ```bash
 claude plugin marketplace add ehojune/bioinfo-agent
@@ -172,10 +175,10 @@ which the symlink commands above do not; `-NoHook` skips that and `-UninstallHoo
 
 ---
 
-## Procuring a pipeline that is not one of the nine
+## Procuring a pipeline that is not stocked
 
-The skill documents nine pipelines in depth. nf-core has over a hundred. Do not pre-document the
-rest — a table nobody verifies rots into confident misinformation. Procure on demand:
+The stocked set is listed in `config/pipelines.tsv`. Procure other pipelines on demand rather than
+pre-documenting an unverified catalogue:
 
 ```bash
 nf-core pipelines list
@@ -190,11 +193,11 @@ this repo that states a revision — plus `pipeline-selection.md`, `samplesheets
 and any needed rows in `refs.manifest.tsv` so the next machine inherits it. Full procedure:
 [`new-pipeline.md`](../skills/bioinfo-analyze/references/new-pipeline.md).
 
-**When nf-core genuinely has no pipeline** — STR callers like ExpansionHunter, TRGT, HipSTR, and
-most long-read work — run the tool directly. Pin it to a container, record the exact invocation in
-the run log, and say in the handoff that this step was not an nf-core pipeline. This does not
-conflict with the rule against hand-rolling: that rule means *do not rebuild sarek out of bwa and
-samtools when sarek exists*.
+**When nf-core has no suitable pipeline**, propose the alternatives in the plan: an existing
+workflow, a directly run container-pinned tool, or an in-repository pipeline for a reusable tool
+chain. Ask before building one; follow `new-pipeline.md` §7. The stocked PacBio pipeline is an
+example, not a reason to rebuild a supported nf-core workflow. Record the chosen path and exact
+invocation in the run log.
 
 ---
 
@@ -242,4 +245,5 @@ When finished, tell the user:
 4. Anything you deliberately skipped and why
 5. One concrete next command they can run
 
-Do not report success while `05-verify.sh` is failing.
+Report `READY` only when `05-verify.sh` prints it. For other hosts, list every inapplicable
+check and its replacement evidence; unverified engine or scheduler checks remain blockers.

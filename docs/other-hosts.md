@@ -19,7 +19,7 @@
 | `03-nextflow.sh` | 그대로 | 그대로 (root 불필요) |
 | `06-tls-trust.sh` | 사내망이면 필요 | 사내망이면 필요 |
 | `04-refs.sh` | **매니페스트 source 먼저 수정** | 동일 |
-| `05-verify.sh` | 그대로 | Docker 체크는 실패로 뜬다 (정상) |
+| `05-verify.sh` | WSL 전용 검사 결과를 따로 기록 | Docker·WSL 검사를 대체할 근거 필요 |
 | `install.ps1` | 리눅스에선 안 쓴다 — 아래 참고 | 동일 |
 
 ---
@@ -30,7 +30,7 @@
 git clone https://github.com/ehojune/bioinfo-agent.git ~/bioinfo-agent
 ```
 
-`config/host.env.example` 을 보고 그 머신 값으로 채운다. 최소 네 개다.
+`config/host.env.example`을 `config/host.env`로 복사해 경로·계정·자원 상한을 해당 머신 값으로 채운다. 아래는 경로 예시다.
 
 ```bash
 export BIOINFO_HOME=~/bioinfo-agent
@@ -43,25 +43,21 @@ export BIOINFO_USER=$USER
 걸린 서버에서는 실행 중간에 죽는다.
 
 ```bash
-BIOINFO_HOME=~/bioinfo-agent bash ~/bioinfo-agent/bootstrap/03-nextflow.sh
+cd ~/bioinfo-agent
+set -a; . config/host.env; set +a
+bash bootstrap/03-nextflow.sh
+. ~/.config/bioinfo/env.sh
 ```
 
 ---
 
-## 2. ext4 규칙이 사라진다
+## 2. 파일시스템과 저장장치 확인
 
-WSL에서는 `/mnt/*` 가 drvfs를 거쳐 5~10배 느렸다. **네이티브 리눅스에는 그 문제가 없다.** 그래서:
+WSL의 drvfs 경계는 네이티브 리눅스에 없지만 저장장치·마운트 성능은 여전히 확인해야 한다.
 
-- `NXF_WORK` 를 어디 두든 성능 걱정은 없다. 용량과 속도만 보면 된다.
-- **매니페스트의 `copy` 모드를 `link` 로 바꿔도 된다.** WSL에서 BWA 인덱스 5GB를 복사한 유일한 이유가
-  drvfs 랜덤액세스였다. 네이티브에서는 심링크로 충분하고 5GB를 아낀다.
-
-```bash
-sed -i 's/\tcopy\t/\tlink\t/' config/refs.manifest.tsv
-```
-
-바꿨으면 `04-refs.sh` 를 다시 돌린다. 다만 레퍼런스가 NFS 같은 느린 공유 스토리지에 있으면 `copy` 를
-유지하는 게 낫다 — 판단 기준은 drvfs가 아니라 **랜덤 액세스가 느린 스토리지인가** 이다.
+- `NXF_WORK`는 쓰기 권한·실행 권한·여유 용량을 확인한 빠른 저장장치에 둔다.
+- 매니페스트의 `copy` → `link` 변경은 행별로 판단한다. 원본이 충분히 빠르고 컨테이너 안에서도 같은 경로로 보이는지 먼저 확인한다.
+- NFS나 느린 공유 스토리지의 인덱스는 로컬 복사가 유리할 수 있다. 변경 후 `04-refs.sh --dry-run`으로 대상 경로를 검토한다.
 
 ---
 
@@ -90,8 +86,9 @@ Apptainer도 없으면 `-profile conda` 가 남는다. 재현성이 떨어지고
 
 ## 4. 공용 서버에서 지켜야 할 것
 
-`config/local.config` 는 **이 머신을 혼자 쓴다**는 전제로 18코어·40GB를 잡아뒀다. 공용 서버에 그대로
-올리면 남의 작업을 밀어낸다.
+`config/local.config`는 `BIOINFO_MAX_CPUS`, `BIOINFO_MAX_MEMORY`, `BIOINFO_MAX_TIME`을 읽는다.
+`config/host.env`와 생성된 `~/.config/bioinfo/env.sh`의 값이 이 호스트의 할당량에 맞는지 확인한다.
+저장소 기본값을 공용 서버의 사용 허가로 해석하지 않는다.
 
 ### 스케줄러가 있으면 (SLURM 등) — 그걸 쓴다
 
@@ -130,9 +127,6 @@ df -h /scratch /data
 load average가 이미 코어 수에 근접하면 시작하지 않는다. 사람이 쓰는 서버에서 STAR 인덱스 빌드(40GB)를
 띄우면 다른 사람 작업이 OOM으로 죽는다.
 
-> 이 리포를 만든 환경에도 그런 서버가 하나 있었다(`ysj`, 사실상 항상 full). 그래서 로컬 WSL로 방향을
-> 튼 것이다. 공용 서버가 붐비면 붐비는 게 맞는 신호다.
-
 ---
 
 ## 5. 스킬과 에이전트 설치 — 리눅스에서는
@@ -146,7 +140,8 @@ claude plugin marketplace add ehojune/bioinfo-agent
 claude plugin install bioinfo@bioinfo
 ```
 
-동작 확인된 경로다. 리포를 업데이트하면 `claude plugin marketplace update` 로 따라간다.
+설치 확인은 `claude plugin details bioinfo@bioinfo`, 업데이트는
+`claude plugin update bioinfo@bioinfo`를 사용한다. 설치된 플러그인은 버전별로 캐시된다.
 
 ### (b) 심링크 — 리포를 계속 고칠 때
 
@@ -198,8 +193,9 @@ bash bootstrap/04-refs.sh
 bash bootstrap/05-verify.sh
 ```
 
-`05-verify.sh` 는 Docker와 WSL 항목에서 실패를 보고할 수 있다. Apptainer로 가는 호스트에서는 그게
-정상이니 그 두 줄만 무시하고 나머지가 깨끗한지 본다.
+`05-verify.sh`는 WSL·Docker를 전제로 한 검사도 포함한다. 해당하지 않는 검사와 실제 실패를
+구분해 기록하고 Apptainer의 컨테이너 실행·bind 경로·스케줄러 제출은 별도로 검증한다.
+스크립트가 `READY`를 출력하지 않았다면 전체 점검을 통과했다고 보고하지 않는다.
 
 ---
 
