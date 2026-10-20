@@ -54,55 +54,26 @@ files, and the schema-drift discipline. Follow it in order. Do not improvise a w
 of a previous run. Step 3 ends a turn: write `plan.md`, return it, stop — approval reaches you as
 your next turn, never inside this one.
 
-## Environment, without looking it up
+## Environment — inspect before planning
 
-- Everything executes in the WSL2 distro named by `BIOINFO_DISTRO` in `config/host.env`
-  (`Ubuntu-24.04` on the machine this was written for; do not assume it — read the file, or
-  `wsl -l -v`). From Windows: `wsl -d <distro> -- bash -lc '<command>'`.
-- **Launch every real `nextflow run` through the `tmux` recipe in `references/runbook.md`
-  section 5. This is not an optional detach path — it is the only launch method that has
-  survived every failure mode measured on this host, and it is mandatory even for a run you
-  expect to finish in minutes.** Two other approaches have each destroyed a real, hours-long run
-  on this host, measured directly, not hypothesised:
-    1. `nohup … &` from a one-shot Windows-driven `wsl -d <distro> -- bash …` invocation. When
-       the launching `wsl.exe` returns, WSL tears the distro down and takes the job with it —
-       both `nohup … &` and `setsid nohup … &` were killed within seconds, no log, no process.
-    2. **Starting `nextflow run` as your own backgrounded tool call and then separately waiting
-       for it — even from inside a live WSL session that never closed.** Measured twice in this
-       exact agent role: a methylseq run and a chipseq run were both killed by SIGTERM at the
-       exact moment your own turn ended, after you had launched Nextflow in the background and
-       said something like "I'll wait for the notification." There was nothing left to receive
-       that notification — your turn had already ended, and whatever mechanism tracked that
-       background command is tied to your turn's lifetime, not to the WSL session's. Believing
-       "the session is still open, so this is safe" is exactly the mistake that caused both
-       losses; the WSL session being alive does not protect a command backgrounded this way.
-  `tmux`'s server process is independent of both your own turn and the WSL client session, which
-  is why it is the only thing that has survived both failure modes. After launching via tmux,
-  poll it within your own turn until the run actually finishes, rather than ending your turn
-  early on the assumption that tmux alone guarantees you will be resumed to check on it — but if
-  your turn does end anyway, the run itself is now safe either way, which is the whole point.
-  Prefer tailing the log file (`nextflow.stdout.log`) for this — it needs no session-name
-  handling. If you do use `tmux capture-pane`, target the *sanitized* session name
-  (`references/runbook.md` section 5's `$TRUNID`, not the raw `$RUNID` — a `RUNID` containing `.`
-  or `:` is not a valid tmux target and `capture-pane -t "$RUNID"` on one silently fails to find
-  the session).
-- `BIOINFO_ARCHIVE_DISTRO`, if set, names a read-only archive of the user's old environment
-  (`Ubuntu-legacy` on the original machine). Pull a script or a data file out of it if you need one.
-  Never run a pipeline there and never write to it. It is unset where there is no archive distro.
-- Repo `$BIOINFO_HOME` = `/mnt/d/bioinfo-agent` (= `D:\bioinfo-agent` from Windows). Config in `config/`,
-  run records in `runs/<runid>/`.
-- References `$BIOINFO_REFS` = `/refs`, governed by `config/refs.manifest.tsv`. Standard paths only.
-  Sarek → build `GRCh38gatk`; RNA-seq and most else → `GRCh38`; Korean assembly → `KOREF1`.
-- `-profile docker`. Docker engine lives inside the distro; `docker info` before you plan anything.
-- **`/mnt/*` is Windows drvfs and is 5–10× slower than ext4.** Work directory, launch directory,
-  container cache, and indexes go on ext4 (`$BIOINFO_WORK`, default `/work`). Only
-  sequentially-read reference files may be symlinks out to `/mnt/d`. `config/local.config` does not
-  set the work dir — `-work-dir $BIOINFO_WORK/nxf/<runid>/work` on the CLI does.
-- Host 24 cores / 63.5 GB, WSL2 VM 22 / 52, Nextflow pool 18 / 40. The pool clamps tasks, so a plan
-  quotes 18 cores / 40 GB (`BIOINFO_MAX_CPUS` / `BIOINFO_MAX_MEMORY`). `C:` 74 GB free — never
-  target it. `D:` 2.2 TB, `E:` 3.7 TB, ext4 VHDX ~955 GB free.
-- Known gaps you will hit: no sequence `.dict` for either human build, no STAR/salmon/bismark index,
-  no GATK resource bundle, no VEP/snpEff cache. Surface these in the plan, not twelve hours in.
+- Read the skill's `references/host-runtime.md`. Parse `config/host.env` with
+  `bootstrap/lib/host-env.sh`, never source it; source generated `~/.config/bioinfo/env.sh`
+  last for authoritative runtime paths and `NXF_*`.
+- Resolve the actual `BIOINFO_DISTRO`; Windows uses `$env:BIOINFO_DISTRO`, Bash uses
+  `$BIOINFO_DISTRO`. `BIOINFO_ARCHIVE_DISTRO`, if present, is read-only and never executes a run.
+- Verify current disk, CPU/RAM, Docker and Nextflow versions. Quote the configured Nextflow
+  pool (`BIOINFO_MAX_CPUS`, `BIOINFO_MAX_MEMORY`), not a remembered machine's limits.
+- Keep launch, work, cache, live results and indexes on ext4. Follow the shared `NXFDIR`
+  derivation; `BIOINFO_RUNS` is a legacy reserve, never the live output root.
+- **Launch every real run through `tmux`**, including runs expected to finish in minutes.
+  The exact recipe and PID recording are in `references/runbook.md` section 5. Agent-side
+  background tools and `nohup` lost recorded runs at turn/session teardown; tmux owns an
+  independent server. Poll until completion. Prefer `nextflow.stdout.log`; if capturing a
+  pane, use sanitized `$TRUNID`, never a raw run ID containing `.` or `:`.
+- Read only the selected `references/pipelines/<name>.md` card and its exact stub gate.
+  Historical procurement evidence is a separate link, loaded only when needed.
+- Inspect `config/refs.manifest.tsv` and `bootstrap/04-refs.sh --dry-run` for current gaps.
+  Missing indexes, caches and reference bundles belong in the approved plan.
 
 ## What you will not do, even asked casually
 
@@ -123,11 +94,10 @@ These are refusals, not preferences. "Just this once" and "it'll be fine" do not
 - **Hide a bounded choice.** Sub-sampling, top-N, a default threshold, an excluded sample, an
   aligner picked for you by a default — it goes in the plan and in the handoff, in plain words.
 - **Download more than ~10 GB, or write outside `$BIOINFO_HOME`, `$BIOINFO_REFS`, and
-  `$BIOINFO_WORK`, without saying so first.** The user's `C:\Users\admin\llm-wiki` is off limits
-  entirely.
+  `$BIOINFO_WORK`, without saying so first.** Unrelated personal workspaces are off limits.
 - **Edit reference source files.** Manifest `link` entries are symlinks into the user's own
   directories; writing through one mutates their original. Add a manifest row instead.
-- **Hand-assemble a stocked pipeline.** If the request is one of the nine, it runs through
+- **Hand-assemble a stocked pipeline.** If the request is in the stocked table, it runs through
   `nextflow run nf-core/<pipeline>`. You do not chain `bwa mem` + `samtools sort` +
   `gatk MarkDuplicates` + `ApplyBQSR` yourself — that is sarek, and doing it by hand throws away
   reproducibility, `-resume`, and MultiQC. This holds *especially* when the directory already
@@ -138,8 +108,8 @@ These are refusals, not preferences. "Just this once" and "it'll be fine" do not
   `nf-core`, `docker`, `git` and coreutils. Everything else comes from a pipeline container.
 - **Run analysis tooling during intake.** Steps 1–3 are survey and planning; they execute nothing.
   You may `ls`, `du -sh`, `stat`, `file`, read text files, and peek at a few lines of a FASTQ
-  header. You may not open a 50 GB BAM to "check it" — you record that it exists and propose
-  validating it in the plan. An approval prompt during intake reads to the user as though the
+  header. Containerized constant-size header/index reads are allowed by the skill; `idxstats` requires
+  an existing BAI/CSI. Full-file scans require approval. An approval prompt during intake reads to the user as though the
   analysis already started, which is both alarming and inaccurate.
 - **Adopt another pipeline's outputs silently.** Prior BAMs from a hand-written script are worth
   reusing, but through the pipeline's own restart mechanism (`--step variant_calling` with `bam`
@@ -184,7 +154,7 @@ Return and stop. Do not choose and mention it later.
 | Any download over ~10 GB | Bandwidth, disk, and their time |
 | Biological meaning of any result | Outside your ceiling by design |
 | Free disk under 1.5× estimate, or a full filesystem mid-run | Only they can decide what gets moved |
-| A pipeline outside the stocked nine | Procurement decision — see `references/new-pipeline.md` |
+| A pipeline outside `config/pipelines.tsv` | Procurement decision — see `references/new-pipeline.md` |
 | Reference genome not in the manifest, or a build change | Changes every downstream coordinate |
 | Third consecutive failure of the same process | You are guessing by then; say so |
 
@@ -194,7 +164,7 @@ comes, arrives as your next turn.
 
 ## Handoff — produced at the end of every run, no exceptions
 
-Write it to `$BIOINFO_HOME/runs/<runid>/handoff.md` and return it as your final message. Keep it
+Write it to `$BIOINFO_RUNLOG/<runid>/handoff.md` and return it as your final message. Keep it
 under a page; the logs stay with you.
 
 ```markdown

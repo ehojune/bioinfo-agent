@@ -4,27 +4,20 @@ The exact sequence for getting an nf-core pipeline from "the user asked for X" t
 results and here is the QC verdict", on this host. Deviating from the order below is how runs get
 lost twelve hours in.
 
-Host facts this runbook is written against: WSL2 `Ubuntu-24.04`, 24 logical cores, 63.5 GB host RAM,
-Docker **engine** inside the distro, distro ext4 on `D:\wsl\ubuntu-24.04\ext4.vhdx` (1 TB max,
-~955 GB free), `appendWindowsPath=false`, references under `$BIOINFO_REFS` (default `/refs`).
+Read [host-runtime.md](host-runtime.md) for the actual distro, generated environment, roots,
+resource pool and current disk checks. Historical measurements below are evidence, not host defaults.
 
 ## Sequence at a glance
 
 1. Pick pipeline + revision. Pin the revision.
-2. Write the run plan to `$RUNDIR/plan.md`. Get approval if the estimate exceeds 24 h.
+2. Write the run plan to `$RUNDIR/plan.md`. Get approval before execution; explicitly approve any estimate over 24 h.
 3. Write `samplesheet.csv`, `params.yaml`, `cmd.sh` into `$RUNDIR`.
 4. Preflight. Any FAIL is a hard stop.
-5. `-preview`, then `-stub-run`. Both must be clean — with exactly eleven documented departures, the
-   rnaseq `strandedness: auto` waived stub failure, the differentialabundance `--features`
-   substitute stub, the sarek `haplotypecaller_filter` skip, the ampliseq `CUTADAPT_BASIC` true
-   waiver, the mag `UNTAR`/local-modules-without-stubs finding, the nanoseq
-   `SAMTOOLS_IDXSTATS`/`SAMTOOLS_FLAGSTAT` true waiver, the rnasplice
-   `GTF_GENE_FILTER`/`RSEM_PREPAREREFERENCE` true waiver, the isoseq `ULTRA_INDEX` true waiver
-   (confined to the `aligner: ultra` branch this repo does not stock), the bacass `UNICYCLER`
-   true waiver, and the methylseq `BISMARK_SUMMARY` true waiver, all defined in section 4.
+5. `-preview`, then `-stub-run` on the full samplesheet. Read the selected card's exact stub gate;
+   section 4 defines common isolation, inspection and failure handling.
 6. Launch on ext4 with reports and `-resume`, always through `tmux` (mandatory, not optional).
 7. Monitor the trace, not the terminal.
-8. On completion: read MultiQC, rsync results out to `/mnt/d`, write the handoff.
+8. On completion: read MultiQC, rsync results to `$BIOINFO_RUNLOG/$RUNID`, write the handoff.
 9. Leave the work dir alone for at least 7 days.
 
 ---
@@ -36,7 +29,7 @@ Two directories per run, one on each filesystem, sharing a run ID.
 ```
 RUNID = <YYYYMMDD>-<pipeline>-<slug>          e.g. 20260728-rnaseq-koges-pilot
 
-/mnt/d/bioinfo-agent/runs/$RUNID/            NTFS via drvfs — human-visible, small text + deliverables
+$BIOINFO_RUNLOG/$RUNID/            NTFS via drvfs — human-visible, small text + deliverables
   ├── plan.md                            written BEFORE launch, never edited after
   ├── samplesheet.csv
   ├── params.yaml
@@ -82,7 +75,7 @@ sufficient:
 created relative to the current directory, so launching from `/mnt/d/...` puts the resume cache on
 drvfs even when `-work-dir` is correct. Always `cd "$NXFDIR"` first.
 
-**`--outdir` points at ext4 during the run**, and results are rsynced to `/mnt/d` once at the end.
+**`--outdir` points at ext4 during the run**, and results are rsynced to the configured run record once at the end.
 nf-core's default `publish_dir_mode = 'copy'` means every published file is copied out of the work
 dir as it is produced; doing that across drvfs, thousands of times, during the run, is pure waste.
 One sequential rsync at the end costs a fraction of it. Corollary: never set
@@ -105,24 +98,16 @@ sudo mkdir -p "${BIOINFO_WORK:-/work}"/nxf "${BIOINFO_WORK:-/work}"/staging
 sudo chown -R "$USER:$USER" "${BIOINFO_WORK:-/work}"
 ```
 
-Put this in `~/.bashrc` (or the skill's env preamble):
-
-```bash
-export BIOINFO_HOME=/mnt/d/bioinfo-agent
-export BIOINFO_REFS=/refs
-export NXF_WORKROOT="${BIOINFO_WORK:-/work}/nxf"
-export NXF_ASSETS="$BIOINFO_REFS/cache/nf-assets"    # pipeline clones live on ext4
-export NXF_OPTS='-Xms1g -Xmx8g'                       # cap the launcher JVM (03-nextflow.sh sets this)
-export NXF_ANSI_LOG=false                             # append-only log; ANSI redraws make it unreadable
-```
+Load the generated environment using [host-runtime.md](host-runtime.md). Do not copy machine-specific
+exports into shell startup files or overwrite generated settings from an old run record.
 
 Two Windows-side settings that decide whether a long run survives. Run these from PowerShell, not
 from inside the distro — `appendWindowsPath=false` means `wsl.exe` and `powercfg.exe` are not on the
 distro's `PATH` (reach them at `/mnt/c/Windows/System32/…` if you must).
 
-- **WSL memory ceiling.** WSL2 defaults to roughly half of host RAM, i.e. ~31 GB here. That is below
+- **WSL memory ceiling.** Compare the actual VM memory with the approved workload and configured pool. That is below
   what a human STAR index build wants (~40 GB) and well below comfortable for sarek. Check inside
-  the distro with `free -g`; if `total` is ~31, copy `config/wslconfig.example` to
+  the distro with `free -g`; adapt `config/wslconfig.example` to the host before applying it to
   `%USERPROFILE%\.wslconfig` — it is the tested source for the VM budget — then `wsl --shutdown`
   from PowerShell and restart the distro. Leaving the balance to Windows is not optional; starving
   the host makes the whole machine unusable and does not speed up the run.
@@ -191,7 +176,7 @@ against.
 
 ```bash
 RUNID=20260728-rnaseq-koges-pilot
-RUNDIR=$BIOINFO_HOME/runs/$RUNID
+RUNDIR=$BIOINFO_RUNLOG/$RUNID
 bash "$BIOINFO_HOME/bin/preflight.sh" "$RUNDIR" 180      # 180 = estimated work-dir GB
 ```
 
@@ -205,7 +190,8 @@ death at hour 18 costs more than the wait.
 
 ## 4. Preview, then stub
 
-Two cheap gates, in this order. Never skip either.
+Two gates, in this order. Never skip either. A full-sheet stub can take run-scale time;
+budget it and keep its session alive, including every required substitute attempt.
 
 **`-preview`** resolves params and builds the DAG without executing anything. It catches schema
 violations, missing required params, and unresolvable reference paths in seconds.
@@ -221,15 +207,15 @@ nextflow run nf-core/rnaseq -r 3.18.0 -profile docker \
 ```
 
 **`-stub-run`** actually walks the whole workflow, running each module's `stub:` block instead of
-the real command. It creates empty output files, so it validates channel wiring, samplesheet
-parsing, and the full topology end to end — in minutes, on kilobytes.
+the real command. It creates empty output files, so it exercises channel wiring, samplesheet parsing and topology. Runtime scales with sample/task
+count; missing stubs may execute real work. It does not validate scientific results.
 
-**That "minutes, on kilobytes" claim assumes every process defines a `stub:` block. It is a
+**Cheap placeholder-only execution assumes every process defines a `stub:` block. It is a
 per-process property, not a pipeline-wide guarantee, and Nextflow's own documented fallback for a
 process with none is to run its real `script:` unchanged under `-stub-run`.** Measured on
 nf-core/fetchngs 1.12.0 (run 20260810-fetchngs-citest): several of its download modules define no
 stub, so the "stub" run genuinely downloaded 939 MB over ~7 minutes before any real launch — see
-`references/pipeline-selection.md` §4.3 for the specifics and the sizing consequence. Before
+`references/pipelines/fetchngs.md` for the specifics and the sizing consequence. Before
 trusting this step is cheap for a pipeline you have not stubbed before on this host, a quick check
 for which modules are missing a `stub:` block is worth the 30 seconds it costs — `-L`
 (capital, "files WITHOUT a match"), not `-l`, and restricted to `main.nf` so it does not also list
@@ -239,25 +225,34 @@ every `README`/`meta.yml` in the tree as if they were unstubbed processes:
 grep -rL --include='main.nf' 'stub:' <clone>/modules/
 ```
 
+Use a detached full-sheet stub for every attempt, including substitutes required by the card.
+`stub-gate.sh` owns the session, log and trace; keep the approved samplesheet and explicit
+separate stub work/output paths. It does not reduce task count or authorize skipping gates.
+
 ```bash
-NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation everywhere
-STUBROOT=${BIOINFO_WORK:-/work}/tmp/stub-$RUNID             # OUTSIDE the run tree, on purpose
-STUBDIR=$STUBROOT/main         # one subdirectory PER stub attempt — see "two stubs" below
-mkdir -p "$NXFDIR" "$STUBDIR"   # the launch dir only — NOT work/, the real launch creates that
-cd "$NXFDIR"
-nextflow run nf-core/rnaseq -r 3.18.0 -profile docker \
-  -params-file $RUNDIR/params.yaml \
-  -c $BIOINFO_HOME/config/local.config \
-  -work-dir "$STUBDIR/work" \
-  --outdir "$STUBDIR/results" \
+NXFDIR=${NXF_WORKROOT:-$BIOINFO_WORK/nxf}/$RUNID
+STUBROOT=$BIOINFO_WORK/tmp/stub-$RUNID
+STUBDIR=$STUBROOT/main
+mkdir -p "$NXFDIR" "$STUBDIR"
+bash "$BIOINFO_HOME/scripts/stub-gate.sh" launch "$NXFDIR" main -- \
+  nextflow run nf-core/rnaseq -r 3.18.0 -profile docker \
+  -params-file "$RUNDIR/params.yaml" \
+  -c "$BIOINFO_HOME/config/local.config" \
+  -work-dir "$STUBDIR/work" --outdir "$STUBDIR/results" \
   -stub-run -ansi-log false
+bash "$BIOINFO_HOME/scripts/stub-gate.sh" status "$NXFDIR" main
 ```
+
+Poll status until terminal, then inspect `.stub-gates/main/{console.log,nextflow.log,trace.txt,exit-code,state}`
+under `$NXFDIR` and the output tree. A fresh label and directory are required on retry.
+`INTERRUPTED` or `UNKNOWN` is never a pass or a documented pipeline waiver. A zero exit is
+execution evidence; the card's predicates and output checks still decide whether Step 4 passed.
 
 **One `$STUBDIR` per attempt, never a shared one.** Two stub runs pointed at the same work and
 results trees produce a *union* of their outputs, and a union can satisfy the output-tree
 inspection below even when neither run produced everything on its own — which is precisely the
 false pass a gate must not be able to give. It matters as soon as you run more than one stub, and
-the `strandedness: auto` case below forces exactly that. Give each attempt its own subdirectory of
+the [rnaseq auto-strand gate](pipelines/stubs/rnaseq.md) requires exactly that. Give each attempt its own subdirectory of
 `$STUBROOT` and delete `$STUBROOT` once as the last step.
 
 Use a **separate** stub work directory. Stub outputs are empty files; if they land in the real
@@ -270,9 +265,9 @@ the stub passed:**
 rm -rf "$STUBROOT"              # AFTER checking "Pass looks like" below, never before
 ```
 
-It is a separate step on purpose. Appended to the snippet above it would run whichever way the
-stub went — that block has no `set -e` and `nextflow`'s exit status is not checked — and it would
-take the evidence with it: `$STUBDIR/results/` is what "Pass looks like" tells you to inspect, and
+It is a separate step on purpose. The launch helper returns while Nextflow is still running;
+appending cleanup would remove active stub files before a verdict. `$STUBDIR/results/` is what
+"Pass looks like" tells you to inspect, and
 `$STUBDIR/work/<hash>/.command.{sh,err,log}` is where a *failed* stub's diagnosis lives. Deleting
 before reading turns a cheap gate into no gate at all. If the stub failed, keep `$STUBROOT`, fix,
 re-stub into a **new** subdirectory, and delete `$STUBROOT` only once you are done with all of it.
@@ -299,409 +294,19 @@ process reaching `[100%] N of N ✔`, `Completed at: …`, `Succeeded: N`, exit 
 | `ERROR ~ Validation of pipeline parameters failed` + a bullet list | schema rejection; the bullets name the offending param or samplesheet column |
 | `Missing required parameter: --outdir` | params.yaml incomplete |
 | `does not exist` on a `/refs/...` path | manifest gap; run `bootstrap/04-refs.sh`, do not hand-place the file |
-| `Process 'X' doesn't have a stub block` | that module has no stub upstream. Not your bug; note it and rely on `-preview` plus a real 1-sample run for that branch |
-| `ERROR ~ Text must not be null or empty` at `fastq_qc_trim_filter_setstrandedness/main.nf` | **rnaseq only, and it is the samplesheet, not the pipeline.** `strandedness: auto` cannot be stubbed — see the note below the table for what to do and what it does *not* cover |
-| `Error in read.table(file = file, ...) : no lines available in input` inside `VALIDATOR (samplesheet.csv)`, container `r-shinyngs` | **differentialabundance only, when launched with `--gtf` (the documented, default path).** See the note below the table |
-| `A USER ERROR has occurred: Cannot read file://<sample>.haplotypecaller.vcf.gz because no suitable codecs found`, process `CNNSCOREVARIANTS`, exit 2 | **sarek only, any `--tools haplotypecaller` stub-run at this pin (3.5.1) — with or without `--dbsnp`/`--known_indels` supplied.** The module has no `stub:` block regardless of bundle presence. See the note below the table |
+| `Process 'X' doesn't have a stub block` | Inspect the selected card's exact gate. Without a matching documented case, stop; missing stubs can execute real work and do not waive failures |
+| `ERROR ~ Text must not be null or empty` at `fastq_qc_trim_filter_setstrandedness/main.nf` | Read the [rnaseq gate](pipelines/stubs/rnaseq.md): exact error, all prior tasks clean, concrete-strand second stub clean |
+| `Error in read.table(file = file, ...) : no lines available in input` inside `VALIDATOR (samplesheet.csv)`, container `r-shinyngs` | Read the [differentialabundance substitute gate](pipelines/stubs/differentialabundance.md); failure is never waived |
+| `Cannot read ... haplotypecaller.vcf.gz because no suitable codecs found`, process `CNNSCOREVARIANTS`, exit 2 | Read the [sarek stub-only flag gate](pipelines/stubs/sarek.md), including merge semantics and the real-command distinction |
 | `Unable to pull docker image` | see failure taxonomy below; fix before the real launch, not during |
 
-**`strandedness: auto` and `-stub-run`, and why two stubs cover less than one whole run.**
-`getSalmonInferredStrandedness()` does `new JsonSlurper().parseText(json_file.text)` on salmon's
-`lib_format_counts.json`, and `SALMON_QUANT`'s stub block emits that file empty, so the parse
-throws. Confirmed at rnaseq 3.18.0 on 2026-08-07.
+### Pipeline-specific stub gates
 
-**This one failure is a waived exception to "a failed stub is a real failure", and it is the only
-one in this file.** With `strandedness: auto` the first stub is *guaranteed* to exit nonzero
-regardless of how correct your run is — there is nothing to fix and re-stubbing changes nothing.
-Waiving it is only legitimate because it is identifiable rather than merely tolerated: the waiver
-applies **only** when the error is exactly `Text must not be null or empty` raised from
-`fastq_qc_trim_filter_setstrandedness/main.nf`, **and** the tasks before it all exited 0, **and**
-the concrete-strandedness stub below then passes clean. Any other error, any earlier task failure,
-or a concrete stub that does not pass, and the ordinary rule applies in full: fix it, re-stub,
-do not launch.
-
-The second stub is a **copy** of the samplesheet whose `strandedness` column is a concrete value;
-`auto` stays in the real one. Both halves of the command matter: the source is in `$RUNDIR` (you
-are `cd`'d into `$NXFDIR`, so a bare `samplesheet.csv` is not there), and `--input` must be
-overridden on the command line — `$RUNDIR/params.yaml` carries the real, `auto` samplesheet and
-the params file wins otherwise, so without the override this fails at the same parse. It also
-gets its own `$STUBDIR`, per the rule above:
-
-```bash
-STUBDIR=$STUBROOT/concrete-strand          # NOT the same tree as the auto attempt
-mkdir -p "$STUBDIR"
-sed 's/,auto$/,reverse/' "$RUNDIR/samplesheet.csv" > "$STUBDIR/samplesheet.stub.csv"
-# ... then re-run the -stub-run invocation above with the new $STUBDIR, plus:
-#   --input "$STUBDIR/samplesheet.stub.csv"
-```
-
-**That is a partial gate, not an equivalent one, and the difference is not cosmetic.** The subworkflow branches on `meta.strandedness == 'auto'` and feeds only the
-`auto_strand` branch into `FASTQ_SUBSAMPLE_FQ_SALMON`, so a concrete value leaves that branch
-empty and the inference path — the one that failed — is never entered. Measured on the two stub
-runs of `20260807-rnaseq-scer-gln3-ibutanol`, comparing `Submitted process` lines:
-
-| stub | covers | does not reach |
-|---|---|---|
-| `auto` (fails) | `FQ_SUBSAMPLE`, `SALMON_INDEX`, `SALMON_QUANT` — the inference branch **is** entered and wired | everything downstream; it dies at the parse, 56 tasks in |
-| concrete value | `STAR_ALIGN` → `TXIMETA_TXIMPORT` → `SE_*` → `DESEQ2_QC` → `MULTIQC`, 110 tasks | `FQ_SUBSAMPLE` and `SALMON_INDEX` never submit at all |
-
-So run **both**, and know what neither gives you: the join of
-`FASTQ_SUBSAMPLE_FQ_SALMON.out` back onto `auto_strand` and the strandedness assignment itself
-are exercised for the first time by the real run. Treat the first real sample to clear
-`FASTQ_SUBSAMPLE_FQ_SALMON` as the gate for that branch, and check the inferred value in
-MultiQC's strand-check table rather than assuming a passing stub covered it.
-
-A stub run that fails is a launch that would have failed after burning real hours. Fix, re-stub,
-then launch.
-
-**`nf-core/differentialabundance` 1.5.0, `-stub-run`, and `--gtf`.** First run of this pipeline on
-this host, 2026-08-10 (`20260810-differentialabundance-gln3-ibutanol`). With the documented,
-default input shape (`--gtf`, not `--features`), the DAG is
-`GUNZIP_GTF → GTF_TO_TABLE → VALIDATOR → ...`. `GTF_TO_TABLE`'s stub block is a bare
-`touch genes.anno.tsv` — it does not write a header or any rows — and `VALIDATOR` (module
-`r-shinyngs`, script `validate_fom_components.R`) is not itself stubbed, so under `-stub-run` it
-runs for real against that empty file and dies in `read.table()` with
-`Error ... no lines available in input`. This is the same shape as the rnaseq
-`strandedness: auto` case above (a real script fed a deliberately-empty stub upstream output) but
-it is **not** a waived exception, because there is a clean workaround rather than a guaranteed
-failure: the workflow reads features from `--features` *instead of* `--gtf` when both would
-otherwise be derived from it (`workflows/differentialabundance.nf`, the `if (params.features) …
-else if (params.gtf) … GTF_TO_TABLE(...)` branch), and `--features` skips `GTF_TO_TABLE` entirely.
-
-```bash
-# Stub-only substitute — the REAL run keeps --gtf, exactly as planned. Derive a small, genuinely
-# non-empty feature table from the matrix itself (gene_id + gene_name columns are enough for the
-# stub to validate against); do not hand-write one, and do not point --gtf at anything but the
-# real reference.
-STUBDIR=$STUBROOT/features-substitute      # NOT $STUBROOT/main -- that is the failed --gtf attempt;
-mkdir -p "$STUBDIR"                        # reusing it would union this pass's outputs with the
-                                            # failed one's, same rule as the rnaseq case above
-MATRIX=$(grep -m1 '^matrix:' "$RUNDIR/params.yaml" | sed -E 's/^matrix:[[:space:]]*//; s/[[:space:]]+#.*$//' \
-  | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//")
-# grep anchored to `^matrix:` picks the KEY, not any line merely containing the substring "matrix"
-# elsewhere (e.g. transcript_length_matrix:). The first sed removes only the `matrix:` prefix and
-# any trailing ` #comment` -- splitting on EVERY colon (an earlier version of this line did, via
-# `awk -F':'`) truncates a path that legitimately contains one, such as `s3://bucket/counts.tsv`,
-# to `s3`. The second sed strips one layer of YAML quoting (matrix: "/path" or matrix: '/path');
-# left in place, `cut -f1,2 "$MATRIX"` fails to open a filename literally prefixed with a quote.
-# Does not handle escaped quotes inside the path itself -- this repo's own params.yaml files never
-# quote paths (see any existing runs/*/params.yaml), so an unquoted path remains the common case.
-# `cut` below needs a coreutils-openable path (local ext4/drvfs), not a remote URI -- true of
-# every --matrix this repo has ever passed (always an rnaseq run's own results/ output on
-# $BIOINFO_WORK). The s3:// example above is there ONLY to prove the colon-splitting bug is
-# fixed, not because this repo stages matrices from object storage; if that ever changes, stage
-# the remote file locally first and point $MATRIX at the local copy.
-cut -f1,2 "$MATRIX" > "$STUBDIR/stub_features.tsv"
-sed "s#^gtf:.*#features: $STUBDIR/stub_features.tsv#" "$RUNDIR/params.yaml" > "$STUBDIR/stub_params.yaml"
-# ... then run the -stub-run invocation with -params-file "$STUBDIR/stub_params.yaml" instead of
-# $RUNDIR/params.yaml, and the usual --outdir/-work-dir pointed at $STUBDIR.
-```
-
-**Partial gate, same as the strandedness case**: this substitution means the stub never exercises
-`GUNZIP_GTF`/`GTF_TO_TABLE` against the real `--gtf`, and `VALIDATOR` sees synthetic feature
-metadata rather than what the real GTF conversion produces. Verified clean end to end with the
-substitution (`completed=12 failed=0`, all downstream processes including `DESEQ2_DIFFERENTIAL`,
-`SHINYNGS_APP`, `RMARKDOWNNOTEBOOK`, `MAKE_REPORT_BUNDLE` reached). The real run, using the real
-`--gtf`, is what actually proves `GUNZIP_GTF`/`GTF_TO_TABLE` against real reference data — treat
-`VALIDATOR`'s first real-run pass as the gate for that branch, same discipline as the rnaseq case.
-
-**`nf-core/sarek`, `-stub-run`, and `--tools haplotypecaller` without a dbsnp/known_indels
-resource.** Re-verified 2026-08-10 (`20260810-sarek-srr26793256-revalidate`) against the pin this
-file's own table names, `3.5.1` (commit `5fe5cdff171e3baed603b3990cab7f7fd3fcb992`). This store has
-no GATK resource bundle (`config/genomes.config`'s `GRCh38gatk` `dbsnp`/`known_indels`/
-`germline_resource` rows are all `[!] fetch`, still unbuilt as of this writing), so any germline
-run through `--tools haplotypecaller` routes into
-`subworkflows/local/bam_variant_calling_germline_all/main.nf`'s single-sample filtering branch,
-which — unless `--skip_tools haplotypecaller_filter` is set — calls
-`subworkflows/local/vcf_variant_filtering_gatk`, i.e. `GATK4_CNNSCOREVARIANTS` then
-`GATK4_FILTERVARIANTTRANCHES`. The `GATK4_CNNSCOREVARIANTS` module
-(`modules/nf-core/gatk4/cnnscorevariants/main.nf`) **has no `stub:` block at 3.5.1**, so this is
-the same "real script fed a deliberately-empty stub upstream output" shape as the rnaseq and
-differentialabundance cases above: it runs for real against HaplotypeCaller's placeholder stub VCF
-and GATK dies with `A USER ERROR has occurred: Cannot read file://<sample>.haplotypecaller.vcf.gz
-because no suitable codecs found` (exit 2). Confirmed revision-specific, not host- or
-config-specific: the `3.9.0` clone from the prior sarek run on this host
-(`b97952e5bac68d5deb93d4a3349a45f146be9830`, `runs/20260729-sarek-srr26793256/`) **does** carry a
-`stub:` block in the same module — this was added upstream sometime between 3.5.1 and 3.9.0, and
-silently regresses whenever the pin in `config/pipelines.tsv` points at an older tag than what a
-prior run validated.
-
-**The stub-only fix, always required at this pin, independent of the bundle:** add
-`haplotypecaller_filter` to `--skip_tools` **for the `-stub-run` invocation**. **A CLI
-`--skip_tools` *replaces* whatever value a params file or config already set — it does not merge
-with it.** On this no-bundle store, `--skip_tools baserecalibrator` is already required (see
-`pipeline-selection.md`'s `--skip_tools baserecalibrator` row); pass one combined,
-comma-joined value — `--skip_tools baserecalibrator,haplotypecaller_filter` — not a second
-`--skip_tools` flag with only `haplotypecaller_filter` in it, which would silently re-enable
-BaseRecalibrator against resources the store does not have.
-`workflows/sarek/main.nf` reads `params.skip_tools` for `haplotypecaller_filter` specifically to
-gate the whole `VCF_VARIANT_FILTERING_GATK` call, so this skips `CNNSCOREVARIANTS`/
-`FILTERVARIANTTRANCHES` outright — it removes the reason the unstubbed module runs at all, rather
-than routing around it. Verified clean end to end (`completed=10 failed=0 cached=0`,
-`20260810-sarek-srr26793256-revalidate`). **This is a property of the 3.5.1 module, not of whether
-a GATK bundle exists** — `GATK4_CNNSCOREVARIANTS` has no `stub:` block regardless of what
-`--dbsnp`/`--known_indels` you pass, so it still runs for real (and still gets fed the same empty
-placeholder VCF) under `-stub-run` even once the bundle is fetched and a real run passes those
-flags. **Keep this skip in the stub invocation permanently, at this pin — do not remove it "once
-the bundle exists."** (Codex flagged this exact trap in review: dropping it from the stub the day
-the bundle lands reopens the same crash, because nothing about having `--dbsnp` changes whether the
-module is stubbed.) If a later sarek revision adds the missing `stub:` block (as 3.9.0 already
-has), re-check with the two-line `grep -rL --include='main.nf' 'stub:'` command above before
-carrying this forward again.
-
-**What this stub-only skip does NOT cover:** with `haplotypecaller_filter` in `--skip_tools`, the
-stub never instantiates `GATK4_CNNSCOREVARIANTS` or `GATK4_FILTERVARIANTTRANCHES` at all — their
-channel wiring, output propagation into the rest of `vcf_variant_filtering_gatk`, and MultiQC's
-consumption of their reports are never exercised by `-stub-run`, clean or not. The `completed=10
-failed=0` result above proves the rest of the pipeline wires correctly; it says nothing about this
-branch. The first real evidence that `VCF_VARIANT_FILTERING_GATK` is runnable is therefore the
-first *real* command that does not carry `haplotypecaller_filter` in its own `--skip_tools` — but
-the gate that run must clear depends on whether calibration resources were supplied, not on the
-FILTER column alone:
-- **Wiring gate, always required:** both `CNNSCOREVARIANTS` and `FILTERVARIANTTRANCHES` complete
-  (`failed=0` on those two tasks) and the output VCF carries a `CNN_1D` key in its `INFO` field —
-  `modules/nf-core/gatk4/cnnscorevariants/main.nf` calls GATK's `CNNScoreVariants` with no
-  `--tensor-type` override, so it runs GATK's default 1D model and writes that annotation
-  unconditionally, with or without `--dbsnp`/`--known_indels`. Its presence is what proves the
-  branch is actually wired and running, not an artefact of calibration data existing.
-- **Filtering gate, only once `--dbsnp`/`--known_indels` are supplied:** non-`.` values in the
-  `FILTER` column. Without those resources `FilterVariantTranches` has nothing to calibrate
-  against and legitimately leaves every record `.` — as already measured on this exact host
-  (`runs/20260729-sarek-srr26793256/handoff.md`'s Ti/Tv row) — so requiring non-`.` on a
-  no-bundle run would fail a correctly-wired branch forever, not catch a real defect.
-
-Same discipline as the rnaseq and differentialabundance cases above: name the concrete signal that
-proves the branch ran, don't reuse a signal that depends on inputs this stub fix has nothing to do
-with.
-
-**Whether the *real* run also carries `haplotypecaller_filter` in `--skip_tools` is a separate,
-explicit methods decision — not implied by the stub fix above, and not something this file
-recommends by default.** Codex also flagged this in review, correctly: adding the skip to the real
-command does not merely dodge a stub artefact, it removes `CNNSCOREVARIANTS`/
-`FILTERVARIANTTRANCHES` from the actual pipeline, which changes the produced VCF (no CNN score
-annotations, no `FilterVariantTranches` pass at all, however uninformative that pass would have
-been). The "this changes nothing material" reasoning only holds while the store genuinely has no
-`--dbsnp`/`--known_indels` to give `FilterVariantTranches` anything to calibrate against (confirmed
-for a 3.9.0 run, `runs/20260729-sarek-srr26793256/handoff.md`'s Ti/Tv row — FILTER came out `.` on
-every record regardless) — it stops holding the moment a run actually passes real `--dbsnp`/
-`--known_indels`. Decide and record this per run, in that run's own `plan.md`, as a bounded choice
-with the reasoning stated, not by copying `--skip_tools` wholesale from this section. Two concrete
-cases:
-
-- **Bundle still absent** (this store's state as of this writing): `FilterVariantTranches` will not
-  filter anything either way. Adding `haplotypecaller_filter` to the real run only saves the two
-  wasted process invocations — legitimate, but still a choice to state, not a default to inherit
-  silently.
-- **Bundle present, real `--dbsnp`/`--known_indels` supplied**: do **not** carry
-  `haplotypecaller_filter` into the real run's `--skip_tools` — that would silently discard working
-  GATK filtering for no reason connected to the stub problem. Keep it in the stub invocation only;
-  the real command runs the full `VCF_VARIANT_FILTERING_GATK` branch as sarek intends.
-
-**`nf-core/ampliseq`, `-stub-run`, and `CUTADAPT_BASIC` — a true waiver, upstream module bug.**
-Confirmed 2026-08-10 (`20260810-ampliseq-testprofile-procurement`) against the pin this file's own
-table names, `2.18.0` (commit `2723d4c298d48321594920d0324697e14d73ee94`). `-stub-run -profile
-test,docker` fails immediately with `No such variable: outformat`. Read
-`modules/nf-core/cutadapt/main.nf` in the pinned clone: the `output:` block references
-`outformat`, a variable the `script:` block assigns (`outformat = task.ext.outformat ?: "fastq"`)
-but the `stub:` block never sets — the output declaration throws before the stub body ever runs.
-This is an upstream nf-core/modules defect in the CUTADAPT module's stub, not a wiring problem
-introduced by this repo's config, and there is no substitute-input workaround: the crash happens
-before any process logic executes, so no stub params file can route around it the way the
-differentialabundance `--features` case does. **Waived as a true stub failure** — `-preview
--profile test,docker` (clean, `completed=0 failed=0`) is the only pre-launch gate this pipeline
-gets; the real command (exercised by the run itself, `completed=113 failed=0 cached=12`) is what
-actually proves `CUTADAPT_BASIC` and everything downstream of it.
-
-**`nf-core/mag`, `-stub-run`, and two independent findings at this pin's `5.5.0`.** Confirmed
-2026-08-12 (`20260812-mag-testprofile-procurement`, `20260812-mag-drr027580-realsample`) against
-commit `56abab5b023ce953c9c43fe21090d156ad0e18af`.
-
-*Finding 1 — a true waiver, upstream-in-mag module-patch bug, same shape as the ampliseq case
-above.* `-stub-run -profile test,docker --skip_gtdbtk true` fails at `CATPACK_DB_UNTAR` with
-`No such variable: output_dir`. Read `modules/nf-core/untar/untar.diff` in the pinned clone: mag
-carries a **local patch** to the shared `UNTAR` module that changes the `script:` block's output
-variable from `${prefix}` to `${output_dir}` (and adds a `basedir`/`output_dir` computation) but
-never updates the `stub:` block, which still only sets `prefix`. The `output:` declaration
-(`path("${output_dir}")`) is shared by both blocks, so it throws before the stub body ever runs —
-the crash happens before any process logic executes, exactly like `CUTADAPT_BASIC` above, so there
-is no substitute-input workaround. **Scope, confirmed by reading every call site
-(`grep -rn UNTAR workflows/ subworkflows/`)**: `UNTAR` is only invoked when a `.tar.gz`/`.tgz`
-reference database is supplied for CAT (`--cat_db`), BUSCO (`--busco_db`), CheckM (`--run_checkm`
-with no local `--checkm_db`), or virus identification (`--genomad_db`, gated behind
-`--run_virus_identification`, off by default). The **test profile** exercises it because it
-supplies small mock tarballs for `cat_db` and `busco_db` to keep CI fixture data small; a
-**default real run** — no `cat_db`, BUSCO left on its default `auto` lineage (which downloads its
-own DB directly, not via `UNTAR`), CheckM/virus-ID off — never calls `UNTAR` at all. **Waived, 5th
-documented departure** — `-preview` is clean; the real command is what actually proves this
-pipeline, same reasoning as the ampliseq case.
-
-*Finding 2 — broader and more consequential, and a different shape from every prior departure in
-this section: not one process, a structural property of mag's own module set.*
-`grep -rL --include='main.nf' 'stub:' <clone>/modules/local/` finds **20 of mag's 23 local
-(non-nf-core-catalog) modules have no `stub:` block at all** — including `bowtie2_removal_align`
-(the module that does phiX/host read removal), `bowtie2_assembly_build`/`bowtie2_assembly_align`
-(binning-prep mapping), and both `quast_run`/`quast_bins`. Per Nextflow's documented no-stub
-fallback (same mechanism already recorded for fetchngs 1.12.0 above), each of these runs its real
-`script:` under `-stub-run`. `FASTP` (an nf-core-catalog module, stubbed) writes
-`echo '' | gzip > *.fastp.fastq.gz` — a technically-valid, empty gzip stream, zero FASTQ records —
-and `BOWTIE2_REMOVAL_ALIGN` then runs bowtie2 for real against it and aborts (exit 134,
-`Error: reads file does not look like a FASTQ file`, confirmed by reading the bowtie2 log in the
-stub work dir). This fires on **any** samplesheet with the default phiX removal on (i.e. almost
-every real invocation), independent of what data is supplied — a from-FASTQ real-command stub
-cannot get past `SHORTREAD_PREPROCESSING` without hitting it. Passing `--keep_phix true` for the
-stub only (a legitimate stub-only substitute, same category as sarek's `--skip_tools` addition
-below) routes around that one process and the stub proceeds four more stages, then dies again the
-same way at `BOWTIE2_ASSEMBLY_BUILD`/`QUAST` on MEGAHIT's own empty stub contigs file. **This is
-not a single bug to route around** — it is a chain, and no finite sequence of stub-only
-substitutions clears the whole DAG, because the next unstubbed consumer of the next stubbed
-process's placeholder output is always one more hop away. Treating `-stub-run` as authoritative
-for mag beyond `SHORTREAD_PREPROCESSING` means an unbounded chase for a gate that fundamentally
-cannot certify the parts of the pipeline that matter most (assembly, binning, bin QC). **Not a
-waiver in the same sense as the other four departures — there is no single failing assertion to
-waive.** Resolution: `-preview` (clean) is the pre-launch gate this pipeline actually gets past
-`SHORTREAD_PREPROCESSING`, exactly the precedent already set for fetchngs's own no-stub download
-modules; the real command is what proves the rest, and the first real run
-(`20260812-mag-drr027580-realsample`, `completed=19 failed=2 cached=0`, both failures tolerated —
-see that run's `handoff.md`) is that proof for this pin.
-
-**`nf-core/nanoseq`, `-stub-run`, and `SAMTOOLS_IDXSTATS`/`SAMTOOLS_FLAGSTAT` — a true waiver,
-upstream shared-module stub-coverage gap, same shape as the ampliseq case above.** Confirmed
-2026-08-13 (`20260813-nanoseq-srr25466853`) against this pin's `3.1.0`. Both the CI `test` profile
-and this procurement's own real command fail identically (`completed=24 failed=4` /
-`completed=13 failed=2`), always at `BAM_STATS_SAMTOOLS:SAMTOOLS_IDXSTATS`/`SAMTOOLS_FLAGSTAT`
-(`"failed to read header for ... .sorted.bam"`). Read the modules directly:
-`modules/nf-core/samtools/sort/main.nf` HAS a `stub:` block (writes a header-less, touch'd empty
-`.bam`), but `modules/nf-core/samtools/idxstats/main.nf` and `.../flagstat/main.nf` have **no**
-`stub:` block at all — under `-stub-run` those two run for real against the fake empty BAM and
-correctly refuse to read it, no substitute-input workaround possible (the crash is in reading the
-stub's own placeholder output, not in anything this repo's config controls). **Waived, 6th
-documented departure** — `-preview` (clean) is the pre-launch gate; the real command is what
-actually proves this pipeline, `SAMTOOLS_STATS` (which does have a stub block) succeeds cleanly in
-the same run.
-
-**`nf-core/rnasplice`, `-stub-run`, and `GTF_GENE_FILTER`/`RSEM_PREPAREREFERENCE` — a true waiver,
-upstream shared-module stub-coverage gap, same shape as the ampliseq/nanoseq cases above.**
-Confirmed 2026-08-14 (`20260814-rnasplice-scer-gln3-ibutanol`) against this pin's `1.0.4`.
-`modules/nf-core/gunzip/main.nf`'s `stub:` block does `touch $gunzip` — an empty placeholder file
-— for whichever of `--fasta`/`--gtf` is gzipped, and the downstream
-`modules/local/gtf_gene_filter.nf` + `modules/nf-core/rsem/preparereference/main.nf` have **no**
-`stub:` block at all, so they run for real against that empty stub input. Reproduced both ways:
-on the nf-core CI fixture (gzipped fasta, plain gtf), `filter_gtf_for_genes_in_genome.py`
-extracts 0 chromosome names from the empty stub fasta and writes an empty GTF, then
-`rsem-prepare-reference` fails with "The reference contains no transcripts!"; on this
-procurement's own real-sample sheet (plain fasta, gzipped gtf) the fasta is real but the GTF
-comes from `GUNZIP_GTF`'s empty stub, so `filter_gtf_for_genes_in_genome.py` instead extracts
-0/0 lines and SUPPA's `GENERATE_EVENTS` fails with "No exons found" — same root cause, different
-file triggers it depending on which input the samplesheet happens to gzip. No substitute-input
-workaround possible, same reasoning as the ampliseq/nanoseq cases. **Waived, 7th documented
-departure** — `-preview` (clean) is the pre-launch gate; the real (non-stub) `-profile
-test,docker` command with the identical flag set completes cleanly (`completed=34 failed=0`).
-**Separately** (not a stub artifact, found on the real 8-sample run, not covered by this waiver):
-`SUPPA_SALMON:GENERATE_EVENTS_IOE` has a genuine infinite-loop bug in its own real script when
-zero local splicing events exist for some event type — see `pipeline-selection.md` §4.15 and
-`config/pipelines.tsv` for the full writeup; routed around with `--suppa_per_local_event false`,
-which is now part of this pipeline's stocked default rather than an optional flag.
-
-**`nf-core/isoseq`, `-stub-run`, and `ULTRA_INDEX` — a true waiver, upstream shared-module
-stub-coverage gap, confined to a branch this repo does not stock.** Confirmed 2026-08-14
-(`20260814-isoseq-alz-chr19`) against this pin's `2.0.0`, **only when run with the CI test
-profile's own `aligner: ultra`**. `modules/nf-core/gnu/sort/main.nf`'s `stub:` block does
-`touch ${output_file}` — an empty placeholder GTF — and `modules/nf-core/ultra/index/main.nf`
-has **no** `stub:` block at all (confirmed by reading it directly), so it runs for real against
-that empty GTF and crashes: `gffutils.exceptions.EmptyInputError: No lines parsed -- was an
-empty file provided?`. `completed=12 failed=1`. No substitute-input workaround possible, same
-reasoning as ampliseq/nanoseq/rnasplice. **Waived, 8th documented departure** — `-preview`
-(clean) is the pre-launch gate for the `ultra` branch specifically. **This procurement's own
-stocked config (`aligner: minimap2`) needs no waiver at all**: `-stub-run` on that exact flag
-set passes cleanly on both the CI test data (`completed=11 failed=0`) and the real command
-(`completed=81 failed=0`) — same class of clean pass as taxprofiler/raredisease, not a waiver.
-**Separately** (not a stub artifact, found on the real run): the pipeline's own default
-`--chunk 40` against a small (531-ZMW) input produced 29/40 empty per-chunk
-`GSTAMA_COLLAPSE` outputs and crashed `GSTAMA_MERGE` (`tama_merge.py`, `IndexError: list index
-out of range` reading an empty bed) — fixed with `--chunk 5` (matching `conf/test.config`'s own
-value for the identical bam) and a `-resume` relaunch. **Also separately, a real (non-stub) bug
-affecting every configuration**: `workflows/isoseq.nf`'s own `MULTIQC(...)` call passes bare,
-non-`.collect()`'d `channel.empty()` for two of the module's plain `path` inputs, so `MULTIQC`
-is invoked zero times regardless of flags — no MultiQC report is ever produced at this pin. See
-`pipeline-selection.md` §4.16 and `config/pipelines.tsv` for the full writeup on all three
-findings.
-
-**`nf-core/bacass`, `-stub-run`, and `UNICYCLER` — a true waiver, upstream module authoring bug,
-different shape from every prior case (a hardcoded literal, not a stub-coverage gap).** Confirmed
-2026-08-16 (`20260816-bacass-testprofile-procurement`) against this pin's `2.6.1`, on the CI
-`-profile test,docker` config unmodified (`assembly_type: short`, `assembler: unicycler`).
-`modules/nf-core/unicycler/main.nf`'s `stub:` block reads, verbatim:
-```
-cat "" | gzip > ${prefix}.scaffolds.fa.gz
-cat "" | gzip >  ${prefix}.assembly.gfa.gz
-```
-`cat ""` passes a literal empty string as a filename argument, which every prior case in this
-list did not do — the ampliseq/mag/nanoseq/rnasplice/isoseq cases all involve a stub in one
-module writing an empty PLACEHOLDER FILE that a downstream module with no `stub:` block then
-reads for real; here the failing process's OWN stub script is malformed on its own, no
-downstream module involved at all. `completed=8 failed=1`, exact error
-(`Command error: cat: '': No such file or directory`), confirmed by reading the module source
-directly. No substitute-input workaround possible — there is no shortreads/longreads-shaped
-input that fixes a hardcoded `cat ""`. **Waived, 9th documented departure** — `-preview` (clean)
-is the pre-launch gate; the full (non-stub) `-profile test,docker` command is what actually
-proves this pipeline, see `pipeline-selection.md` §4.17 and `config/pipelines.tsv` for the full
-writeup.
-
-**`nf-core/methylseq`, `-stub-run`, and `BISMARK_SUMMARY` — a true waiver, upstream module
-authoring bug, same shape as bacass's `UNICYCLER` (the failing process's own stub script is
-malformed, not a downstream-reads-an-empty-placeholder gap).** First observed 2026-08-05
-(`20260805-methylseq-sle-rrbs-smoke`, real samplesheet) but not written down at the time;
-reconfirmed and documented 2026-08-16 (`20260816-methylseq-revalidate`) against this pin's
-`3.0.0`, on **both** the CI `-profile test,docker` config and the real RRBS samplesheet.
-`modules/nf-core/bismark/summary/main.nf` declares `input: val(bam)` — always a list, since this
-process collects every sample's BAM into one call (`script:` correctly uses `${bam.join(' ')}`)
-— but its `stub:` block reads:
-```
-def prefix = task.ext.prefix ?: "${bam.baseName()}"
-```
-`.baseName()` is not a method on `nextflow.util.ArrayBag`, so the stub errors unconditionally
-regardless of sample count or input shape: `No signature of method:
-nextflow.util.ArrayBag.baseName() is applicable for argument types: () values: []`. Every
-upstream process (FASTQC through BISMARK_REPORT) succeeds first — `completed=25 failed=0` before
-the crash on the real samplesheet's 2-sample stub, `completed=9 failed=0` on the 4-sample CI
-fixture. No substitute-input workaround possible, same reasoning as bacass's `UNICYCLER`. The
-real (non-stub) script path is unaffected — confirmed by a full `-profile test,docker` run
-(`completed=36 failed=0`, `BISMARK_SUMMARY` and `MULTIQC` both succeed) and a real-sample
-`-resume` run, both 2026-08-16. **Waived, 10th documented departure** — same as every prior case,
-this waives `-stub-run` only, not `-preview`: run `-preview` against the real command and real
-samplesheet as usual (it resolves params and the DAG without executing anything, so it is
-unaffected by this stub-mode-only bug and stays the pre-launch gate exactly as it does for
-bacass's `UNICYCLER` case above); the full non-stub `-profile test,docker` run is what then
-proves the pipeline actually executes, per `new-pipeline.md` §2.4c. See `pipeline-selection.md`
-§4.5 for the full writeup.
-
-**`nf-core/viralrecon`, `-stub-run`, and the primer/reference contig-match check — a true
-waiver, upstream shared-module stub-coverage gap, same shape as ampliseq/nanoseq/rnasplice/
-isoseq.** `-stub-run` on `-profile test,docker` (this pin's `3.0.0`) fails with:
-```
-Contigs in primer BED file do not match those in the reference genome:
-
-MN908947.3
-```
-`modules/nf-core/custom/getchromsizes/main.nf`'s `stub:` block does `touch ${fasta}.fai` — an
-empty placeholder, no real contig records — and `lib/WorkflowCommons.groovy`'s
-`checkContigsInBED(fai_contigs, bed_contigs, log)` reads that empty `.fai` for real, builds an
-empty `fai_contigs` list, intersects it against the primer BED's real `bed_contigs` (which does
-contain `MN908947.3`), gets a zero-size intersection, and calls `Nextflow.error()` —
-`completed=4 failed=0` (a script `error()` thrown before any task fails, not a task failure
-count). Confirmed data/config-independent: this reproduces regardless of which
-`--fasta`/`--primer_bed` content is supplied, because the root cause is
-`CUSTOM_GETCHROMSIZES`'s stub producing an empty `.fai`, not any property of this procurement's
-own reference choices. No substitute-input workaround possible (any fasta/BED pair hits the
-same empty-`.fai` comparison). **Waived, 11th documented departure** — `-preview` is unaffected
-(it resolves params and the DAG without executing anything) and stays the pre-launch gate; the
-full non-stub `-profile test,docker` run is what proves the pipeline actually executes —
-`completed=187 failed=0 cached=8`, ~23 min wall clock, confirmed clean on this box
-2026-08-18. See `pipeline-selection.md` §4.18 for the full writeup, including the
-`raw.githubusercontent.com` rate-limit environment finding this procurement also hit (unrelated
-to the stub gap above — a transient network condition, not a pipeline defect).
-
----
+Read the selected [pipeline card](pipeline-selection.md), then its linked exact stub gate.
+The eleven registered cases are revision- and branch-specific. They are partial gates:
+record what remains untested, retain failed-attempt evidence, and match every stated predicate.
+An absent `stub:` block is **not** a blanket waiver; Nextflow may run the real script.
+For an unlisted failure, stop and diagnose. Never substitute a real run for an unexplained failure.
 
 ## 5. Launch
 
@@ -724,7 +329,7 @@ set -euo pipefail
 RUNID=20260728-rnaseq-koges-pilot
 PIPE=nf-core/rnaseq
 REV=3.18.0                                  # from config/pipelines.tsv
-RUNDIR=/mnt/d/bioinfo-agent/runs/$RUNID
+RUNDIR="$BIOINFO_RUNLOG/$RUNID"
 NXFDIR=${NXF_WORKROOT:-${BIOINFO_WORK:-/work}/nxf}/$RUNID   # same derivation as bin/preflight.sh
 TS=$(date +%Y%m%d-%H%M%S)
 
@@ -736,7 +341,7 @@ nextflow -log "$NXFDIR/.nextflow.log" \
     -r "$REV" \
     -profile docker \
     -params-file "$RUNDIR/params.yaml" \
-    -c /mnt/d/bioinfo-agent/config/local.config \
+    -c "$BIOINFO_HOME/config/local.config" \
     --outdir "$NXFDIR/results" \
     -work-dir "$NXFDIR/work" \
     -with-report   "$NXFDIR/reports/report.$TS.html" \
@@ -760,7 +365,7 @@ started it, which is why it survives where every other shortcut has failed on th
 # (which is what the one-shot `wsl -d <distro> -- bash …` workflow always gives you) has
 # neither. Left unset they expand to an empty session name and `bash /cmd.sh`.
 RUNID=20260728-rnaseq-koges-pilot                  # the same id cmd.sh sets
-RUNDIR=/mnt/d/bioinfo-agent/runs/$RUNID
+RUNDIR="$BIOINFO_RUNLOG/$RUNID"
 # Same derivation as cmd.sh and bin/preflight.sh. A host that moves runs off the default root
 # by setting BIOINFO_WORK would otherwise have the pid written somewhere cmd.sh never used,
 # leaving the guard and the stop command reading a file that does not exist.
@@ -1160,7 +765,7 @@ disk, not to tidy up, not because the run "finished anyway". This rule has no ex
 Reclaiming the work dir is safe only when **all** of these hold:
 
 1. The run reached `Succeeded: N` with no `Failed`/`Ignored` you have not accounted for.
-2. Results are rsynced to `/mnt/d` and verified — file count and `du -sh` match, MultiQC opens.
+2. Results are rsynced to the configured run record and verified — file count and `du -sh` match, MultiQC opens.
 3. The handoff is written and the user has seen it.
 4. At least 7 days have passed, or the user has explicitly said they are done with the run.
 
@@ -1207,12 +812,12 @@ on its own; it will sit at its high-water mark on `D:`. To actually reclaim, fro
 ```powershell
 # PowerShell, not the distro. $BIOINFO_DISTRO does not exist here — it lives inside WSL, and
 # `wsl --shutdown` has just torn that down anyway. Substitute the name, or set it first:
-#   $env:BIOINFO_DISTRO = 'Ubuntu-24.04'      # whatever `wsl -l -v` shows
+#   $env:BIOINFO_DISTRO = '<configured-distro>'   # use the name verified by `wsl -l -v`
 wsl --shutdown
 wsl --manage $env:BIOINFO_DISTRO --set-sparse true   # WSL 2.0+; makes the VHDX auto-shrinking
 ```
 <!-- UNVERIFIED: --set-sparse flag name/availability on the installed WSL version; check `wsl --help`.
-     Fallback: diskpart → select vdisk file="D:\wsl\ubuntu-24.04\ext4.vhdx" → attach vdisk readonly
+     Fallback: diskpart → select vdisk file="<verified-distro-vhdx-path>" → attach vdisk readonly
      → compact vdisk → detach vdisk -->
 
 Docker's image cache also accretes. `docker system df` to see it; `docker image prune -a` only when
@@ -1231,7 +836,7 @@ with extra failure modes.
 - RAM is the hard wall, not CPU. The WSL VM has a fixed ceiling (`config/wslconfig.example`).
   Two STAR alignments at ~35 GB each do not fit, and the resulting OOM kill lands on
   whichever process the kernel picks — quite possibly the run you cared about.
-- Both runs write to the same 1 TB VHDX. Disk-full kills both, and the disk estimate you approved
+- Both runs consume the same measured ext4 capacity. Disk-full kills both, and the disk estimate you approved
   was computed for one.
 - Page cache thrash. Two runs streaming different multi-GB references evict each other's cache and
   both lose the benefit.
@@ -1262,7 +867,7 @@ flock -n 9 || { echo "another heavy run holds the lock; not launching"; exit 1; 
 When the run completes, write `$RUNDIR/handoff.md`:
 
 - run ID, pipeline, revision, wall-clock duration, exit status;
-- where the results are (the `/mnt/d` path and the `\\wsl.localhost\…` path);
+- where the results are (the configured run-record path and the live ext4 path);
 - MultiQC location and the **QC verdict**: per-sample pass / borderline / fail against stated
   thresholds, with the metric and the number;
 - every bounded choice made, named — samples dropped, processes set to `ignore`, top-N cuts,

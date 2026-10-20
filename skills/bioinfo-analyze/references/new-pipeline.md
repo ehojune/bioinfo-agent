@@ -3,7 +3,7 @@
 The stocked set is the row set of `config/pipelines.tsv`: rnaseq, differentialabundance, fetchngs,
 sarek, methylseq, atacseq, chipseq, cutandrun, scrnaseq, ampliseq, mag, taxprofiler, nanoseq,
 raredisease, rnasplice, isoseq, bacass, plus the in-repo pacbio-hifi-wgs (revision `in-repo` —
-lives at `pipelines/`, not on nf-core; see `pipeline-selection.md` §4.20). Anything else goes through
+lives at `pipelines/`, not on nf-core; see `references/pipelines/pacbio-hifi-wgs.md`). Anything else goes through
 this procedure before it touches real data. The
 procedure exists because the expensive failure is not "no pipeline exists" — it is committing to an
 unmaintained pipeline, discovering at hour six that it needs a reference nobody has, and having no
@@ -248,15 +248,20 @@ inside runnable example commands in docs and configs, roughly 35 of them — but
 not authorities: change a pin here and `grep -r` the old string. A pipeline without a row is not
 stocked.
 
-### `references/pipeline-selection.md`
+### `references/pipelines/<name>.md` and the routing table
 
 Add a row keyed on the **analysis intent**, not the pipeline name, because that is how the request
-arrives. Include:
+arrives. Keep the routing row short; put the following in the pipeline card:
 
 - intent phrasing the user would actually use,
 - the pipeline slug — the revision is cited from `config/pipelines.tsv`, never restated here,
 - what it does *not* cover, and the nearest alternative,
 - required references, flagged if not yet in the manifest.
+
+Keep detailed procurement observations in `references/pipelines/evidence/<name>.md`.
+An exact stub departure needs its own `references/pipelines/stubs/<name>.md`, linked from the
+card with revision, error, branch predicates, uncovered work and required follow-up.
+Run `python3 scripts/check-pipeline-routing.py` after updating the four-column TSV's card pointer.
 
 ### `references/samplesheets.md`
 
@@ -281,7 +286,7 @@ Extend the enum and identifier sections too if the pipeline introduces new const
 ### `references/estimates.md`
 
 **Measured, not guessed.** From the single-sample run in 2.8, under the Nextflow pool this box
-actually gives a run (18 cores, 40 GB; ext4 on the D: VHDX):
+actually gives a run (read `BIOINFO_MAX_CPUS`, `BIOINFO_MAX_MEMORY` and the actual ext4 capacity):
 
 - wall clock per sample at a stated input size and coverage/depth,
 - peak work-directory size per sample — separately from published output size, because the work
@@ -489,7 +494,7 @@ handoff.md) like any procurement.
   `bin/preflight.sh` recognises `pipelines/<name>` cmd.sh targets: no `-r` (the revision is the
   repo checkout), but the run path must be **absolute** — write
   `"$BIOINFO_HOME"/pipelines/<name>`; relative targets and out-of-checkout copies are refused.
-- `pipeline-selection.md` §4.x entry + decision-table row; `samplesheets.md` section;
+- `references/pipelines/<name>.md` card + `pipeline-selection.md` routing row; `samplesheets.md` section;
   `estimates.md` measured rows; `scripts/check-samplesheet.sh` case.
 - Version bumps and behaviour changes go through a PR like any code change, noted in the
   pipeline's own README.
