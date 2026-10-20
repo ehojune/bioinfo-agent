@@ -2,13 +2,13 @@
   <img src="docs/logo.svg" alt="bioinfo-agent" width="440">
 </p>
 
-[![패치노트](https://img.shields.io/badge/%ED%8C%A8%EC%B9%98%EB%85%B8%ED%8A%B8-changelog-5B5BD6)](patch_notes/README.md)
-
 <p align="center">
   <img src="https://img.shields.io/badge/Claude_Code-skill_%2B_agent-D97757" alt="Claude Code">
   <img src="https://img.shields.io/badge/Nextflow-workflows-0DC09D" alt="Nextflow">
   <img src="https://img.shields.io/badge/nf--core-19_pipelines-24B064" alt="19 nf-core pipelines">
+  <br>
   <img src="https://img.shields.io/badge/Linux_%7C_WSL2_%7C_HPC-supported-333333" alt="Platforms">
+  <a href="patch_notes/README.md"><img src="https://img.shields.io/badge/%ED%8C%A8%EC%B9%98%EB%85%B8%ED%8A%B8-changelog-5B5BD6" alt="패치노트"></a>
 </p>
 
 <p align="center">
