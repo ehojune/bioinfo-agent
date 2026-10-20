@@ -23,7 +23,7 @@ It prepares a samplesheet and estimates time and disk in `plan.md`, then waits f
 **The Line — biological interpretation belongs to the researcher.** The agent reports expression, variants and QC metrics; it does not decide whether they support a biological hypothesis.
 
 <p align="center">
-  <img src="docs/how-it-works.svg" width="664" alt="Intake, pipeline selection and a plan precede human approval. Preflight, execution, QC and handoff follow.">
+  <img src="docs/how-it-works.en.svg" width="664" alt="Intake, pipeline selection and a plan precede human approval. Preflight, execution, QC and handoff follow.">
 </p>
 
 ## Why bioinfo-agent
