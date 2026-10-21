@@ -15,6 +15,7 @@ Operators and reviewers can follow the sources below; AI execution rules have a 
 | PacBio, CLR and tumor–normal limits | [Pipeline README](../../pipelines/pacbio-hifi-wgs/README.md) |
 | Agent rules loaded for a task | [Execution contract](../../skills/bioinfo-analyze/SKILL.md), [pipeline selection](../../skills/bioinfo-analyze/references/pipeline-selection.md), [runbook](../../skills/bioinfo-analyze/references/runbook.md) |
 | Research and filing preparation | [Related work](related-work.md), [venue options](journal-options.md), [submission/filing checklist](submission-filing.md) |
+| Bio Research overlap and integration | [Source audit and evaluation plan](bio-research.md): dates, capabilities, distribution and conditional LabHQ trial |
 
 Execution completion, QC and truth-set accuracy establish different evidence.
 Historical runs retain their original revision and input scope.
