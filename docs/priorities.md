@@ -1,27 +1,23 @@
-# 투고·출원까지 남은 일
+# Submission and filing priorities
 
-목표일: **2026-11-20**. 이번 정비의 산출물은 코드·검증 근거·기술 명세다.
-논문 투고와 특허 출원 완료를 뜻하지 않는다.
+Target: **2026-11-20**, conditional on evidence, venue choice and filing advice.
+Documentation completion is not acceptance, submission or patent filing.
 
-| 기한 | 담당 | 완료 조건 |
+| By | Owner | Exit condition |
 |---|---|---|
-| 10/27 | 개발 총괄 | #63·#64와 후속 PR의 CI·리뷰, 3계층 문서, 메타데이터 검증 |
-| 10/27 | 연구자 | 저널 또는 단독 preprint 경로, 실제 기여에 따른 저자·교신저자, 비용 조건 확정 |
-| 11/03 | 연구자 + 개발 총괄 | [실증표](reference/evidence-tables.md)의 미검증 값 보완; 고정 버전 소규모 재현; 비교 실험 범위 확정 |
-| 11/10 | 발명자 + 변리사 | 최초 공개 증거·발명자·권리귀속·선행기술 검토, 방법/시스템 명세 검토 |
-| 11/17 | 연구자 | 본문 작성, 표·그림 선택, 저자·소속·기여·AI 사용·데이터 공개 범위 확정 |
-| 11/20 | 교신저자 + 출원인 | KIPO 출원 접수 확인 후 저널 투고 또는 bioRxiv 공개; 접수증 별도 보관 |
+| 10/27 | Researchers | Venue, authors and funding; Bio Research included as a direct baseline |
+| 11/03 | Researcher + development lead | Fixed release; public completion/recovery/re-entry cases; matched comparisons and guard ablations |
+| 11/10 | Inventors + counsel | Earliest disclosure, rights, dated prior-art review and filing decision |
+| 11/17 | Researchers | Human-authored manuscript, supported claims and disclosures |
+| 11/20 | Corresponding author + applicant | Receipts if gates pass; publication order agreed with counsel |
 
-우선순위는 **출원 가능성 확인 → 재현 근거 보강 → 투고**다. 공개 저장소의
-기존 공개 이력을 없던 것으로 취급하지 않는다. 새 공개와 출원 순서는 변리사와
-확인한다. [출원 준비 메모](reference/submission-filing.md)에 근거와 미확정 항목을 모았다.
+Use [Bio Research assessment](reference/bio-research.md), [venue options](reference/journal-options.md)
+and [filing checklist](reference/submission-filing.md). Existing public disclosure
+cannot be undone. Do not force a filing or claim novelty to meet the target.
 
-투고처는 [후보 비교](reference/journal-options.md)를 보고 정한다. Hybrid 전용
-출판비 지원은 완전 OA 저널에 적용되지 않는다. bioRxiv 공개와 저널 게재는 다른
-마일스톤이며, 투고 후 한 달 안에 심사가 끝난다고 전제하지 않는다.
+Defer broad Directory submission. Retain one repo with a bounded plugin and
+separate full setup only if comparison supports a useful distinction. Test selected
+Bio Research skills before LabHQ adoption. New compute needs a separate plan
+with inputs, budget, host and stop conditions.
 
-실험은 fixture 검사와 과거 기록 정리부터 한다. 새 대규모 실행은 데이터·비용·호스트·
-중단 조건을 적은 실행 계획으로 분리한다. 리소스 절감은 실제 비교 측정이 있을 때만 쓴다.
-
-기술 선택의 이유는 [결정 기록](decisions.md), 변경 내역은
-[패치노트](../patch_notes/README.md), 상세 근거는 [reference](reference/README.md)에 둔다.
+[Decisions](decisions.md) · [Patch notes](../patch_notes/README.md) · [Evidence](reference/README.md)

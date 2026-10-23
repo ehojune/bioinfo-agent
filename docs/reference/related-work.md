@@ -1,10 +1,11 @@
 # Related work: verified sources and comparison limits
 
-Checked 2026-10-20. These sources motivate evaluation; none benchmarks bioinfo-agent.
+Checked 2026-10-21. These sources motivate evaluation; none benchmarks bioinfo-agent.
 The comparison column is our architectural interpretation.
 
 | Source | What the source supports | Relevant comparison / next experiment |
 |---|---|---|
+| [Anthropic Bio Research](bio-research.md) | Public plugin with pinned nf-core execution, input checks, resume and QC | Direct baseline; measure added recovery/retention controls rather than claim novelty from AI plus Nextflow |
 | [BioFlowBench authors' repository](https://github.com/YufeiHouAnne/BioFlowBench) | Tool-use benchmark with syntax, workflow structure, execution, biological validity and recovery metrics | Evaluate workflow completion and recovery separately; no result on this benchmark is claimed here |
 | [BixBench, arXiv:2503.00096v1](https://arxiv.org/html/2503.00096v1) | 53 analytical scenarios, 296 questions; open-ended data analysis and interpretation | bioinfo-agent limits its remit to execution and technical QC. Evaluate boundary violations separately from task completion |
 | [Biomni, Huang et al., 2025](https://www.biorxiv.org/content/10.1101/2025.05.30.656746v1) | General biomedical agent combining retrieval-augmented planning with code execution | Compare freely composed analyses with pinned workflow execution only on matched tasks |
@@ -27,9 +28,13 @@ The comparison column is our architectural interpretation.
 ## Evaluation contract before claiming an advantage
 
 Use the same pinned workflow/data, host, container cache state and timeout in each
-arm: direct workflow operation, agent with protocol, agent with protocol plus
-executable guards. Fix task/scenario units before collection; multiple attempts on
-one dataset are not independent biological replicates.
+arm: direct nf-core, Bio Research and bioinfo-agent. Hold model, tool access and
+budget fixed across agents; ablate bioinfo-agent's relevant executable guards.
+Provide documented setup to every arm. Fix task/scenario units before collection;
+multiple attempts on one dataset are not independent biological replicates.
+Start with shared ATAC-seq 2.1.2. For rnaseq/sarek, validate and disclose a
+common-pin adaptation separately from as-shipped compatibility; expected pin
+refusals do not count as reliability failures.
 
 Record completion, correct rejection, false rejection, recovery, state-report
 accuracy, QC-boundary violations, wall time, peak RSS, disk and agent cost.

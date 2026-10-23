@@ -3,6 +3,12 @@
 Notable project changes, newest first. Detailed evidence belongs in
 [docs/reference](../docs/reference/README.md).
 
+## 2026-10-21
+
+| Change | Evidence |
+|---|---|
+| Add Bio Research as a direct baseline; revise publication/filing gates and scope a selective LabHQ trial | [#76](https://github.com/ehojune/bioinfo-agent/issues/76), [source audit](../docs/reference/bio-research.md) |
+
 ## 2026-10-20
 
 | Change | Evidence |
