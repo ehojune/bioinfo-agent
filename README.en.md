@@ -1,3 +1,5 @@
+# bioinfo-agent — Claude Code skills for Nextflow and nf-core workflows
+
 <p align="center">
   <img src="docs/logo.svg" alt="bioinfo-agent" width="440">
 </p>
