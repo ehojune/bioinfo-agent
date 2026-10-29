@@ -1,3 +1,5 @@
+# bioinfo-agent — Claude Code로 실행하는 Nextflow·nf-core 워크플로
+
 <p align="center">
   <img src="docs/logo.svg" alt="bioinfo-agent" width="440">
 </p>
