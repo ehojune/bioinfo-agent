@@ -3,6 +3,12 @@
 Notable project changes, newest first. Detailed evidence belongs in
 [docs/reference](../docs/reference/README.md).
 
+## 2026-10-29
+
+| Change | Evidence |
+|---|---|
+| Add descriptive text headings to Korean and English READMEs for Claude Code, Nextflow and nf-core discovery | [README](../README.md), [English](../README.en.md) |
+
 ## 2026-10-21
 
 | Change | Evidence |
